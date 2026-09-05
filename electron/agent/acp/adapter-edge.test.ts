@@ -317,9 +317,10 @@ describe("AcpAgentAdapter turn lifecycle edges", () => {
       },
     })
     await busy.adapter.send(promptInput())
-    await busy.adapter.send({ type: "cancel", sessionId: WANTA_SESSION_ID })
-    await busy.adapter.send({ type: "cancel", sessionId: WANTA_SESSION_ID })
+    const firstCancel = busy.adapter.send({ type: "cancel", sessionId: WANTA_SESSION_ID })
+    const secondCancel = busy.adapter.send({ type: "cancel", sessionId: WANTA_SESSION_ID })
     release.resolve()
+    await Promise.all([firstCancel, secondCancel])
     await busy.waitFor((event) => event.event === "messageCompleted")
     expect(completedCount(busy.events)).toBe(1)
     expect(promptCalls).toBe(1)
@@ -710,9 +711,8 @@ describe("AcpAgentAdapter turn lifecycle edges", () => {
     expect(harness.fake.newSessionRequests).toHaveLength(2)
   })
 
-  test("a new prompt after cancel but before the cancelled turn settles is rejected as in flight", async () => {
-    // Documented backpressure: ACP considers the turn active until the agent
-    // answers the prompt request, so an immediate resend is refused.
+  test("cancel waits for native settlement before allowing the next prompt", async () => {
+    // The host must not report stop completion while the native turn is still active.
     const release = deferred<void>()
     let promptCalls = 0
     const harness = await createHarness({
@@ -727,10 +727,16 @@ describe("AcpAgentAdapter turn lifecycle edges", () => {
       },
     })
     await harness.adapter.send(promptInput())
-    await harness.adapter.send({ type: "cancel", sessionId: WANTA_SESSION_ID })
+    let cancelFinished = false
+    const cancelling = harness.adapter.send({ type: "cancel", sessionId: WANTA_SESSION_ID }).then(() => {
+      cancelFinished = true
+    })
     await vi.waitFor(() => expect(harness.fake.cancelledSessionIds).toHaveLength(1))
+    expect(cancelFinished).toBe(false)
     await expect(harness.adapter.send(promptInput("too soon"))).rejects.toThrow(/already in flight/u)
     release.resolve()
+    await cancelling
+    expect(cancelFinished).toBe(true)
     await harness.waitFor((event) => event.event === "messageCompleted")
     await harness.adapter.send(promptInput("after settle"))
     await vi.waitFor(() => expect(completedCount(harness.events)).toBe(2))
@@ -744,4 +750,27 @@ describe("AcpAgentAdapter turn lifecycle edges", () => {
     expect(harness.fake.newSessionRequests).toHaveLength(0)
     expect(harness.fake.promptRequests).toHaveLength(0)
   })
+})
+
+test("cancel times out without freeing an unsettled native turn", async () => {
+  const release = deferred<void>()
+  const harness = await createHarness({
+    prompt: async () => {
+      await release.promise
+      return { stopReason: "cancelled" }
+    },
+  })
+  await harness.adapter.send(promptInput())
+  vi.useFakeTimers()
+  try {
+    const cancelling = harness.adapter.send({ type: "cancel", sessionId: WANTA_SESSION_ID })
+    const rejected = expect(cancelling).rejects.toThrow(/timed out waiting for the cancelled turn/u)
+    await vi.advanceTimersByTimeAsync(10_000)
+    await rejected
+    await expect(harness.adapter.send(promptInput("too soon"))).rejects.toThrow(/already in flight/u)
+  } finally {
+    vi.useRealTimers()
+    release.resolve()
+  }
+  await harness.waitFor((event) => event.event === "messageCompleted")
 })

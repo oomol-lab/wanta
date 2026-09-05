@@ -785,32 +785,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             .find((sessionId) => this.userStops.consumeAbort(sessionId, translated.data.message))
         : undefined
     if (translated.event === "agentError" && userStoppedSessionId) {
-      const sessionId = generationSessionId ?? userStoppedSessionId
-      const messageId = this.activeAssistantMessages.get(sessionId)
-      const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
-      const stoppedAt = Date.now()
-      if (messageId) {
-        void this.rememberStoppedGeneration(sessionId, messageId, partIds, stoppedAt).catch((error: unknown) => {
-          console.warn("[wanta] failed to record stopped generation", error)
-        })
-      }
-      void this.finalizeTurnOutput(sessionId, messageId)
-        .catch((error: unknown) => {
-          console.warn("[wanta] failed to finalize stopped turn output", error)
-        })
-        .finally(() => {
-          this.clearSessionGeneration(sessionId)
-          this.activeAssistantMessages.delete(sessionId)
-          this.activeToolParts.delete(sessionId)
-          this.activeRuns.delete(sessionId)
-          this.emitSessionActivity(sessionId)
-          this.sendBestEffort(
-            emit,
-            "generationStopped",
-            { sessionId, ...(messageId ? { messageId, partIds, stoppedAt } : {}) },
-            { sessionId },
-          )
-        })
+      // stopSessionGeneration owns cancellation finalization. An abort echo must
+      // never start a second async cleanup that can outlive the stopped turn.
       return
     }
     if (this.userStops.shouldSuppressEvent(translated)) {
@@ -1577,19 +1553,20 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.clearCompletionRetry(completionKey, false)
     this.completionChecks.add(completionKey)
     try {
-      if (!(await this.currentTurnIsComplete(sessionId, generation))) {
+      const completedAssistant = await this.completedTurnAssistant(sessionId, generation)
+      if (!completedAssistant) {
         this.scheduleCompletionRetry(emit, sessionId, generation)
         return
       }
-      if (!this.isCurrentGeneration(sessionId, generation.id)) return
+      if (!this.isCurrentGeneration(sessionId, generation.id) || generation.controller.signal.aborted) return
       this.clearCompletionRetry(completionKey)
-      const messageId = this.activeAssistantMessages.get(sessionId)
+      const messageId = completedAssistant.id
       const completedRun = this.activeRuns.get(sessionId)
       this.generations.clearInactivityWatchdog(sessionId)
       await this.finalizeTurnOutput(sessionId, messageId).catch((error: unknown) => {
         console.warn("[wanta] failed to finalize turn output", error)
       })
-      if (!this.isCurrentGeneration(sessionId, generation.id)) return
+      if (!this.isCurrentGeneration(sessionId, generation.id) || generation.controller.signal.aborted) return
       this.clearSessionGeneration(sessionId, generation.id)
       this.activeAssistantMessages.delete(sessionId)
       this.activeToolParts.delete(sessionId)
@@ -1613,31 +1590,32 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
   }
 
-  private async currentTurnIsComplete(sessionId: string, generation: SessionGeneration): Promise<boolean> {
+  private async completedTurnAssistant(
+    sessionId: string,
+    generation: SessionGeneration,
+  ): Promise<ChatMessage | undefined> {
     const backend = this.chatBackendFor(sessionId)
-    if (!backend) return false
+    if (!backend) return undefined
     const messages = await withTimeout(backend.getMessages(sessionId), 1_000, "idle history verification").catch(
       () => null,
     )
-    if (!messages || messages.length === 0) return false
+    if (!messages || messages.length === 0) return undefined
     const userIndex = messages.findIndex(
       (message) => message.id === generation.userMessageId && message.role === "user",
     )
-    const assistantId = this.activeAssistantMessages.get(sessionId)
-    const activeAssistant = assistantId
-      ? messages.find((message) => message.id === assistantId && message.role === "assistant")
-      : undefined
-    const assistant =
-      activeAssistant ??
-      (userIndex >= 0 ? messages.slice(userIndex + 1).find((message) => message.role === "assistant") : undefined)
-    if (!assistant) return false
+    if (userIndex < 0 || generation.controller.signal.aborted) return undefined
+    // Only messages after this turn's user message can prove its completion.
+    // A delayed tool event may still point activeAssistantMessages at an old turn.
+    const turnMessages = messages.slice(userIndex + 1)
+    const assistant = turnMessages.findLast((message) => message.role === "assistant")
+    if (!assistant) return undefined
     const finishReason = assistant.finishReason?.trim().toLowerCase().replaceAll("_", "-")
     // A completed tool-call message is only one step in the agent loop. Some
     // runtimes briefly emit session.idle after a rejected or failed tool; do
     // not turn that transient boundary into a completed user turn before the
     // agent produces a terminal response.
-    if (["tool-calls", "tool-use"].includes(finishReason ?? "")) return false
-    return Boolean(finishReason || assistant.completedAt !== undefined)
+    if (["tool-calls", "tool-use"].includes(finishReason ?? "")) return undefined
+    return finishReason || assistant.completedAt !== undefined ? assistant : undefined
   }
 
   private scheduleCompletionRetry(
@@ -1645,7 +1623,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     sessionId: string,
     generation: SessionGeneration,
   ): void {
-    if (!this.isCurrentGeneration(sessionId, generation.id)) return
+    if (!this.isCurrentGeneration(sessionId, generation.id) || generation.controller.signal.aborted) return
     const completionKey = `${sessionId}\0${generation.id}`
     if (this.completionRetryTimers.has(completionKey)) return
     const attempt = this.completionRetryAttempts.get(completionKey) ?? 0
@@ -1899,21 +1877,24 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       try {
         await backend.send({ type: "cancel", sessionId })
       } catch (error) {
-        if (options.throwOnAbortFailure && (messageId || !generation)) {
+        if (options.throwOnAbortFailure && (messageId || !generation || externalAgentKindForSessionId(sessionId))) {
           this.userStops.delete(sessionId)
           throw error
         }
         console.warn("[wanta] generation abort failed:", error)
       }
     }
+    if (this.generations.get(sessionId) !== generation) return
     if (options.reason === "user" && messageId) {
       await this.rememberStoppedGeneration(sessionId, messageId, partIds, stoppedAt).catch((error: unknown) => {
         console.warn("[wanta] failed to record stopped generation", error)
       })
     }
+    if (this.generations.get(sessionId) !== generation) return
     await this.finalizeTurnOutput(sessionId, messageId).catch((error: unknown) => {
       console.warn("[wanta] failed to finalize stopped turn output", error)
     })
+    if (this.generations.get(sessionId) !== generation) return
     this.clearSessionGeneration(sessionId, generation?.id)
     this.turnOutputs.clearPending(sessionId)
     this.turnOutputs.delete(sessionId, generation?.id)
@@ -1921,7 +1902,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.activeToolParts.delete(sessionId)
     if (options.reason === "user") {
       this.logTurnOutcome(sessionId, "cancelled", { generationId, messageId })
-      await this.send("turnOutcome", {
+      const outcome = this.send("turnOutcome", {
         sessionId,
         kind: "cancelled",
         ...(messageId ? { messageId } : {}),
@@ -1929,13 +1910,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         console.warn("[wanta] failed to emit turn outcome:", error)
         logDiagnostic("chat-service", "failed to emit turn outcome", { error, sessionId }, "warn")
       })
-      await this.send("generationStopped", {
+      const stopped = this.send("generationStopped", {
         sessionId,
         ...(messageId ? { messageId, partIds, stoppedAt } : {}),
       }).catch((error: unknown) => {
         console.warn("[wanta] failed to emit generation stopped:", error)
         logDiagnostic("chat-service", "failed to emit generation stopped", { error, sessionId }, "warn")
       })
+      await Promise.all([outcome, stopped])
     }
   }
 
@@ -1989,11 +1971,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
+    const turnAttachments = attachmentsForAgentTurn(bugReport, req.attachments)
+    await this.assertTrustedAttachments(turnAttachments)
     if (this.generations.has(req.sessionId)) {
       throw new Error("A generation is already active for this session.")
     }
-    const turnAttachments = attachmentsForAgentTurn(bugReport, req.attachments)
-    await this.assertTrustedAttachments(turnAttachments)
     this.setSessionPermissionModeValue(
       req.sessionId,
       req.permissionMode ?? this.sessionPermissionMode(req.sessionId),
@@ -2001,7 +1983,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     )
     const userMessageId = createOpencodeMessageId()
     const teamName = teamNameFromRequest(req)
-    let generation: SessionGeneration | undefined
+    const generation = this.beginChatTurn(req, userMessageId)
     let artifactDir: string | undefined
     let processDir: string | undefined
     let attachmentsRecorded = false
@@ -2023,11 +2005,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           ),
         )
       }
-      generation = this.beginChatTurn(req, userMessageId)
       const activeGeneration = generation
       const knowledgeBaseIds = (req.contextMentions ?? []).flatMap((mention) =>
         mention.kind === "knowledge" && mention.id.trim() ? [mention.id.trim()] : [],
       )
+      if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
+        if (attachmentsRecorded)
+          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
+        return
+      }
       await Promise.all([
         this.agent.setSessionTeamName(req.sessionId, teamName),
         this.agent.setSessionKnowledgeBaseIds(req.sessionId, knowledgeBaseIds),

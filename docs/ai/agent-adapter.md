@@ -224,6 +224,16 @@ External agents build on `electron/agent/external/`:
   only host-capability guards and runtime paths, never model credentials or
   provider endpoints.
 
+## Cancellation settlement
+
+A host `cancel` request resolves only after the ACP prompt and its final events
+have settled. Sending `session/cancel` alone is not proof that the session can
+accept another prompt. The adapter waits up to ten seconds, then reports a
+cancellation timeout while retaining the native active-turn guard. AbortSignal
+notifications remain non-blocking; the explicit cancel request owns the wait.
+The chat service suppresses abort echoes and prevents cancelled generations
+from taking the successful-completion path during this wait.
+
 ## Checklist: adding a new agent
 
 0. **ACP-speaking agent?** Then it is ONE registration entry in

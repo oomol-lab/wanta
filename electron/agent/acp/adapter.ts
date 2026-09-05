@@ -67,6 +67,7 @@ import { createAcpSessionTranslator, sanitizeAcpMessages } from "./translator.ts
 const ACP_AUTH_REQUIRED_CODE = -32000
 const ACP_REQUEST_CANCELLED_CODE = -32800
 const PROBE_CACHE_TTL_MS = 30_000
+const CANCEL_SETTLE_TIMEOUT_MS = 10_000
 
 /** Test seam: a connected ACP wire plus subprocess lifecycle hooks. */
 export interface AcpTransport {
@@ -143,6 +144,8 @@ interface AcpTurn {
   /** An errored tool has not yet received a user-facing assistant explanation. */
   failedToolNeedsExplanation: boolean
   settled: boolean
+  /** Resolves after the native prompt and its final event have drained. */
+  completion?: Promise<void>
 }
 
 interface AcpSessionState {
@@ -735,6 +738,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       }),
     })
     const completion = this.trackTurn(session, turn, promptPromise, options?.signal)
+    turn.completion = completion
     onCompletion?.(completion)
     // Session-scoped routes resolve on dispatch. Process-scoped routes hold the
     // queue until completion so another session cannot replace the live model.
@@ -768,7 +772,23 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     if (options?.signal?.aborted) {
       return
     }
-    await this.cancelSession(input.sessionId)
+    const turn = this.sessionsByWantaId.get(input.sessionId)?.activeTurn
+    // Notification delivery is not cancellation completion. Keep the host's
+    // generation occupied until the old prompt can no longer reject a retry.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        this.cancelSession(input.sessionId).then(() => turn?.completion),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`${this.kind}: timed out waiting for the cancelled turn to finish`)),
+            CANCEL_SETTLE_TIMEOUT_MS,
+          )
+        }),
+      ])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
   }
 
   protected override async handlePermissionResponse(

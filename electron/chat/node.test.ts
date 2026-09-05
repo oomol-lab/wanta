@@ -784,9 +784,9 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
     type: "session.error",
     properties: { sessionID: "session-1", error: { name: "AbortError" } },
   })
-  await waitForEventCount(events, beforeAbortEventCount + 1)
-  assert.equal(events.length, beforeAbortEventCount + 1)
-  assert.equal(events.at(-1)?.event, "generationStopped")
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(events.length, beforeAbortEventCount)
+  assert.equal(events.filter((event) => event.event === "generationStopped").length, 1)
   const abortEventCount = events.length
   bridge.emit({
     type: "message.part.updated",
@@ -1526,6 +1526,11 @@ test("message completion exposes a failed artifact bundle when an image preview 
     service.startEventBridge()
 
     await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "Create an image" })
+    const assistantHistory = await bridge.agent.getMessages("session-1")
+    bridge.getMessages.mockResolvedValue([
+      { id: bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string, role: "user", createdAt: 0, parts: [] },
+      ...assistantHistory,
+    ])
     bridge.emit({
       type: "message.updated",
       properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -1574,6 +1579,11 @@ test("message completion materializes a data image preview into a ready artifact
     service.startEventBridge()
 
     await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "Create an image" })
+    const assistantHistory = await bridge.agent.getMessages("session-1")
+    bridge.getMessages.mockResolvedValue([
+      { id: bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string, role: "user", createdAt: 0, parts: [] },
+      ...assistantHistory,
+    ])
     bridge.emit({
       type: "message.updated",
       properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -1633,6 +1643,11 @@ test("message completion materializes assistant file attachments into managed ar
     service.startEventBridge()
 
     await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "Create an image" })
+    const assistantHistory = await bridge.agent.getMessages("session-1")
+    bridge.getMessages.mockResolvedValue([
+      { id: bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string, role: "user", createdAt: 0, parts: [] },
+      ...assistantHistory,
+    ])
     bridge.emit({
       type: "message.updated",
       properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -4546,4 +4561,129 @@ test("getLocalArtifactPreview rejects binary-looking text files", async () => {
 
   assert.equal(result.kind, "unsupported")
   assert.equal(result.mime, "text/plain")
+})
+
+test("same-session concurrent sends reject the losing request instead of silently replacing it", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  captureServiceEvents(service)
+  const results = await Promise.allSettled([
+    service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "first" }),
+    service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "second" }),
+  ])
+  expect(results[0]?.status).toBe("fulfilled")
+  expect(results[1]).toMatchObject({
+    status: "rejected",
+    reason: new Error("A generation is already active for this session."),
+  })
+  expect(bridge.promptStreaming.mock.calls.map((call) => call[1])).toEqual(["first"])
+  await service.stopGeneration("session-1")
+})
+
+test("abort echoes do not start competing finalizers or stop the next turn", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "first" })
+  let release!: () => void
+  const outputPending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const finalizer = vi
+    .spyOn(
+      service as unknown as { finalizeTurnOutput: (sessionId: string, messageId?: string) => Promise<void> },
+      "finalizeTurnOutput",
+    )
+    .mockReturnValue(outputPending)
+  const stopping = service.stopGeneration("session-1")
+  await waitForCondition(() => finalizer.mock.calls.length === 1)
+  bridge.emit({ type: "session.error", properties: { sessionID: "session-1", error: { name: "AbortError" } } })
+  expect(finalizer).toHaveBeenCalledTimes(1)
+  expect(await service.getActiveRun("session-1")).not.toBeNull()
+  release()
+  await stopping
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "second" })
+  expect(await service.getActiveRun("session-1")).not.toBeNull()
+  expect(events.filter((event) => event.event === "generationStopped")).toHaveLength(1)
+  finalizer.mockRestore()
+  await service.stopGeneration("session-1")
+})
+
+test("late tool events cannot use an old assistant to complete the current user turn", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "first" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "old-assistant", sessionID: "session-1", role: "assistant" } },
+  })
+  await service.stopGeneration("session-1")
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "second" })
+  const userMessageId = bridge.promptStreaming.mock.calls[1]?.[2]?.messageId as string
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "old-tool",
+        sessionID: "session-1",
+        messageID: "old-assistant",
+        type: "tool",
+        callID: "old-call",
+        tool: "bash",
+        state: { status: "running", input: {} },
+      },
+    },
+  })
+  bridge.getMessages.mockResolvedValue([
+    { id: "old-assistant", role: "assistant", createdAt: 1, completedAt: 2, finishReason: "stop", parts: [] },
+    { id: userMessageId, role: "user", createdAt: 3, parts: [] },
+  ])
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await new Promise((resolve) => setTimeout(resolve, 175))
+  expect(await service.getActiveRun("session-1")).not.toBeNull()
+  expect(events.filter((event) => event.event === "messageCompleted")).toHaveLength(0)
+  bridge.getMessages.mockResolvedValue([
+    { id: "old-assistant", role: "assistant", createdAt: 1, completedAt: 2, finishReason: "stop", parts: [] },
+    { id: userMessageId, role: "user", createdAt: 3, parts: [] },
+    { id: "current-assistant", role: "assistant", createdAt: 4, completedAt: 5, finishReason: "stop", parts: [] },
+  ])
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await waitForCondition(() => events.some((event) => event.event === "messageCompleted"))
+  expect(events.filter((event) => event.event === "turnOutcome").at(-1)?.data).toMatchObject({
+    kind: "completed",
+    messageId: "current-assistant",
+  })
+})
+
+test("completion during cancellation cannot release the session or report success", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "first" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  let release!: () => void
+  bridge.abort.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve
+      }),
+  )
+  const stopping = service.stopGeneration("session-1")
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(await service.getActiveRun("session-1")).not.toBeNull()
+  expect(events.filter((event) => event.event === "messageCompleted")).toHaveLength(0)
+  release()
+  await stopping
+  expect(await service.getActiveRun("session-1")).toBeNull()
+  expect(events.filter((event) => event.event === "turnOutcome").map((event) => event.data)).toEqual([
+    { sessionId: "session-1", kind: "cancelled", messageId: "assistant-1" },
+  ])
 })

@@ -507,11 +507,15 @@ test("explicit refreshes share pending OpenConnector requests", async () => {
     manager.listOpenConnectorApps(undefined, { forceRefresh: true }),
     manager.listOpenConnectorApps(undefined, { forceRefresh: true }),
   ])
+  const assertEndpointCounts = () => {
+    const paths = fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname).sort()
+    assert.deepEqual(paths, ["/v1/apps", "/v1/health"])
+  }
   try {
-    await vi.waitFor(() => assert.equal(fetchMock.mock.calls.length, 2))
+    await vi.waitFor(assertEndpointCounts)
   } finally {
     release()
   }
   await pending
-  assert.equal(fetchMock.mock.calls.length, 2)
+  assertEndpointCounts()
 })

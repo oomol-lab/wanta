@@ -1,7 +1,8 @@
+// @vitest-environment happy-dom
+
 import type { UseConnections } from "../hooks/useConnections.ts"
 import type { Root } from "react-dom/client"
 
-// @vitest-environment happy-dom
 import * as React from "react"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
@@ -423,3 +424,58 @@ test("late revalidation cannot revert a later confirmed rename", async () => {
   })
   expect(current().summary?.apps[0]?.alias).toBe("Second")
 })
+
+test.each(["missing", "expired"] as const)(
+  "canceling a catalog read aborts a %s provider cache read without forcing providers",
+  async (cacheState) => {
+    let priming = cacheState === "expired"
+    const pending = new Map<string, { signal: AbortSignal; finish: (response: Response) => void }>()
+    const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname
+      if (priming)
+        return Response.json(
+          { data: [{ service: "gmail", authTypes: ["oauth2"] }] },
+          { headers: { etag: '"providers-v1"' } },
+        )
+      return new Promise<Response>((resolve, reject) => {
+        const signal = init!.signal as AbortSignal
+        pending.set(path, { signal, finish: resolve })
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+      })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    if (priming) {
+      await getConnectionProviders({}, "en")
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31_000)
+      priming = false
+    }
+    const controller = new AbortController()
+    const request = getConnectionCatalogSummary(
+      workspace,
+      {
+        forceRefresh: true,
+        refreshProviders: false,
+        signal: controller.signal,
+      },
+      "en",
+    )
+    const outcome = request.then(
+      () => null,
+      (error: unknown) => error,
+    )
+    try {
+      await vi.waitFor(() => expect([...pending.keys()].sort()).toEqual(["/v1/connections", "/v1/providers"]))
+      controller.abort()
+      expect(pending.get("/v1/connections")?.signal.aborted).toBe(true)
+      expect(pending.get("/v1/providers")?.signal.aborted).toBe(true)
+      expect(await outcome).toMatchObject({ name: "AbortError" })
+      if (cacheState === "expired") {
+        expect(new Headers(fetchMock.mock.calls.at(-1)?.[1]?.headers).get("if-none-match")).toBe('"providers-v1"')
+      }
+    } finally {
+      controller.abort()
+      for (const item of pending.values()) item.finish(Response.json({ data: [] }))
+      await outcome
+    }
+  },
+)

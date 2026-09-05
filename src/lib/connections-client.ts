@@ -455,14 +455,16 @@ export async function getConnectionCatalogSummary(
       appsSettled = true
     }),
     // Provider 是公共发现目录，不应因当前团队的连接管理权限而不可见。
-    getConnectionProviders(options.refreshProviders === false ? {} : options, locale).then((result) => {
-      if (!appsSettled)
-        options.onProvidersLoaded?.({
-          ...mergeConnectionSummary({ apps: [], meta: null, providers: result.data, workspace }),
-          appsStatus: "loading",
-        })
-      return result
-    }),
+    getConnectionProviders(options.refreshProviders === false ? { signal: options.signal } : options, locale).then(
+      (result) => {
+        if (!appsSettled)
+          options.onProvidersLoaded?.({
+            ...mergeConnectionSummary({ apps: [], meta: null, providers: result.data, workspace }),
+            appsStatus: "loading",
+          })
+        return result
+      },
+    ),
   ])
   if (providersResult.status === "rejected") {
     throw providersResult.reason

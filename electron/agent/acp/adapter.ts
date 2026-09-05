@@ -1104,7 +1104,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
             { adapter: this.kind, outcome: "cancelled", sessionId: wantaSessionId, stopReason: response.stopReason },
             "info",
           )
-          this.emit({ event: "messageCompleted", data: { sessionId: wantaSessionId } })
+          this.emit({ event: "messageCompleted", data: { sessionId: wantaSessionId, outcome: "cancelled" } })
           return
         }
         const incompleteToolTurn = turn.activeToolCallIds.size > 0 || turn.failedToolNeedsExplanation
@@ -1148,7 +1148,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         }
         if (session.cancelling || requestErrorCode(error) === ACP_REQUEST_CANCELLED_CODE) {
           // Cancelled turns still end; the UI must leave the streaming state.
-          this.emit({ event: "messageCompleted", data: { sessionId: wantaSessionId } })
+          this.emit({ event: "messageCompleted", data: { sessionId: wantaSessionId, outcome: "cancelled" } })
           return
         }
         const message = this.isAuthRequiredError(error)
@@ -1378,10 +1378,14 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       if (turn && !turn.settled) {
         turn.settled = true
         session.activeTurn = undefined
-        this.emit({
-          event: "agentError",
-          data: { sessionId: session.wantaSessionId, message: `${displayName} exited unexpectedly` },
-        })
+        this.emit(
+          session.cancelling
+            ? { event: "messageCompleted", data: { sessionId: session.wantaSessionId, outcome: "cancelled" } }
+            : {
+                event: "agentError",
+                data: { sessionId: session.wantaSessionId, message: `${displayName} exited unexpectedly` },
+              },
+        )
       }
     }
     // ACP session ids died with the subprocess; drop the mappings so the next

@@ -234,6 +234,19 @@ notifications remain non-blocking; the explicit cancel request owns the wait.
 The chat service suppresses abort echoes and prevents cancelled generations
 from taking the successful-completion path during this wait.
 
+ACP marks a drained cancelled prompt with `messageCompleted.outcome = "cancelled"`,
+including process loss during cancellation. This acknowledgement resumes host
+cleanup after a cancellation timeout; it never becomes a successful turn. Stop
+attempts and acknowledgements share one generation-scoped cleanup promise, so
+repeated stop requests cannot finalize or publish the outcome twice. While the
+native turn remains active, the renderer keeps the stop control and queue gate
+active even when the stop RPC reports an error.
+
+Host terminal notifications carry `runId`. The renderer checks that identity
+before changing run state or clearing pending interactions. Local async actions
+capture an ownership token; optimistic sends bind that token to the host run on
+acknowledgement, and replacement or termination invalidates late callbacks.
+
 ## Checklist: adding a new agent
 
 0. **ACP-speaking agent?** Then it is ONE registration entry in

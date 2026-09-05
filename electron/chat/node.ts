@@ -356,6 +356,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly userStops = new UserStopTracker()
   private emittedMessageErrors = new Map<string, Set<string>>()
   private readonly generations = new GenerationRegistry()
+  private readonly stoppingGenerations = new Map<string, Promise<void>>()
   private readonly activeRuns = new ActiveRunRegistry(({ ended, run, sessionId }) => {
     this.sendBestEffort(this.send.bind(this) as (event: string, data: unknown) => Promise<void>, "activeRunUpdated", {
       ...ended,
@@ -772,6 +773,25 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       // off messages on reload, mirroring the kernel history path.
       return
     }
+    if (translated.event === "messageCompleted" && translated.data.outcome === "cancelled") {
+      const sessionId = translated.data.sessionId
+      const generation = this.generations.get(sessionId)
+      if (generation) {
+        generation.cancellationSettled = true
+        // An explicit stop already owns its cleanup. After a timeout this
+        // acknowledgement resumes the same cleanup without cancelling again.
+        if (!generation.controller.signal.aborted || generation.cancellationRequested) {
+          void this.stopSessionGeneration(sessionId, {
+            abortAgent: false,
+            reason: "user",
+            throwOnAbortFailure: false,
+          }).catch((error: unknown) =>
+            logDiagnostic("chat-service", "failed to settle cancelled turn", { error, sessionId }, "warn"),
+          )
+        }
+      }
+      return
+    }
     const sourceSessionId = translated.data.sessionId
     const generationSessionId = sourceSessionId ? this.generationWatchdogSessionId(sourceSessionId) : null
     const failedSessionId = generationSessionId ?? sourceSessionId
@@ -1047,6 +1067,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     sessionId: string,
     message: string,
     messageId?: string,
+    runId?: string,
   ): void {
     if (!this.rememberMessageError(sessionId, message)) {
       return
@@ -1058,10 +1079,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         logDiagnostic("chat-service", "failed to expire OOMOL session after chat 401", { error }, "warn")
       })
     }
-    this.sendBestEffort(emit, "messageError", payload, {
-      messageId,
-      sessionId,
-    })
+    this.sendBestEffort(
+      emit,
+      "messageError",
+      { ...payload, ...(runId ? { runId } : {}) },
+      {
+        messageId,
+        sessionId,
+      },
+    )
   }
 
   private sendBestEffort(
@@ -1535,6 +1561,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       {
         sessionId,
         kind,
+        ...(options.generationId ? { runId: options.generationId } : {}),
         ...(options.messageId ? { messageId: options.messageId } : {}),
         ...(options.reason ? { reason: options.reason } : {}),
       },
@@ -1573,7 +1600,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.activeRuns.delete(sessionId, generation.id)
       this.emitSessionActivity(sessionId)
       this.emitTurnOutcome(emit, sessionId, "completed", { generationId: generation.id, messageId })
-      this.sendBestEffort(emit, "messageCompleted", { sessionId }, { sessionId })
+      this.sendBestEffort(emit, "messageCompleted", { sessionId, runId: generation.id }, { sessionId })
       if (completedRun?.workspace.kind === "team") {
         void Promise.resolve(
           this.deps.onSessionCompleted?.({
@@ -1817,12 +1844,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(messageId ? { messageId } : {}),
         ...(partIds.length > 0 ? { partIds } : {}),
         interruptedAt,
+        ...(generationId ? { runId: generationId } : {}),
         reason,
         message,
       },
       { messageId, sessionId },
     )
-    this.emitMessageError(emit, sessionId, message, messageId)
+    this.emitMessageError(emit, sessionId, message, messageId, generationId)
   }
 
   private generationWatchdogSessionId(sessionId: string): string | null {
@@ -1861,14 +1889,33 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
   }
 
-  private async stopSessionGeneration(sessionId: string, options: StopSessionGenerationOptions): Promise<void> {
+  private stopSessionGeneration(sessionId: string, options: StopSessionGenerationOptions): Promise<void> {
+    const generation = this.generations.get(sessionId)
+    const key = generation?.id ?? `session:${sessionId}`
+    const existing = this.stoppingGenerations.get(key)
+    if (existing) return existing
+    if (generation && options.reason === "user") generation.cancellationRequested = true
+    const stopping = Promise.resolve()
+      .then(() => this.performStopSessionGeneration(sessionId, generation, options))
+      .finally(() => {
+        if (this.stoppingGenerations.get(key) === stopping) this.stoppingGenerations.delete(key)
+      })
+    this.stoppingGenerations.set(key, stopping)
+    generation?.controller.abort()
+    return stopping
+  }
+
+  private async performStopSessionGeneration(
+    sessionId: string,
+    generation: SessionGeneration | undefined,
+    options: StopSessionGenerationOptions,
+  ): Promise<void> {
+    if (this.generations.get(sessionId) !== generation) return
     const backend = this.chatBackendFor(sessionId)
     if (!backend) {
       return
     }
-    const generation = this.generations.get(sessionId)
     const generationId = generation?.id
-    generation?.controller.abort()
     this.deps.hostQuestions?.cancelSession(sessionId)
     const messageId = this.activeAssistantMessages.get(sessionId)
     const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
@@ -1877,7 +1924,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       try {
         await backend.send({ type: "cancel", sessionId })
       } catch (error) {
-        if (options.throwOnAbortFailure && (messageId || !generation || externalAgentKindForSessionId(sessionId))) {
+        if (
+          !generation?.cancellationSettled &&
+          options.throwOnAbortFailure &&
+          (messageId || !generation || externalAgentKindForSessionId(sessionId))
+        ) {
           this.userStops.delete(sessionId)
           throw error
         }
@@ -1904,6 +1955,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.logTurnOutcome(sessionId, "cancelled", { generationId, messageId })
       const outcome = this.send("turnOutcome", {
         sessionId,
+        ...(generationId ? { runId: generationId } : {}),
         kind: "cancelled",
         ...(messageId ? { messageId } : {}),
       }).catch((error: unknown) => {
@@ -1912,6 +1964,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       })
       const stopped = this.send("generationStopped", {
         sessionId,
+        ...(generationId ? { runId: generationId } : {}),
         ...(messageId ? { messageId, partIds, stoppedAt } : {}),
       }).catch((error: unknown) => {
         console.warn("[wanta] failed to emit generation stopped:", error)
@@ -2181,7 +2234,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           this.clearSessionGeneration(req.sessionId, promptGeneration.id)
           this.activeAssistantMessages.delete(req.sessionId)
           this.activeToolParts.delete(req.sessionId)
-          this.emitMessageError(emit, req.sessionId, errorMessage(error), messageId)
+          this.emitMessageError(emit, req.sessionId, errorMessage(error), messageId, promptGeneration.id)
         })
     } catch (error) {
       if (generation) {
@@ -2506,7 +2559,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           this.clearSessionGeneration(req.sessionId, generation.id)
           this.activeAssistantMessages.delete(req.sessionId)
           this.activeToolParts.delete(req.sessionId)
-          this.emitMessageError(emit, req.sessionId, errorMessage(error), messageId)
+          this.emitMessageError(emit, req.sessionId, errorMessage(error), messageId, generation.id)
         })
     } catch (error) {
       await this.rollbackPromptSelectionPersistence(req.sessionId, promptSelectionOwners, previousSelection)

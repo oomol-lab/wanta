@@ -19,6 +19,8 @@ import { mkdtemp } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, test, vi } from "vitest"
+import { ChatServiceImpl } from "../../chat/node.ts"
+import { ManagedTurnDirectories } from "../managed-turn-directories.ts"
 import { AcpAgentAdapter } from "./adapter.ts"
 import { ACP_AGENT_REGISTRY } from "./registry.ts"
 
@@ -773,4 +775,65 @@ test("cancel times out without freeing an unsettled native turn", async () => {
     release.resolve()
   }
   await harness.waitFor((event) => event.event === "messageCompleted")
+})
+
+test("the host releases a timed-out cancellation on late ACP settlement without disturbing another session", async () => {
+  const cancelledDrain = deferred<void>()
+  const otherDrain = deferred<void>()
+  let promptCount = 0
+  const harness = await createHarness({
+    prompt: async (turn) => {
+      promptCount += 1
+      const index = promptCount
+      await turn.sendUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `turn-${index}` } })
+      if (index === 1) {
+        await turn.cancelled
+        await cancelledDrain.promise
+        return { stopReason: "cancelled" }
+      }
+      if (index === 2) await otherDrain.promise
+      return { stopReason: "end_turn" }
+    },
+  })
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-cancel-recovery-"))
+  const service = new ChatServiceImpl(null, { managedTurnDirectories: new ManagedTurnDirectories(root) })
+  const events: Array<{ event: string; data: unknown }> = []
+  vi.spyOn(service as unknown as { send: (event: string, data: unknown) => Promise<void> }, "send").mockImplementation(
+    async (event, data) => {
+      events.push({ event, data })
+    },
+  )
+  service.setExternalAgents(new Map([["codex", harness.adapter]]))
+  const sessionId = "wanta-ext:codex:11111111-1111-4111-8111-111111111111"
+  const otherId = "wanta-ext:codex:22222222-2222-4222-8222-222222222222"
+  const scope = { kind: "local" as const, workspaceId: "local", workspaceName: "Local" }
+  await service.sendMessage({ sessionId, text: "cancel me", scope })
+  await harness.waitFor((event) => event.event === "messageDelta" && event.data.text === "turn-1")
+  await service.sendMessage({ sessionId: otherId, text: "keep running", scope })
+  await harness.waitFor((event) => event.event === "messageDelta" && event.data.text === "turn-2")
+  const runId = (await service.getActiveRun(sessionId))?.runId
+  const otherRunId = (await service.getActiveRun(otherId))?.runId
+  vi.useFakeTimers()
+  try {
+    const stopping = service.stopGeneration(sessionId)
+    const rejected = expect(stopping).rejects.toThrow(/timed out waiting for the cancelled turn/u)
+    await vi.advanceTimersByTimeAsync(10_000)
+    await rejected
+    expect((await service.getActiveRun(sessionId))?.runId).toBe(runId)
+    await expect(service.sendMessage({ sessionId, text: "too soon", scope })).rejects.toThrow(/already active/u)
+  } finally {
+    vi.useRealTimers()
+    cancelledDrain.resolve()
+  }
+  await vi.waitFor(async () => expect(await service.getActiveRun(sessionId)).toBeNull())
+  expect((await service.getActiveRun(otherId))?.runId).toBe(otherRunId)
+  expect(events.filter((event) => event.event === "turnOutcome").map((event) => event.data)).toEqual([
+    expect.objectContaining({ sessionId, runId, kind: "cancelled" }),
+  ])
+  expect(events.filter((event) => event.event === "generationStopped")).toHaveLength(1)
+  await service.sendMessage({ sessionId, text: "retry", scope })
+  await vi.waitFor(async () => expect(await service.getActiveRun(sessionId)).toBeNull())
+  expect(harness.fake.promptRequests).toHaveLength(3)
+  otherDrain.resolve()
+  await vi.waitFor(async () => expect(await service.getActiveRun(otherId)).toBeNull())
 })

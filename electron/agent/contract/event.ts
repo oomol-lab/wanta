@@ -254,6 +254,8 @@ const permissionModeUpdatedSchema = z.object({
 })
 
 const messageCompletedSchema = z.object({
+  outcome: z.literal("cancelled").optional(),
+  runId: z.string().optional(),
   sessionId: z.string(),
 })
 

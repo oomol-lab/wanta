@@ -928,6 +928,7 @@ test("a late idle from a stopped generation does not complete the retried genera
   })
   await service.stopGeneration("session-1")
   await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "second" })
+  const runId = (await service.getActiveRun("session-1"))?.runId
   const userMessageId = bridge.promptStreaming.mock.calls[1]?.[2]?.messageId as string
   bridge.emit({
     type: "message.updated",
@@ -954,6 +955,7 @@ test("a late idle from a stopped generation does not complete the retried genera
   assert.deepEqual(events.filter((event) => event.event === "turnOutcome").at(-1)?.data, {
     sessionId: "session-1",
     kind: "completed",
+    runId,
     messageId: "assistant-2",
   })
   assert.equal(events.filter((event) => event.event === "messageCompleted").length, 1)
@@ -4675,6 +4677,7 @@ test("completion during cancellation cannot release the session or report succes
         release = resolve
       }),
   )
+  const runId = (await service.getActiveRun("session-1"))?.runId
   const stopping = service.stopGeneration("session-1")
   bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
   await new Promise((resolve) => setTimeout(resolve, 0))
@@ -4684,6 +4687,6 @@ test("completion during cancellation cannot release the session or report succes
   await stopping
   expect(await service.getActiveRun("session-1")).toBeNull()
   expect(events.filter((event) => event.event === "turnOutcome").map((event) => event.data)).toEqual([
-    { sessionId: "session-1", kind: "cancelled", messageId: "assistant-1" },
+    { sessionId: "session-1", runId, kind: "cancelled", messageId: "assistant-1" },
   ])
 })

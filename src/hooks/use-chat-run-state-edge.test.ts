@@ -4,7 +4,7 @@ import type { ChatRunState } from "./use-chat-run-state.ts"
 
 import * as React from "react"
 import { createRoot } from "react-dom/client"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, test } from "vitest"
 import { reduceChatRunSessions, useChatRunState } from "./use-chat-run-state.ts"
 
 // Adversarial edge tests for the renderer run/activity state:
@@ -240,4 +240,20 @@ describe("useChatRunState: cleared-run tombstones", () => {
       harness.unmount()
     }
   })
+})
+
+test("an empty snapshot cannot clear an optimistic submission before host acknowledgement", () => {
+  const harness = renderRunState()
+  try {
+    harness.act((state) => {
+      state.ownership.beginSubmission("session-1")
+      state.setStatus("session-1", "submitted")
+      state.applyActiveRun("session-1", null)
+    })
+    expect(harness.state.getSessionStatus("session-1")).toBe("submitted")
+    harness.act((state) => state.applyActiveRun("session-1", run()))
+    expect(harness.state.getSessionStatus("session-1")).toBe("streaming")
+  } finally {
+    harness.unmount()
+  }
 })

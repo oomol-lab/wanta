@@ -19,6 +19,10 @@ export function OpenConnectorConnectionsPanel({
   const [apps, setApps] = React.useState<OpenConnectorAppSummary[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState(false)
+  const [health, setHealth] = React.useState<
+    { kind: "loading" | "error" } | { kind: "ready"; status: UseLinkRuntime["status"] }
+  >({ kind: "loading" })
+  const healthRequestIdRef = React.useRef(0)
   const config = runtime.state?.openConnector
   const runtimeRef = React.useRef(runtime)
   const requestIdRef = React.useRef(0)
@@ -27,30 +31,43 @@ export function OpenConnectorConnectionsPanel({
     runtimeRef.current = runtime
   }, [runtime])
 
-  const refresh = React.useCallback(async (forceRefresh = false) => {
-    const requestId = ++requestIdRef.current
-    const currentRuntime = runtimeRef.current
-    void currentRuntime.refreshStatus({ forceRefresh }).catch((cause: unknown) => {
-      console.error("[wanta] OpenConnector status refresh failed", cause)
-    })
-    setLoading(true)
-    setError(false)
+  const checkHealth = React.useCallback(async (forceRefresh = false) => {
+    const requestId = ++healthRequestIdRef.current
+    setHealth({ kind: "loading" })
     try {
-      const next = await currentRuntime.listOpenConnectorApps({ forceRefresh })
-      if (requestIdRef.current === requestId) setApps(next)
-    } catch (cause) {
-      console.error("[wanta] OpenConnector inventory load failed", cause)
-      if (requestIdRef.current === requestId) setError(true)
-    } finally {
-      if (requestIdRef.current === requestId) setLoading(false)
+      const status = await runtimeRef.current.refreshStatus({ forceRefresh })
+      if (healthRequestIdRef.current === requestId) setHealth({ kind: "ready", status })
+    } catch {
+      if (healthRequestIdRef.current === requestId) setHealth({ kind: "error" })
     }
   }, [])
+
+  const refresh = React.useCallback(
+    async (forceRefresh = false) => {
+      const requestId = ++requestIdRef.current
+      const currentRuntime = runtimeRef.current
+      void checkHealth(forceRefresh)
+      setLoading(true)
+      setError(false)
+      try {
+        const next = await currentRuntime.listOpenConnectorApps({ forceRefresh })
+        if (requestIdRef.current === requestId) setApps(next)
+      } catch (cause) {
+        console.error("[wanta] OpenConnector inventory load failed", cause)
+        if (requestIdRef.current === requestId) setError(true)
+      } finally {
+        if (requestIdRef.current === requestId) setLoading(false)
+      }
+    },
+    [checkHealth],
+  )
 
   React.useEffect(() => {
     setApps([])
     void refresh()
     return () => {
       requestIdRef.current += 1
+      healthRequestIdRef.current += 1
     }
   }, [config?.baseUrl, refresh])
 
@@ -91,9 +108,20 @@ export function OpenConnectorConnectionsPanel({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={runtime.status.kind === "online" ? "success" : "secondary"}>
-              {t(openConnectorStatusKey(runtime.status.kind))}
+            <Badge variant={health.kind === "ready" && health.status.kind === "online" ? "success" : "secondary"}>
+              {health.kind === "ready"
+                ? t(openConnectorStatusKey(health.status.kind))
+                : t(
+                    health.kind === "loading"
+                      ? "connections.openConnector.checkingHealth"
+                      : "connections.openConnector.healthFailed",
+                  )}
             </Badge>
+            {health.kind === "error" ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => void checkHealth(true)}>
+                {t("connections.openConnector.retryHealth")}
+              </Button>
+            ) : null}
             <span className="oo-text-caption">{t("connections.openConnector.readOnlyHint")}</span>
           </div>
         </section>

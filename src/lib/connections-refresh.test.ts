@@ -321,3 +321,105 @@ test("canceling a conditional poll does not cancel another consumer or discard v
   finishes[1]!(new Response(null, { status: 304 }))
   expect((await otherRead).data).toEqual([])
 })
+
+test.each(["alias", "disconnect", "default"] as const)(
+  "confirmed %s finishes before revalidation and survives its failure",
+  async (kind) => {
+    let written = false
+    let release!: (response: Response) => void
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        if (init?.method && init.method !== "GET") {
+          written = true
+          return Response.json({ data: {} })
+        }
+        if (String(input).includes("/v1/providers"))
+          return Response.json({ data: [{ service: "gmail", authTypes: ["oauth2"] }] })
+        if (written)
+          return new Promise<Response>((resolve) => {
+            release = resolve
+          })
+        return Response.json({
+          data: [
+            { id: "one", service: "gmail", authType: "oauth2", status: "active", isDefault: true, alias: "Before" },
+            { id: "two", service: "gmail", authType: "oauth2", status: "active" },
+          ],
+        })
+      }),
+    )
+    const current = await mountConnections()
+    await act(async () => {
+      const result =
+        kind === "alias"
+          ? await current().updateAlias("one", "After")
+          : kind === "disconnect"
+            ? await current().disconnectAccount("one")
+            : await current().setDefaultConnection("gmail", "two")
+      expect(result).toBe(true)
+    })
+    expect(current().busy).toBeNull()
+    const confirmed = current().summary!
+    if (kind === "alias") expect(confirmed.providers[0]?.accountLabel).toBe("After")
+    if (kind === "disconnect") expect(confirmed.apps.map((app) => app.id)).toEqual(["two"])
+    if (kind === "default") expect(confirmed.providers[0]?.appId).toBe("two")
+    await act(async () => {
+      release(Response.json({ message: "unavailable" }, { status: 503 }))
+    })
+    expect(current().summary?.apps).toEqual(confirmed.apps)
+    expect(current().summary?.appsStatus).toBe("unavailable")
+  },
+)
+
+test("failed writes do not change the local snapshot", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: unknown, init?: RequestInit) => {
+      if (init?.method === "DELETE") return Response.json({ message: "unavailable" }, { status: 503 })
+      if (String(input).includes("/v1/providers"))
+        return Response.json({ data: [{ service: "gmail", authTypes: ["oauth2"] }] })
+      return Response.json({ data: [{ id: "one", service: "gmail", authType: "oauth2", status: "active" }] })
+    }),
+  )
+  const current = await mountConnections()
+  const before = current().summary
+  await act(async () => {
+    expect(await current().disconnectAccount("one")).toBe(false)
+  })
+  expect(current().summary).toBe(before)
+  expect(current().actionError).not.toBeNull()
+})
+
+test("late revalidation cannot revert a later confirmed rename", async () => {
+  let writes = 0
+  const reads: Array<(response: Response) => void> = []
+  const payload = (alias: string) =>
+    Response.json({ data: [{ id: "one", service: "gmail", authType: "oauth2", status: "active", alias }] })
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: unknown, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        writes++
+        return Response.json({ data: {} })
+      }
+      if (String(input).includes("/v1/providers"))
+        return Response.json({ data: [{ service: "gmail", authTypes: ["oauth2"] }] })
+      return writes ? new Promise<Response>((resolve) => reads.push(resolve)) : payload("Initial")
+    }),
+  )
+  const current = await mountConnections()
+  await act(async () => {
+    await current().updateAlias("one", "First")
+  })
+  await act(async () => {
+    await current().updateAlias("one", "Second")
+  })
+  expect(current().summary?.apps[0]?.alias).toBe("Second")
+  await act(async () => {
+    reads[1]!(payload("Second"))
+  })
+  await act(async () => {
+    reads[0]!(payload("First"))
+  })
+  expect(current().summary?.apps[0]?.alias).toBe("Second")
+})

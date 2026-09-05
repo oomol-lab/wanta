@@ -63,3 +63,33 @@ test("inventory renders before health finishes and manual refresh bypasses cache
     vi.unstubAllGlobals()
   }
 })
+
+test("health failures offer independent retry without reloading inventory", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  const refreshStatus = vi
+    .fn<UseLinkRuntime["refreshStatus"]>()
+    .mockRejectedValueOnce(new Error("IPC unavailable"))
+    .mockResolvedValue({ kind: "online", checkedAt: 1 })
+  const listOpenConnectorApps = vi.fn(async () => [])
+  const runtime = { state: null, status: { kind: "unknown" } as const, refreshStatus, listOpenConnectorApps }
+  try {
+    await act(async () =>
+      root.render(<OpenConnectorConnectionsPanel runtime={runtime} onOpenSettings={() => undefined} />),
+    )
+    expect(host.textContent).toContain("connections.openConnector.healthFailed")
+    expect(host.textContent).toContain("connections.openConnector.empty")
+    const retry = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("connections.openConnector.retryHealth"),
+    )!
+    await act(async () => retry.click())
+    expect(host.textContent).toContain("connections.openConnector.status.online")
+    expect(host.textContent).not.toContain("connections.openConnector.healthFailed")
+    expect(listOpenConnectorApps).toHaveBeenCalledTimes(1)
+    expect(refreshStatus).toHaveBeenLastCalledWith({ forceRefresh: true })
+  } finally {
+    await act(async () => root.unmount())
+    vi.unstubAllGlobals()
+  }
+})

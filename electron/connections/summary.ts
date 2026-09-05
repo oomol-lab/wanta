@@ -666,19 +666,12 @@ export function normalizeConnectionAppDetail(item: RawApp): ConnectionAppDetail 
   }
 }
 
-export function normalizeProvider(
-  item: RawProvider,
-  appsByService: Map<string, ConnectionAppSummary[]>,
-): ConnectionProviderSummary | undefined {
-  const service = asString(item.service)
-  if (!service) {
-    return undefined
-  }
-
-  const apps = appsByService.get(service) ?? []
+export function getProviderConnectionState(
+  normalizedAuthTypes: ConnectionCredentialAuthType[],
+  apps: ConnectionAppSummary[],
+) {
   const connectedApps = getVisibleConnectedApps(apps)
   const app = pickStatusApp(connectedApps)
-  const normalizedAuthTypes = normalizeCredentialAuthTypes(item.authTypes)
   const isPureNoAuthProvider = normalizedAuthTypes.length === 1 && normalizedAuthTypes[0] === "no_auth"
   const hasNoAuthReadyApp =
     apps.some((candidate) => isVirtualNoAuthApp(candidate) && candidate.status === "active") ||
@@ -692,7 +685,6 @@ export function normalizeProvider(
       : "available"
 
   return {
-    service,
     status,
     accountLabel: app ? connectionAppDisplayLabel(app) : undefined,
     appId: app?.id,
@@ -700,12 +692,29 @@ export function normalizeProvider(
     appStatus: app?.status,
     appCount: connectedApps.length,
     apps: connectedApps,
+    canDisconnect: connectedApps.some(isUserManagedCredentialApp) && !isPureNoAuthProvider,
+    connectedUpdatedAt: latestUpdatedAt(connectedApps),
+  }
+}
+
+export function normalizeProvider(
+  item: RawProvider,
+  appsByService: Map<string, ConnectionAppSummary[]>,
+): ConnectionProviderSummary | undefined {
+  const service = asString(item.service)
+  if (!service) {
+    return undefined
+  }
+
+  const apps = appsByService.get(service) ?? []
+  const normalizedAuthTypes = normalizeCredentialAuthTypes(item.authTypes)
+  return {
+    service,
+    ...getProviderConnectionState(normalizedAuthTypes, apps),
     actionKind: getProviderActionKind(normalizedAuthTypes),
     authTypes: normalizedAuthTypes,
-    canDisconnect: connectedApps.some(isUserManagedCredentialApp) && !isPureNoAuthProvider,
     categoryIds: normalizeCategoryIds(item.categories),
     categoryLabels: normalizeCategories(item.categories),
-    connectedUpdatedAt: latestUpdatedAt(connectedApps),
     displayName: asString(item.displayName) ?? service,
     iconUrl: asString(item.iconUrl) ?? asString(item.icon),
     oauthClientConfig: normalizeOAuthClientConfig(item.oauthClientConfig, service),

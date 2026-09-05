@@ -35,8 +35,9 @@ Source size is only for scoping the audit, not a quality target:
 - This round had no real account, so login, team switching, connector OAuth, payment return, and
   the Agent conversation golden path were not exercised;
 - notifications were not verified against a signed packaged app;
-- long-session React Profiler, Chromium Performance traces, and multi-process memory curves have
-  not yet been collected;
+- the September 2026 measurement below covers long-session text streaming; large tool outputs,
+  manual scrolling, production-build interaction latency, and multi-process memory curves still
+  need separate measurements;
 - the current shell's Node version is below the repo minimum and cannot substitute for the Node 24
   CI results.
 
@@ -129,3 +130,169 @@ Later performance findings must stay `hypothesis` until there is same-environmen
   appears, and Univer is not deleted, downgraded, or replaced on that basis;
 - after the conclusions were written in, `ts-check`, `lint`, `format`, 234 test files, 1569 tests,
   and the production build all pass.
+
+## 2026-09-05: long-session streaming and sidebar invalidation
+
+The measured issue is unnecessary sidebar rendering during assistant text updates.
+Four callback props changed identity on each parent render: login, task management,
+pointer resize start, and keyboard resize. Stable callbacks now preserve the existing
+memoized sidebar boundary. Resize callbacks retain their collapsed/width dependencies;
+keyboard updates continue to use functional state updates.
+
+### Reproducible scenario
+
+- Apple M1 Pro, 32 GiB RAM, macOS 26.6.2 arm64, Node 22.22.2;
+- Electron 43.4.1 / Chromium 150.0.7871.224, development build, cache enabled,
+  DevTools window closed, viewport 1080 × 720 CSS pixels at DPR 2;
+- the real AppShell, sidebar, ChatArea, ChatTimeline, turn rows and composer run in
+  Electron with identical React Profiler wrappers before and after;
+- an in-memory service fixture replaces only session/chat data, with 200 historical
+  messages (100 user/assistant pairs; 93,180 text characters), Markdown, no images,
+  no artifacts, and one sidebar task;
+- each turn emits 625 cumulative text updates at 32 ms intervals, producing 10,000
+  characters over 20 seconds; scripted textarea input runs every 250 ms;
+- each condition has five runs, discards run zero as warm-up, and measures five seconds
+  before and after the streaming window; heap is sampled again 30 seconds after all runs;
+- input latency is dispatch-to-next-animation-frame for scripted textarea input,
+  excluding the final draft-clear event. It is a scheduling proxy, **not native-input INP**.
+  Percentiles use the nearest-rank method.
+
+The fixture bypasses model latency and main-process chat IPC, so this measures renderer
+behavior rather than provider throughput or end-to-end request latency. It does not modify
+backend chat history. Existing runtime/account setup is used only to load the app shell.
+
+### Before/after results
+
+Values below are measured during each 20-second streaming window. Aggregate durations are
+medians of the four valid runs. Profiler subtree durations are inclusive and must not be
+summed across nested components.
+
+| Metric                                            |    Before |      After | Interpretation                                                      |
+| ------------------------------------------------- | --------: | ---------: | ------------------------------------------------------------------- |
+| Sidebar Profiler updates per run                  |   626–627 |        1–2 | Token-driven invalidation removed; real status/clock updates remain |
+| Sidebar cumulative render time, median            |  719.7 ms |    4.25 ms | 99.4% reduction in this subtree                                     |
+| AppShell subtree cumulative render time, median   | 5067.2 ms | 4739.45 ms | 6.5% reduction in inclusive React render work                       |
+| Historical turn Profiler updates during streaming |         0 |          0 | Existing turn identity/memoization remains effective                |
+| Scripted input-to-frame p95, median across runs   |   14.2 ms |   13.15 ms | Variable; insufficient to claim a general typing improvement        |
+| Animation-frame interval p95, median across runs  |    9.1 ms |     9.8 ms | No overall frame-latency improvement established                    |
+| Long tasks over 50 ms during streaming            |         0 |          0 | This fixture did not reproduce a severe stall                       |
+
+Per-run render data, in milliseconds:
+
+| Valid run | Sidebar before | Sidebar after | AppShell before | AppShell after |
+| --------- | -------------: | ------------: | --------------: | -------------: |
+| 1         |          719.2 |           6.2 |          5078.8 |         4736.0 |
+| 2         |          721.9 |           2.7 |          5071.5 |         4768.9 |
+| 3         |          718.1 |           5.6 |          5062.9 |         4727.9 |
+| 4         |          720.2 |           2.9 |          5021.2 |         4742.9 |
+
+The active timeline continues to do most rendering work. Its commit frequency and cumulative
+cost increased after the sidebar fix, while inclusive AppShell render time decreased. Do not
+translate the sidebar percentage into a whole-app speedup or claim that smooth-text rendering
+has been optimized. The current measurements justify removing callback-induced invalidation,
+not replacing the timeline with a virtual list or adding blanket memoization.
+
+### Evidence and remaining coverage
+
+Local raw artifacts are under `.wanta-dev/quality/chat-perf/` and intentionally excluded from
+Git: `baseline-confirm.json`, `after-fixed.json`, their `*-summary.json` files, CPU profiles,
+Chromium traces, `environment.json`, archived baseline source, and the fixture/collector.
+The collector uses only profiling commands over loopback CDP. `diagnostic.json` records prop
+names and change counts, without serializing prop values. Prop-identity diagnostics established that all four callbacks must be stable to preserve
+the memo boundary.
+
+Full-duration React/RAF/long-task samples were saved. Chromium tracing reached its buffer
+limit and retained only the beginning of the run, so it is not evidence for a full-duration
+layout/paint/GC comparison. Memory observations are not a leak diagnosis. Native keyboard
+latency, manual scroll interaction, large tool results, larger sidebar inventories and
+production-build profiles remain separate follow-up scenarios.
+
+Validation includes a React hook regression covering stable callbacks on unrelated renders,
+dragging from a keyboard-updated width, Shift+Arrow/Home/End behavior, width persistence and
+collapsed-state guards. No changes were made to text batching, message identity, Markdown
+semantics or artifact presentation.
+
+## 2026-09-05: active Markdown renderer identity
+
+This round starts after the sidebar fix and isolates MessageResponse preprocessing,
+MessageStreamdown rendering, and Chromium layout/paint work. It uses the same 200-message,
+93,180-character history, 625 updates over 20 seconds, 10,000-character output and scripted
+input scenario described above. There are five runs per condition; run zero is warm-up.
+These are separate paired measurements, not percentages to multiply with the sidebar result.
+
+The instrumentation preserves each component's existing memoization behavior. In particular,
+ordinary function components are profiled without adding a memo boundary. Exploratory runs
+with additional wrapper memoization were discarded. Only `message-before-exact` and
+`message-after-exact` are used below. Chromium tracing covers the complete first valid
+before/stream/after window, instead of tracing the entire campaign and filling its buffer.
+React, frame and input records cover all runs.
+
+### Confirmed cause and minimal fix
+
+MessageResponse created a new `components` object on every render. Streamdown 2.5.0 derives
+an inline-code wrapper function from that object's identity; the generated function then
+changes the component map passed to its memoized Markdown blocks. Consequently, even
+finished paragraphs with unchanged content fail their renderer comparison and are parsed
+again. The installed Streamdown implementation and the runtime measurements both support
+this mechanism.
+
+The merged component map is now memoized on the caller's `components` override. It remains
+stable across text updates while explicit override changes still take effect. This does not
+change the smoothing timer/step, Markdown normalization, code-language routing, image policy,
+Mermaid safety controls, text batching or message identity. Preprocessing costs were small
+relative to Markdown rendering and did not justify a new text cache or worker in this round.
+
+### Measured results
+
+Cumulative durations below are medians of four valid 20-second streaming windows. Profiler
+subtree durations are inclusive; MessageResponse and MessageStreamdown must not be added to
+AppShell. Input is the scripted dispatch-to-next-frame proxy, not native keyboard INP.
+
+| Metric                                   |     Before |      After |
+| ---------------------------------------- | ---------: | ---------: |
+| MessageStreamdown subtree render time    |  2875.0 ms |   789.3 ms |
+| MessageResponse subtree render time      | 2999.45 ms |   942.1 ms |
+| AppShell subtree render time             | 4925.75 ms | 2890.25 ms |
+| Input-to-frame p95, median across runs   |   11.75 ms |     7.4 ms |
+| Frame-interval p95, median across runs   |     9.2 ms |    9.05 ms |
+| Historical-turn updates during streaming |          0 |          0 |
+| Long tasks over 50 ms during streaming   |          0 |          0 |
+
+The Markdown subtree's cumulative render time decreased by 72.5%; inclusive AppShell render
+work decreased by 41.3% in this development fixture. These are renderer-work measurements,
+not provider-response speedups or production-build guarantees. The amount and rate of input
+text remained unchanged.
+
+| Valid run | Markdown before | Markdown after | AppShell before | AppShell after |
+| --------- | --------------: | -------------: | --------------: | -------------: |
+| 1         |       2818.3 ms |       801.0 ms |       4916.2 ms |      2976.9 ms |
+| 2         |       3081.0 ms |       774.9 ms |       5145.8 ms |      2881.3 ms |
+| 3         |       2915.1 ms |       789.5 ms |       4935.3 ms |      2845.6 ms |
+| 4         |       2834.9 ms |       789.1 ms |       4859.0 ms |      2899.2 ms |
+
+The complete representative trace provides an important qualification:
+
+| First valid stream window        |          Before |           After |
+| -------------------------------- | --------------: | --------------: |
+| Layout count / cumulative time   | 416 / 174.24 ms | 571 / 322.69 ms |
+| Paint count / cumulative time    |  974 / 72.85 ms | 1346 / 122.0 ms |
+| Minor GC count / cumulative time | 109 / 191.34 ms |  59 / 133.27 ms |
+
+Smoothing updates became more frequent as rendering became cheaper. Layout and paint work
+increased rather than disappearing; the large reduction was in Markdown rendering. There
+are still roughly 600 invocations per run where the text passed to Markdown has not changed,
+and preprocessing continues to run. Their remaining cost needs measurement at larger input
+sizes before further restructuring. Native input, large code/tool results, manual scrolling,
+and production-build profiles remain follow-up scenarios.
+
+Evidence is local under `.wanta-dev/quality/message-perf/`: the accepted JSON samples, summaries,
+representative Chromium traces, full CPU profiles, archived baseline source, and fixture/collector.
+Raw artifacts are excluded from Git. A regression test verifies stable component identity across
+text changes, explicit inline-code overrides, default image-renderer retention, and restoration
+of defaults when the override is removed.
+
+The normal development app also passed a live smoke check with a heading, inline code,
+a fenced JSON block, the code-copy control, a two-item list, and the return to idle after
+completion. The full test suite passed 2996 tests with four skips; TypeScript and lint also
+passed. Formatting validation was limited to the modified files with `oxfmt --check`;
+full-repository formatting validation and a production build were not run in this round.

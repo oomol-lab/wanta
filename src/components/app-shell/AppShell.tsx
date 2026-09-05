@@ -1722,6 +1722,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     ],
   )
   const handleOpenSearch = React.useCallback((): void => setSearchOpen(true), [])
+  const handleLogin = React.useCallback((): void => {
+    void auth.login()
+  }, [auth.login])
+  const handleManageTasks = React.useCallback((): void => setTasksDialogOpen(true), [])
   const handleChatStop = React.useCallback(async (): Promise<void> => {
     if (activeChatSessionId) {
       await stop(activeChatSessionId)
@@ -2124,8 +2128,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         onArchiveProjectRequest={projectActions.requestArchive}
         onArchiveSessionRequest={sessionActions.requestArchive}
         onLogout={auth.logout}
-        onLogin={() => void auth.login()}
-        onManageTasks={() => setTasksDialogOpen(true)}
+        onLogin={handleLogin}
+        onManageTasks={handleManageTasks}
         onNavigate={setRoute}
         onNewSession={handleNewSessionWithKnowledgeReset}
         onOpenConnections={handleOpenConnectionsCommand}

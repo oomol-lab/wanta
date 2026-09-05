@@ -907,3 +907,25 @@ test("normalizeMessage skips aborted message-level errors for stopped history", 
   assert.ok(msg)
   assert.deepEqual(msg.parts, [{ kind: "text", partId: "p1", text: "Partial answer" }])
 })
+
+test("assistant parent identity survives normalization for turn ownership checks", () => {
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "assistant",
+          sessionID: "session",
+          role: "assistant",
+          parentID: "user-turn",
+        },
+      },
+    }),
+    [
+      {
+        event: "messageStarted",
+        data: { sessionId: "session", messageId: "assistant", role: "assistant", parentMessageId: "user-turn" },
+      },
+    ],
+  )
+})

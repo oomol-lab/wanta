@@ -2,6 +2,7 @@ import type { AssistantActivityEvent, ChatActiveRun } from "../../electron/chat/
 import type { ChatStatus } from "ai"
 
 import * as React from "react"
+import { ChatRunOwnership } from "./chat-run-ownership.ts"
 
 const maxClearedActiveRunIds = 512
 
@@ -21,8 +22,9 @@ export type ChatRunSessionsAction =
   | { type: "reset" }
 
 export interface ChatRunState {
+  ownership: ChatRunOwnership
   activities: Record<string, AssistantActivityEvent | undefined>
-  applyActiveRun: (sessionId: string, run: ChatActiveRun | null, endedRunId?: string) => void
+  applyActiveRun: (sessionId: string, run: ChatActiveRun | null, endedRunId?: string) => boolean
   forgetSession: (sessionId: string) => void
   getSessionRunStartedAt: (sessionId: string) => number | null
   getSessionStatus: (sessionId: string) => ChatStatus
@@ -33,6 +35,7 @@ export interface ChatRunState {
 }
 
 export function useChatRunState(): ChatRunState {
+  const [ownership] = React.useState(() => new ChatRunOwnership())
   const [sessions, dispatch] = React.useReducer(reduceChatRunSessions, {})
   const clearedActiveRunIds = React.useRef(new Set<string>())
 
@@ -44,23 +47,29 @@ export function useChatRunState(): ChatRunState {
     dispatch({ activity, sessionId, type: "set_activity" })
   }, [])
 
-  const applyActiveRun = React.useCallback((sessionId: string, run: ChatActiveRun | null, endedRunId?: string) => {
-    if (run) {
-      if (clearedActiveRunIds.current.has(run.runId)) {
-        return
+  const applyActiveRun = React.useCallback(
+    (sessionId: string, run: ChatActiveRun | null, endedRunId?: string) => {
+      if (run) {
+        if (clearedActiveRunIds.current.has(run.runId)) {
+          return false
+        }
+        if (!ownership.applyRun(run.sessionId, run.runId)) return false
+        dispatch({ run, sessionId: run.sessionId, type: "apply_run" })
+        return true
       }
-      dispatch({ run, sessionId: run.sessionId, type: "apply_run" })
-      return
-    }
-    if (endedRunId) {
-      clearedActiveRunIds.current.add(endedRunId)
-      if (clearedActiveRunIds.current.size > maxClearedActiveRunIds) {
-        const oldestRunId = clearedActiveRunIds.current.values().next().value
-        if (oldestRunId) clearedActiveRunIds.current.delete(oldestRunId)
+      if (endedRunId) {
+        clearedActiveRunIds.current.add(endedRunId)
+        if (clearedActiveRunIds.current.size > maxClearedActiveRunIds) {
+          const oldestRunId = clearedActiveRunIds.current.values().next().value
+          if (oldestRunId) clearedActiveRunIds.current.delete(oldestRunId)
+        }
       }
-    }
-    dispatch({ run: null, sessionId, type: "apply_run" })
-  }, [])
+      if (!ownership.applyRun(sessionId, null, endedRunId)) return false
+      dispatch({ run: null, sessionId, type: "apply_run" })
+      return true
+    },
+    [ownership],
+  )
 
   const getSessionStatus = React.useCallback(
     (sessionId: string): ChatStatus => sessions[sessionId]?.status ?? "ready",
@@ -71,14 +80,19 @@ export function useChatRunState(): ChatRunState {
     [sessions],
   )
 
-  const forgetSession = React.useCallback((sessionId: string): void => {
-    dispatch({ sessionId, type: "forget_session" })
-  }, [])
+  const forgetSession = React.useCallback(
+    (sessionId: string): void => {
+      ownership.forget(sessionId)
+      dispatch({ sessionId, type: "forget_session" })
+    },
+    [ownership],
+  )
 
   const reset = React.useCallback((): void => {
     dispatch({ type: "reset" })
     clearedActiveRunIds.current.clear()
-  }, [])
+    ownership.reset()
+  }, [ownership])
 
   const statuses = React.useMemo<Record<string, ChatStatus>>(
     () => Object.fromEntries(Object.entries(sessions).map(([sessionId, view]) => [sessionId, view.status])),
@@ -95,6 +109,7 @@ export function useChatRunState(): ChatRunState {
   )
 
   return {
+    ownership,
     activities,
     applyActiveRun,
     forgetSession,

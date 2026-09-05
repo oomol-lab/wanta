@@ -90,3 +90,12 @@ test("a user prompt echo never flips the run to answering", () => {
   assert.equal(registry.get("session-1")?.phase, "answering")
   assert.equal(registry.get("session-1")?.activeAssistantMessageId, "assistant-1")
 })
+
+test("a delayed reply for an unknown blocking request cannot reset the current tool phase", () => {
+  const registry = new ActiveRunRegistry(() => undefined)
+  registry.create("session", "new-run", { kind: "local", workspaceId: "local", workspaceName: "Local" })
+  registry.update("session", { phase: "tool_running", activeToolPartIds: ["new-tool"] })
+  const before = registry.get("session")
+  registry.removeBlockingRequest("session", "old-permission")
+  assert.equal(registry.get("session"), before)
+})

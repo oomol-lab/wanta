@@ -224,6 +224,45 @@ External agents build on `electron/agent/external/`:
   only host-capability guards and runtime paths, never model credentials or
   provider endpoints.
 
+## Cancellation settlement
+
+A host `cancel` request resolves only after the ACP prompt and its final events
+have settled. Sending `session/cancel` alone is not proof that the session can
+accept another prompt. The adapter waits up to ten seconds, then reports a
+cancellation timeout while retaining the native active-turn guard. AbortSignal
+notifications remain non-blocking; the explicit cancel request owns the wait.
+The chat service suppresses abort echoes and prevents cancelled generations
+from taking the successful-completion path during this wait.
+
+ACP marks a drained cancelled prompt with `messageCompleted.outcome = "cancelled"`,
+including process loss during cancellation. This acknowledgement resumes host
+cleanup after a cancellation timeout; it never becomes a successful turn. Stop
+attempts and acknowledgements share one generation-scoped cleanup promise, so
+repeated stop requests cannot finalize or publish the outcome twice. While the
+native turn remains active, the renderer keeps the stop control and queue gate
+active even when the stop RPC reports an error.
+
+Host terminal notifications carry `runId`. The renderer checks that identity
+before changing run state or clearing pending interactions. Local async actions
+capture an ownership token; optimistic sends bind that token to the host run on
+acknowledgement, and replacement or termination invalidates late callbacks.
+
+## Progress event ownership
+
+The host retains a bounded session/message-to-run index across turn completion.
+Known old message events cannot advance a replacement run, reset its watchdogs,
+or register tool child sessions. OpenCode assistant `parentID` is preserved as
+`parentMessageId` so a first-seen assistant belonging to a different user turn
+can also be rejected. Internal compaction messages are filtered before indexing.
+
+Message, tool, and activity progress sent to the renderer carries the captured
+`runId`, including buffered text. The renderer accepts tagged progress only for
+its live run; progress received after termination cannot restore a busy state.
+Backend history remains authoritative: ignored live updates can still appear
+in the next transcript snapshot, without changing the current run's phase.
+Uncorrelated native events without a known message owner or parent remain
+session-scoped; the host does not infer their age from text or identifier order.
+
 ## Checklist: adding a new agent
 
 0. **ACP-speaking agent?** Then it is ONE registration entry in

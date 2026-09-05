@@ -142,6 +142,7 @@ export class ActiveRunRegistry {
 
   public removeBlockingRequest(sessionId: string, requestId: string): void {
     const blocks = this.blockingPhases.get(sessionId)
+    if (!blocks?.has(requestId)) return
     if (blocks) {
       blocks.delete(requestId)
       if (blocks.size === 0) {

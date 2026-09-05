@@ -109,6 +109,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
   const { locale } = useI18n()
   const {
     activities,
+    ownership,
     applyActiveRun,
     forgetSession: forgetRunStateSession,
     getSessionRunStartedAt,
@@ -386,10 +387,12 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
 
   const replyPermissionRequest = React.useCallback(
     async (sessionId: string, requestId: string, reply: ChatPermissionReply): Promise<void> => {
+      const operation = ownership.capture(sessionId)
       await chatService.invoke("answerPermission", { sessionId, requestId, reply })
+      if (!ownership.isCurrent(sessionId, operation)) return
       removePendingPermission(sessionId, requestId)
     },
-    [chatService, removePendingPermission],
+    [chatService, ownership, removePendingPermission],
   )
 
   const setLocalPermissionMode = React.useCallback((sessionId: string, mode: AgentPermissionMode): number => {
@@ -598,10 +601,10 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
   React.useEffect(() => {
     const offs = [
       chatService.serverEvents.on("activeRunUpdated", (e) => {
-        markActiveRunMutated(e.sessionId)
-        applyActiveRun(e.sessionId, e.run, e.endedRunId)
+        if (applyActiveRun(e.sessionId, e.run, e.endedRunId)) markActiveRunMutated(e.sessionId)
       }),
       chatService.serverEvents.on("messageStarted", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         patch(e.sessionId, (msgs) => setMessageInfo(msgs, e))
         if (e.role === "assistant") {
@@ -612,6 +615,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         }
       }),
       chatService.serverEvents.on("messageDelta", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         setStatus(e.sessionId, "streaming")
         // A user-echo delta is not assistant progress; keep the thinking
@@ -623,23 +627,27 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         delayPendingToolFlushForText(e)
       }),
       chatService.serverEvents.on("messageReasoningDelta", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         setStatus(e.sessionId, "streaming")
         setActivity(e.sessionId, { sessionId: e.sessionId, messageId: e.messageId, phase: "thinking" })
         enqueueTextDelta("reasoning", e)
       }),
       chatService.serverEvents.on("messageAttachment", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         flushPendingTextDeltas()
         patch(e.sessionId, (msgs) => setAttachmentPart(msgs, e))
       }),
       chatService.serverEvents.on("toolCallStarted", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         setStatus(e.sessionId, "streaming")
         setActivity(e.sessionId, undefined)
         enqueueToolCallStarted(e)
       }),
       chatService.serverEvents.on("toolCallResult", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         const cancelled = e.status === "error" && isSessionUserStopped(e.sessionId)
         setStatus(e.sessionId, cancelled ? "ready" : "streaming")
@@ -702,6 +710,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         setLocalPermissionMode(e.sessionId, e.permissionMode)
       }),
       chatService.serverEvents.on("assistantActivity", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         setStatus(e.sessionId, "streaming")
         setActivity(e.sessionId, e)
         const { finishReason, messageId } = e
@@ -732,6 +741,11 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         patch(e.sessionId, (msgs) => removePart(msgs, e))
       }),
       chatService.serverEvents.on("messageCompleted", (e) => {
+        if (!ownership.acceptsTerminal(e.sessionId, e.runId)) return
+        if (e.runId) {
+          markActiveRunMutated(e.sessionId)
+          applyActiveRun(e.sessionId, null, e.runId)
+        }
         removeAnsweredPendingQuestions(e.sessionId)
         flushPendingToolParts()
         setStatus(e.sessionId, "ready")
@@ -739,6 +753,11 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("turnOutcome", (e) => {
+        if (!ownership.acceptsTerminal(e.sessionId, e.runId)) return
+        if (e.runId) {
+          markActiveRunMutated(e.sessionId)
+          applyActiveRun(e.sessionId, null, e.runId)
+        }
         removeAnsweredPendingQuestions(e.sessionId)
         if (e.kind === "completed" || e.kind === "cancelled") {
           setStatus(e.sessionId, "ready")
@@ -748,6 +767,11 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         setActivity(e.sessionId, undefined)
       }),
       chatService.serverEvents.on("messageError", (e) => {
+        if (!ownership.acceptsTerminal(e.sessionId, e.runId)) return
+        if (e.runId) {
+          markActiveRunMutated(e.sessionId)
+          applyActiveRun(e.sessionId, null, e.runId)
+        }
         removeAnsweredPendingQuestions(e.sessionId)
         flushPendingToolParts()
         setStatus(e.sessionId, "error")
@@ -756,6 +780,11 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         patch(e.sessionId, (msgs) => setErrorPart(msgs, e))
       }),
       chatService.serverEvents.on("generationInterrupted", (e) => {
+        if (!ownership.acceptsTerminal(e.sessionId, e.runId)) return
+        if (e.runId) {
+          markActiveRunMutated(e.sessionId)
+          applyActiveRun(e.sessionId, null, e.runId)
+        }
         flushPendingToolParts()
         setStatus(e.sessionId, "error")
         setActivity(e.sessionId, undefined)
@@ -771,6 +800,11 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         patch(e.sessionId, (msgs) => setGenerationNoticePart(msgs, e))
       }),
       chatService.serverEvents.on("generationStopped", (e) => {
+        if (!ownership.acceptsTerminal(e.sessionId, e.runId)) return
+        if (e.runId) {
+          markActiveRunMutated(e.sessionId)
+          applyActiveRun(e.sessionId, null, e.runId)
+        }
         flushPendingToolParts()
         setStatus(e.sessionId, "ready")
         setActivity(e.sessionId, undefined)
@@ -799,6 +833,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
     }
   }, [
     applyActiveRun,
+    ownership,
     chatService,
     clearPendingPermissions,
     clearSessionError,
@@ -925,6 +960,8 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       cancelledToolParts.current.delete(sessionId)
       const selectedPermissionMode = options.permissionMode ?? sessionPermissionMode(sessionId)
       const permissionModeVersion = setLocalPermissionMode(sessionId, selectedPermissionMode)
+      const operation = ownership.beginSubmission(sessionId)
+      markActiveRunMutated(sessionId)
       setStatus(sessionId, "submitted")
       setActivity(sessionId, { sessionId, phase: "thinking" })
       patch(sessionId, (msgs) => appendOptimisticConversationTurn(msgs, text, attachments, options.contextMentions))
@@ -947,6 +984,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
           scope: options.sessionScope,
         })
       } catch (err) {
+        if (!ownership.isCurrent(sessionId, operation)) throw err
         reportRendererHandledError("chat", "sendMessage invoke failed", err)
         setStatus(sessionId, "error")
         setActivity(sessionId, undefined)
@@ -962,9 +1000,11 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       }
     },
     [
+      ownership,
       chatService,
       clearSessionError,
       locale,
+      markActiveRunMutated,
       patch,
       sessionPermissionMode,
       setActivity,
@@ -975,26 +1015,30 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
 
   const stop = React.useCallback(
     async (sessionId: string) => {
+      const operation = ownership.capture(sessionId)
       setGlobalError(null)
       clearSessionError(sessionId)
       markSessionUserStopped(sessionId)
       try {
         await chatService.invoke("stopGeneration", sessionId)
+        if (!ownership.isCurrent(sessionId, operation)) return
         markCurrentToolsCancelled(sessionId)
         clearPendingQuestions(sessionId)
         clearPendingPermissions(sessionId)
         setStatus(sessionId, "ready")
         setActivity(sessionId, undefined)
       } catch (err) {
+        if (!ownership.isCurrent(sessionId, operation)) throw err
         unmarkSessionUserStopped(sessionId)
         reportRendererHandledError("chat", "stopGeneration invoke failed", err)
-        setStatus(sessionId, "error")
+        setStatus(sessionId, ownership.hasActiveRun(sessionId) ? "streaming" : "error")
         setActivity(sessionId, undefined)
         setSessionError(sessionId, String(err))
         throw err
       }
     },
     [
+      ownership,
       chatService,
       clearPendingPermissions,
       clearSessionError,
@@ -1010,6 +1054,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
 
   const answerQuestion = React.useCallback(
     async (sessionId: string, requestId: string, answers: string[][]) => {
+      const operation = ownership.capture(sessionId)
       setGlobalError(null)
       clearSessionError(sessionId)
       const request = (pendingQuestionsMapRef.current[sessionId] ?? []).find((item) => item.id === requestId)
@@ -1017,9 +1062,11 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       setActivity(sessionId, { sessionId, phase: "thinking" })
       try {
         await chatService.invoke("answerQuestion", { sessionId, requestId, answers })
+        if (!ownership.isCurrent(sessionId, operation)) return
         markQuestionRequestAnswered(sessionId, request, answers)
         markPendingQuestionAnswered(sessionId, requestId)
       } catch (err) {
+        if (!ownership.isCurrent(sessionId, operation)) throw err
         reportRendererHandledError("chat", "answerQuestion invoke failed", err)
         setStatus(sessionId, "error")
         setActivity(sessionId, undefined)
@@ -1028,6 +1075,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       }
     },
     [
+      ownership,
       chatService,
       clearSessionError,
       markPendingQuestionAnswered,
@@ -1040,6 +1088,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
 
   const answerPermission = React.useCallback(
     async (sessionId: string, requestId: string, reply: ChatPermissionReply) => {
+      const operation = ownership.capture(sessionId)
       setGlobalError(null)
       clearSessionError(sessionId)
       setStatus(sessionId, "streaming")
@@ -1047,6 +1096,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       try {
         await replyPermissionRequest(sessionId, requestId, reply)
       } catch (err) {
+        if (!ownership.isCurrent(sessionId, operation)) throw err
         reportRendererHandledError("chat", "answerPermission invoke failed", err)
         setStatus(sessionId, "error")
         setActivity(sessionId, undefined)
@@ -1054,11 +1104,12 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         throw err
       }
     },
-    [clearSessionError, replyPermissionRequest, setActivity, setSessionError, setStatus],
+    [ownership, clearSessionError, replyPermissionRequest, setActivity, setSessionError, setStatus],
   )
 
   const rejectQuestion = React.useCallback(
     async (sessionId: string, requestId: string) => {
+      const operation = ownership.capture(sessionId)
       setGlobalError(null)
       clearSessionError(sessionId)
       const request = (pendingQuestionsMapRef.current[sessionId] ?? []).find((item) => item.id === requestId)
@@ -1066,9 +1117,11 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       setActivity(sessionId, { sessionId, phase: "thinking" })
       try {
         await chatService.invoke("rejectQuestion", { sessionId, requestId })
+        if (!ownership.isCurrent(sessionId, operation)) return
         removePendingQuestion(sessionId, requestId)
         markQuestionRequestsCancelled(sessionId, request ? [request] : [])
       } catch (err) {
+        if (!ownership.isCurrent(sessionId, operation)) throw err
         reportRendererHandledError("chat", "rejectQuestion invoke failed", err)
         setStatus(sessionId, "error")
         setActivity(sessionId, undefined)
@@ -1077,6 +1130,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       }
     },
     [
+      ownership,
       chatService,
       clearSessionError,
       markQuestionRequestsCancelled,

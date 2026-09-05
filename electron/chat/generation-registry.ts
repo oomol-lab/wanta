@@ -1,4 +1,6 @@
 export interface SessionGeneration {
+  cancellationRequested?: boolean
+  cancellationSettled?: boolean
   controller: AbortController
   id: string
   userMessageId: string

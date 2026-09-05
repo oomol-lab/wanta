@@ -46,6 +46,10 @@ export interface ToolTiming {
 
 // ── ServerEvents 负载（R7 流式：主进程把 OpenCode SSE 转译为这些事件推给渲染层）──
 export interface MessageStartedEvent {
+  /** Native user-message parent, when supplied by the backend. */
+  parentMessageId?: string
+  /** Host generation identity, attached before IPC buffering. */
+  runId?: string
   sessionId: string
   messageId: string
   role: ChatRole
@@ -56,6 +60,8 @@ export interface MessageStartedEvent {
   completedAt?: number
 }
 export interface MessageDeltaEvent {
+  /** Host generation identity, attached before IPC buffering. */
+  runId?: string
   sessionId: string
   messageId: string
   partId: string
@@ -67,6 +73,8 @@ export interface MessageDeltaEvent {
   synthetic?: boolean
 }
 export interface MessageReasoningDeltaEvent {
+  /** Host generation identity, attached before IPC buffering. */
+  runId?: string
   sessionId: string
   messageId: string
   partId: string
@@ -75,6 +83,8 @@ export interface MessageReasoningDeltaEvent {
   delta?: string
 }
 export interface MessageAttachmentEvent {
+  /** Host generation identity, attached before IPC buffering. */
+  runId?: string
   sessionId: string
   messageId: string
   partId: string
@@ -91,6 +101,8 @@ export interface TurnOutputUpdatedEvent {
 export type AssistantActivityPhase = "thinking" | "finalizing" | "retrying" | "compacting" | "resuming"
 
 export interface AssistantActivityEvent {
+  /** Host generation identity, attached before IPC buffering. */
+  runId?: string
   sessionId: string
   messageId?: string
   phase: AssistantActivityPhase
@@ -101,6 +113,8 @@ export interface AssistantActivityEvent {
   nextRetryAt?: number
 }
 export interface ToolCallStartedEvent {
+  /** Host generation identity, attached before IPC buffering. */
+  runId?: string
   sessionId: string
   messageId: string
   partId: string
@@ -122,6 +136,8 @@ export type ToolFailureKind =
   | "unknown"
 export type ToolUserImpact = "none" | "read_only" | "side_effect_possible"
 export interface ToolCallResultEvent {
+  /** Host generation identity, attached before IPC buffering. */
+  runId?: string
   sessionId: string
   messageId: string
   partId: string

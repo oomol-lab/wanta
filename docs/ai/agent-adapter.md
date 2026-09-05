@@ -247,6 +247,22 @@ before changing run state or clearing pending interactions. Local async actions
 capture an ownership token; optimistic sends bind that token to the host run on
 acknowledgement, and replacement or termination invalidates late callbacks.
 
+## Progress event ownership
+
+The host retains a bounded session/message-to-run index across turn completion.
+Known old message events cannot advance a replacement run, reset its watchdogs,
+or register tool child sessions. OpenCode assistant `parentID` is preserved as
+`parentMessageId` so a first-seen assistant belonging to a different user turn
+can also be rejected. Internal compaction messages are filtered before indexing.
+
+Message, tool, and activity progress sent to the renderer carries the captured
+`runId`, including buffered text. The renderer accepts tagged progress only for
+its live run; progress received after termination cannot restore a busy state.
+Backend history remains authoritative: ignored live updates can still appear
+in the next transcript snapshot, without changing the current run's phase.
+Uncorrelated native events without a known message owner or parent remain
+session-scoped; the host does not infer their age from text or identifier order.
+
 ## Checklist: adding a new agent
 
 0. **ACP-speaking agent?** Then it is ONE registration entry in

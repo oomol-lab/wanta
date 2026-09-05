@@ -1381,3 +1381,36 @@ test("edge5b: a malformed external session uuid is never routed to an adapter", 
   )
   assert.equal(codex.prompts.length, 0)
 })
+
+test("late external tool results remain in history without advancing the replacement run", async () => {
+  const { service, adapters, events } = createHarness(["codex"])
+  const adapter = adapters.get("codex")!
+  const sessionId = mintExternalSessionId("codex")
+  await service.sendMessage(sendRequest(sessionId, "first"))
+  await waitForCondition(() => adapter.prompts.length === 1)
+  adapter.startAssistantReply(sessionId, "old-assistant", "first reply")
+  await service.stopGeneration(sessionId)
+  await service.sendMessage(sendRequest(sessionId, "second"))
+  await waitForCondition(() => adapter.prompts.length === 2)
+  adapter.startAssistantReply(sessionId, "new-assistant", "second reply")
+  const before = await service.getActiveRun(sessionId)
+  const count = events.length
+  adapter.emitEvent({
+    event: "toolCallResult",
+    data: {
+      sessionId,
+      messageId: "old-assistant",
+      partId: "old-part",
+      callId: "old-call",
+      tool: "bash",
+      input: {},
+      output: "late historical output",
+      status: "completed",
+    },
+  })
+  assert.deepEqual(await service.getActiveRun(sessionId), before)
+  assert.equal(events.length, count)
+  const oldMessage = (await adapter.getMessages(sessionId)).find((message) => message.id === "old-assistant")
+  assert.ok(oldMessage?.parts.some((part) => part.kind === "tool" && part.output === "late historical output"))
+  await service.stopGeneration(sessionId)
+})

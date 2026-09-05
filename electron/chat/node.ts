@@ -116,6 +116,7 @@ import {
   localAccessPromptReason,
 } from "./local-access-policy.ts"
 import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
+import { MessageRunRegistry } from "./message-run-registry.ts"
 import { OutputPersistence } from "./output-persistence.ts"
 import { PermissionDiagnostics } from "./permission-diagnostics.ts"
 import { permissionCommand } from "./permission-request.ts"
@@ -356,6 +357,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly userStops = new UserStopTracker()
   private emittedMessageErrors = new Map<string, Set<string>>()
   private readonly generations = new GenerationRegistry()
+  private readonly messageRuns = new MessageRunRegistry()
   private readonly stoppingGenerations = new Map<string, Promise<void>>()
   private readonly activeRuns = new ActiveRunRegistry(({ ended, run, sessionId }) => {
     this.sendBestEffort(this.send.bind(this) as (event: string, data: unknown) => Promise<void>, "activeRunUpdated", {
@@ -460,6 +462,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.outputPersistence.reset()
     this.desiredWorkspaceTeamName = undefined
     this.startedMessages.clear()
+    this.messageRuns.clear()
     this.internalMessageIds.clear()
     this.compactingSessions.clear()
     this.completionChecks.clear()
@@ -705,6 +708,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   /** 会话永久删除后释放运行态索引，并删除授权/停止 overlay。 */
   public async forgetSession(sessionId: string): Promise<void> {
+    this.messageRuns.forgetSession(sessionId)
     this.deletedExternalSelectionSessions.add(sessionId)
     this.generations.get(sessionId)?.controller.abort()
     const selectionMutationsSettled = this.settleExternalSelectionMutations(sessionId)
@@ -825,10 +829,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     ) {
       return
     }
-    const activitySessionId = generationSessionId ?? sourceSessionId
-    if (activitySessionId) {
-      this.generations.clearAcknowledgementWatchdog(activitySessionId)
-    }
     if (translated.event === "messageStarted") {
       if (translated.data.internal === true) {
         this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
@@ -836,12 +836,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
       if (translated.data.role === "user" && this.compactingSessions.has(translated.data.sessionId)) {
         this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
-        return
-      }
-      if (translated.data.role === "assistant") {
-        this.compactingSessions.delete(translated.data.sessionId)
-      }
-      if (!this.rememberMessageStarted(translated)) {
         return
       }
     }
@@ -852,6 +846,32 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       (translated.event === "messageDelta" && translated.data.synthetic === true)
     ) {
       return
+    }
+    // Resolve message ownership before watchdogs, active-run mutation, tool
+    // diagnostics or child-session registration can observe this event.
+    const progressGeneration = generationSessionId ? this.generations.get(generationSessionId) : undefined
+    if ("messageId" in translated.data && translated.data.messageId) {
+      if (
+        !this.messageRuns.isCurrent(sourceSessionId!, translated.data.messageId, progressGeneration?.id, {
+          ...(translated.event === "messageStarted" && translated.data.role === "assistant"
+            ? {
+                parentMessageId:
+                  translated.data.parentMessageId &&
+                  !this.isInternalMessage(sourceSessionId!, translated.data.parentMessageId)
+                    ? translated.data.parentMessageId
+                    : undefined,
+              }
+            : {}),
+          ...(sourceSessionId === generationSessionId ? { userMessageId: progressGeneration?.userMessageId } : {}),
+        })
+      )
+        return
+    }
+    const activitySessionId = generationSessionId ?? sourceSessionId
+    if (activitySessionId) this.generations.clearAcknowledgementWatchdog(activitySessionId)
+    if (translated.event === "messageStarted") {
+      if (!this.rememberMessageStarted(translated)) return
+      if (translated.data.role === "assistant") this.compactingSessions.delete(translated.data.sessionId)
     }
     if (translated.event === "assistantActivity" && translated.data.phase === "compacting") {
       this.compactingSessions.add(translated.data.sessionId)
@@ -993,11 +1013,19 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.scheduleGenerationInactivityWatchdog(generationSessionId)
       }
     }
-    if ((displayed.event === "messageDelta" || displayed.event === "messageReasoningDelta") && this.streamEventBuffer) {
-      this.eventMetrics.record(`stream-input:${displayed.event}`)
-      this.streamEventBuffer.enqueue(displayed)
+    // Capture the owner before IPC buffering; never look it up again at flush time.
+    const progressEvent =
+      progressGeneration && ("messageId" in displayed.data || displayed.event === "assistantActivity")
+        ? ({ ...displayed, data: { ...displayed.data, runId: progressGeneration.id } } as ChatEmit)
+        : displayed
+    if (
+      (progressEvent.event === "messageDelta" || progressEvent.event === "messageReasoningDelta") &&
+      this.streamEventBuffer
+    ) {
+      this.eventMetrics.record(`stream-input:${progressEvent.event}`)
+      this.streamEventBuffer.enqueue(progressEvent)
     } else {
-      this.sendBestEffort(emit, displayed.event, displayed.data, { sessionId: displayedSessionId })
+      this.sendBestEffort(emit, progressEvent.event, progressEvent.data, { sessionId: displayedSessionId })
     }
   }
 

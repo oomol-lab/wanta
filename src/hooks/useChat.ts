@@ -604,6 +604,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         if (applyActiveRun(e.sessionId, e.run, e.endedRunId)) markActiveRunMutated(e.sessionId)
       }),
       chatService.serverEvents.on("messageStarted", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         patch(e.sessionId, (msgs) => setMessageInfo(msgs, e))
         if (e.role === "assistant") {
@@ -614,6 +615,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         }
       }),
       chatService.serverEvents.on("messageDelta", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         setStatus(e.sessionId, "streaming")
         // A user-echo delta is not assistant progress; keep the thinking
@@ -625,23 +627,27 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         delayPendingToolFlushForText(e)
       }),
       chatService.serverEvents.on("messageReasoningDelta", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         setStatus(e.sessionId, "streaming")
         setActivity(e.sessionId, { sessionId: e.sessionId, messageId: e.messageId, phase: "thinking" })
         enqueueTextDelta("reasoning", e)
       }),
       chatService.serverEvents.on("messageAttachment", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         flushPendingTextDeltas()
         patch(e.sessionId, (msgs) => setAttachmentPart(msgs, e))
       }),
       chatService.serverEvents.on("toolCallStarted", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         setStatus(e.sessionId, "streaming")
         setActivity(e.sessionId, undefined)
         enqueueToolCallStarted(e)
       }),
       chatService.serverEvents.on("toolCallResult", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         removeAnsweredPendingQuestions(e.sessionId)
         const cancelled = e.status === "error" && isSessionUserStopped(e.sessionId)
         setStatus(e.sessionId, cancelled ? "ready" : "streaming")
@@ -704,6 +710,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         setLocalPermissionMode(e.sessionId, e.permissionMode)
       }),
       chatService.serverEvents.on("assistantActivity", (e) => {
+        if (!ownership.acceptsProgress(e.sessionId, e.runId)) return
         setStatus(e.sessionId, "streaming")
         setActivity(e.sessionId, e)
         const { finishReason, messageId } = e

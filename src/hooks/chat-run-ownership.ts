@@ -33,6 +33,14 @@ export class ChatRunOwnership {
     return Boolean(token?.runId && !token.ended)
   }
 
+  public acceptsProgress(sessionId: string, runId?: string): boolean {
+    const current = this.sessions.get(sessionId)
+    if (!current) return !runId
+    if (current.ended) return false
+    if (!runId) return !current.runId
+    return current.runId === runId
+  }
+
   public acceptsTerminal(sessionId: string, runId?: string): boolean {
     const current = this.sessions.get(sessionId)
     if (!current) return true

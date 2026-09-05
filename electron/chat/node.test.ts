@@ -910,7 +910,12 @@ test("stopping during compaction clears internal state before the next generatio
   assert.deepEqual(events.slice(eventCount), [
     {
       event: "messageStarted",
-      data: { sessionId: "session-1", messageId: "reused-message", role: "user" },
+      data: {
+        sessionId: "session-1",
+        messageId: "reused-message",
+        role: "user",
+        runId: (await service.getActiveRun("session-1"))?.runId,
+      },
     },
   ])
 })
@@ -4689,4 +4694,144 @@ test("completion during cancellation cannot release the session or report succes
   expect(events.filter((event) => event.event === "turnOutcome").map((event) => event.data)).toEqual([
     { sessionId: "session-1", runId, kind: "cancelled", messageId: "assistant-1" },
   ])
+})
+
+test("late tool and activity events cannot mutate the replacement run or register child sessions", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "first" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "old-assistant", sessionID: "session-1", role: "assistant" } },
+  })
+  await service.stopGeneration("session-1")
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "second" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "new-assistant", sessionID: "session-1", role: "assistant" } },
+  })
+  const before = await service.getActiveRun("session-1")
+  const eventCount = events.length
+  for (const status of ["running", "completed"] as const) {
+    bridge.emit({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "old-tool",
+          sessionID: "session-1",
+          messageID: "old-assistant",
+          type: "tool",
+          callID: "old-call",
+          tool: "task",
+          state: { status, input: {}, output: "old output", metadata: { sessionId: "late-child" } },
+        },
+      },
+    })
+  }
+  bridge.emit({
+    type: "message.part.updated",
+    properties: { part: { id: "old-step", sessionID: "session-1", messageID: "old-assistant", type: "step-start" } },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: { id: "old-text", sessionID: "session-1", messageID: "old-assistant", type: "text", text: "late" },
+    },
+  })
+  expect(await service.getActiveRun("session-1")).toEqual(before)
+  expect(events).toHaveLength(eventCount)
+  expect(bridge.inheritSessionKnowledgeBaseIds).not.toHaveBeenCalled()
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "new-tool",
+        sessionID: "session-1",
+        messageID: "new-assistant",
+        type: "tool",
+        callID: "new-call",
+        tool: "bash",
+        state: { status: "running", input: {} },
+      },
+    },
+  })
+  expect(await service.getActiveRun("session-1")).toMatchObject({
+    phase: "tool_running",
+    activeToolPartIds: ["new-tool"],
+    activeAssistantMessageId: "new-assistant",
+  })
+  expect(events.at(-1)).toMatchObject({ event: "toolCallStarted", data: { runId: before?.runId, partId: "new-tool" } })
+  await service.stopGeneration("session-1")
+  const stoppedCount = events.length
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: { id: "old-text", sessionID: "session-1", messageID: "old-assistant", type: "text", text: "late again" },
+    },
+  })
+  expect(events).toHaveLength(stoppedCount)
+})
+
+test("native parent identity rejects a first-seen old assistant after a retry", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "first" })
+  const oldParent = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId
+  await service.stopGeneration("session-1")
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "second" })
+  const newParent = bridge.promptStreaming.mock.calls[1]?.[2]?.messageId
+  const before = await service.getActiveRun("session-1")
+  const count = events.length
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "unseen-old", sessionID: "session-1", role: "assistant", parentID: oldParent } },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: { id: "unseen-text", sessionID: "session-1", messageID: "unseen-old", type: "text", text: "late" },
+    },
+  })
+  expect(await service.getActiveRun("session-1")).toEqual(before)
+  expect(events).toHaveLength(count)
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "current", sessionID: "session-1", role: "assistant", parentID: newParent } },
+  })
+  expect(await service.getActiveRun("session-1")).toMatchObject({
+    activeAssistantMessageId: "current",
+    phase: "thinking",
+  })
+  await service.stopGeneration("session-1")
+})
+
+test("current compaction continuation parents still advance the active run", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "continue work" })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: { part: { id: "compact", sessionID: "session-1", messageID: "summary", type: "compaction" } },
+  })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "continuation", sessionID: "session-1", role: "user" } },
+  })
+  bridge.emit({
+    type: "message.updated",
+    properties: {
+      info: { id: "continued-assistant", sessionID: "session-1", role: "assistant", parentID: "continuation" },
+    },
+  })
+  expect(await service.getActiveRun("session-1")).toMatchObject({
+    phase: "thinking",
+    activeAssistantMessageId: "continued-assistant",
+  })
+  await service.stopGeneration("session-1")
 })

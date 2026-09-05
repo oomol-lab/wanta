@@ -236,3 +236,69 @@ test("a send failure remains visible after its optimistic token binds to the hos
   expect(h.state.status).toBe("error")
   expect(h.state.messages.flatMap((message) => message.parts).some((part) => part.kind === "error")).toBe(true)
 })
+
+test("old progress events cannot change the new activity, tools, or optimistic messages", async () => {
+  const h = await mount()
+  React.act(() => startNewRun())
+  const beforeMessages = h.state.messages
+  const old = { sessionId, runId: "old", messageId: "old-assistant", partId: "old-part" }
+  React.act(() => {
+    emit("messageStarted", { ...old, role: "assistant" })
+    emit("messageDelta", { ...old, text: "late text" })
+    emit("messageReasoningDelta", { ...old, text: "late reasoning" })
+    emit("messageAttachment", {
+      ...old,
+      attachment: { id: "old", path: "/tmp/old", name: "old", mime: "text/plain", size: 1 },
+    })
+    emit("toolCallStarted", { ...old, callId: "old-call", tool: "bash", input: {}, status: "running" })
+    emit("toolCallResult", {
+      ...old,
+      callId: "old-call",
+      tool: "bash",
+      input: {},
+      status: "completed",
+      output: "late result",
+    })
+    emit("assistantActivity", { ...old, phase: "retrying" })
+  })
+  expect(h.state.status).toBe("streaming")
+  expect(h.state.activity).toBeNull()
+  expect(h.state.messages).toBe(beforeMessages)
+  expect(h.state.pendingPermissions.map((request) => request.id)).toEqual(["new-permission"])
+  React.act(() => {
+    emit("toolCallStarted", {
+      sessionId,
+      runId: "new",
+      messageId: "new-assistant",
+      partId: "new-part",
+      callId: "new-call",
+      tool: "bash",
+      input: {},
+      status: "running",
+    })
+  })
+  await React.act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  })
+  expect(h.state.messages.flatMap((message) => message.parts)).toEqual([
+    expect.objectContaining({ kind: "tool", partId: "new-part", status: "running" }),
+  ])
+  React.act(() => {
+    emit("activeRunUpdated", { sessionId, run: null, endedRunId: "new" })
+    emit("toolCallResult", {
+      sessionId,
+      runId: "new",
+      messageId: "new-assistant",
+      partId: "new-part",
+      callId: "new-call",
+      tool: "bash",
+      input: {},
+      status: "completed",
+      output: "after end",
+    })
+    emit("assistantActivity", { sessionId, runId: "new", phase: "thinking" })
+    emit("assistantActivity", { sessionId, phase: "thinking" })
+  })
+  expect(h.state.status).toBe("ready")
+  expect(h.state.activity).toBeNull()
+})

@@ -161,6 +161,8 @@ export const permissionRequestSchema = z.object({
 })
 
 const messageStartedSchema = z.object({
+  parentMessageId: z.string().optional(),
+  runId: z.string().optional(),
   sessionId: z.string(),
   messageId: z.string(),
   role: chatRoleSchema,
@@ -170,6 +172,7 @@ const messageStartedSchema = z.object({
 })
 
 const messageDeltaSchema = z.object({
+  runId: z.string().optional(),
   sessionId: z.string(),
   messageId: z.string(),
   partId: z.string(),
@@ -179,6 +182,7 @@ const messageDeltaSchema = z.object({
 })
 
 const messageReasoningDeltaSchema = z.object({
+  runId: z.string().optional(),
   sessionId: z.string(),
   messageId: z.string(),
   partId: z.string(),
@@ -187,6 +191,7 @@ const messageReasoningDeltaSchema = z.object({
 })
 
 const messageAttachmentSchema = z.object({
+  runId: z.string().optional(),
   sessionId: z.string(),
   messageId: z.string(),
   partId: z.string(),
@@ -194,6 +199,7 @@ const messageAttachmentSchema = z.object({
 })
 
 const assistantActivitySchema = z.object({
+  runId: z.string().optional(),
   sessionId: z.string(),
   messageId: z.string().optional(),
   phase: z.enum(["thinking", "finalizing", "retrying", "compacting", "resuming"]),
@@ -204,6 +210,7 @@ const assistantActivitySchema = z.object({
 })
 
 const toolCallStartedSchema = z.object({
+  runId: z.string().optional(),
   sessionId: z.string(),
   messageId: z.string(),
   partId: z.string(),
@@ -217,6 +224,7 @@ const toolCallStartedSchema = z.object({
 })
 
 const toolCallResultSchema = z.object({
+  runId: z.string().optional(),
   sessionId: z.string(),
   messageId: z.string(),
   partId: z.string(),

@@ -299,6 +299,7 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
         | {
             id?: string
             sessionID?: string
+            parentID?: string
             role?: ChatRole
             error?: unknown
             finish?: unknown
@@ -318,6 +319,7 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
             sessionId: info.sessionID,
             messageId: info.id,
             role: info.role,
+            ...(info.parentID ? { parentMessageId: info.parentID } : {}),
             ...(info.summary === true ? { internal: true } : {}),
             ...(finishReason ? { finishReason } : {}),
             ...(completedAt === undefined ? {} : { completedAt }),

@@ -272,8 +272,16 @@ export function ReadOnlyConnectionNotice() {
   )
 }
 
-export function ConnectionStateNotice({ status }: { status: "forbidden" | "unavailable" }) {
+export function ConnectionStateNotice({ status }: { status: "loading" | "forbidden" | "unavailable" }) {
   const t = useT()
+  if (status === "loading") {
+    return (
+      <div role="status" className="oo-text-caption oo-text-muted flex min-h-10 items-center gap-2 px-3 py-2">
+        <Loader size={16} />
+        {t("connections.stateLoadingDescription")}
+      </div>
+    )
+  }
   return (
     <section className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg border border-dashed px-3 py-2">
       <AlertCircle className="oo-icon-muted size-4 shrink-0" />

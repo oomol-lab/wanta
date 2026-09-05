@@ -1456,6 +1456,7 @@ export const zhCNMessages = {
   "connections.unavailableDescription": "连接服务暂时不可用，应用会在刷新时重试。",
   "connections.readOnlyTitle": "当前工作区为只读连接模式",
   "connections.readOnlyDescription": "你可以浏览连接器目录；新增、修改、重新授权或断开连接需要团队管理员权限。",
+  "connections.stateLoadingDescription": "正在读取账号连接状态…",
   "connections.stateUnavailableTitle": "当前团队的连接状态无法读取",
   "connections.stateForbiddenDescription": "你没有读取当前团队连接状态的权限，但仍可浏览连接器目录。",
   "connections.stateUnavailableDescription": "当前团队的连接状态暂时无法刷新，但仍可浏览连接器目录。",

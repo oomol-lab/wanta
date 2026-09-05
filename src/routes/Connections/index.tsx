@@ -535,6 +535,11 @@ export function ConnectionsPanel({
     [clearActionError, clearDetailCloseTimer],
   )
 
+  const selectCatalogProvider = React.useCallback(
+    (provider: ConnectionProviderSummary) => selectProvider(provider.service),
+    [selectProvider],
+  )
+
   const closeDetail = React.useCallback(() => {
     if (!selectedProviderService) {
       setNarrowPane("list")
@@ -993,7 +998,7 @@ export function ConnectionsPanel({
                 scrollParentRef={listPaneRef}
                 selectedService={selectedProvider?.service ?? null}
                 showConnectionState={showConnectionState}
-                onSelect={(provider) => selectProvider(provider.service)}
+                onSelect={selectCatalogProvider}
               />
             )}
           </div>

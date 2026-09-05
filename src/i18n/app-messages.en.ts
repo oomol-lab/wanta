@@ -1527,6 +1527,7 @@ export const enMessages = {
   "connections.readOnlyTitle": "Connections are read-only in this workspace",
   "connections.readOnlyDescription":
     "You can browse the connector catalog. Adding, editing, reconnecting, or disconnecting requires team administrator access.",
+  "connections.stateLoadingDescription": "Loading account connection status…",
   "connections.stateUnavailableTitle": "Team connection status unavailable",
   "connections.stateForbiddenDescription":
     "You cannot read this team's connection status, but you can still browse the connector catalog.",

@@ -367,6 +367,8 @@ test("LinkRuntimeManager merges and caches status checks until configuration cha
   })
   await manager.getOpenConnectorStatus()
   assert.equal(fetchMock.mock.calls.length, 2)
+  await manager.getOpenConnectorStatus({ forceRefresh: true })
+  assert.equal(fetchMock.mock.calls.length, 3)
 })
 
 test("LinkRuntimeManager normalizes and caches redacted OpenConnector inventory", async () => {
@@ -429,6 +431,10 @@ test("LinkRuntimeManager normalizes and caches redacted OpenConnector inventory"
   ])
   assert.equal(JSON.stringify(first).includes("private-id"), false)
   assert.equal(JSON.stringify(first).includes("private-scope"), false)
+  await manager.listOpenConnectorApps()
+  assert.equal(requests.length, 1)
+  await manager.listOpenConnectorApps(undefined, { forceRefresh: true })
+  assert.equal(requests.length, 2)
 })
 
 test("LinkRuntimeManager does not forward inventory credentials across origins", async () => {
@@ -475,4 +481,37 @@ test("LinkRuntimeManager preserves the previous configuration when an atomic wri
   assert.equal((await initial.openConnectorRuntime())?.runtimeToken, undefined)
   await initial.selectRuntime("openconnector")
   assert.equal((await initial.openConnectorRuntime())?.runtimeToken, "first-secret")
+})
+
+test("explicit refreshes share pending OpenConnector requests", async () => {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const fetchMock = vi.fn(async (input: string | URL | Request) => {
+    await gate
+    return String(input).endsWith("/v1/apps") ? Response.json({ success: true, data: [] }) : healthResponse()
+  })
+  const manager = new LinkRuntimeManager({
+    dir: await temporaryDirectory(),
+    encryption: encryption(),
+    fetch: fetchMock as typeof fetch,
+    getOomolAvailable: () => Promise.resolve(false),
+    platform: "darwin",
+  })
+  await manager.saveOpenConnector({ baseUrl: "https://connector.example.test" })
+  await manager.selectRuntime("openconnector")
+  const pending = Promise.all([
+    manager.getOpenConnectorStatus({ forceRefresh: true }),
+    manager.getOpenConnectorStatus({ forceRefresh: true }),
+    manager.listOpenConnectorApps(undefined, { forceRefresh: true }),
+    manager.listOpenConnectorApps(undefined, { forceRefresh: true }),
+  ])
+  try {
+    await vi.waitFor(() => assert.equal(fetchMock.mock.calls.length, 2))
+  } finally {
+    release()
+  }
+  await pending
+  assert.equal(fetchMock.mock.calls.length, 2)
 })

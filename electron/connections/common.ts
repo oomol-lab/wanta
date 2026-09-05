@@ -1,4 +1,4 @@
-export type ConnectionAppsStatus = "ready" | "forbidden" | "unavailable"
+export type ConnectionAppsStatus = "loading" | "ready" | "forbidden" | "unavailable"
 export type ConnectionCredentialAuthType = "oauth2" | "api_key" | "custom_credential" | "federated" | "no_auth"
 export type ConnectionAppAuthType = ConnectionCredentialAuthType | "marketplace"
 export type ConnectionAppStatus = "active" | "reauth_required" | "error" | "disconnected"

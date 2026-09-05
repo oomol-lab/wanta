@@ -35,8 +35,9 @@ Source size is only for scoping the audit, not a quality target:
 - This round had no real account, so login, team switching, connector OAuth, payment return, and
   the Agent conversation golden path were not exercised;
 - notifications were not verified against a signed packaged app;
-- long-session React Profiler, Chromium Performance traces, and multi-process memory curves have
-  not yet been collected;
+- the September 2026 measurement below covers long-session text streaming; large tool outputs,
+  manual scrolling, production-build interaction latency, and multi-process memory curves still
+  need separate measurements;
 - the current shell's Node version is below the repo minimum and cannot substitute for the Node 24
   CI results.
 
@@ -129,3 +130,84 @@ Later performance findings must stay `hypothesis` until there is same-environmen
   appears, and Univer is not deleted, downgraded, or replaced on that basis;
 - after the conclusions were written in, `ts-check`, `lint`, `format`, 234 test files, 1569 tests,
   and the production build all pass.
+
+## 2026-09-05: long-session streaming and sidebar invalidation
+
+The measured issue is unnecessary sidebar rendering during assistant text updates.
+Four callback props changed identity on each parent render: login, task management,
+pointer resize start, and keyboard resize. Stable callbacks now preserve the existing
+memoized sidebar boundary. Resize callbacks retain their collapsed/width dependencies;
+keyboard updates continue to use functional state updates.
+
+### Reproducible scenario
+
+- Apple M1 Pro, 32 GiB RAM, macOS 26.6.2 arm64, Node 22.22.2;
+- Electron 43.4.1 / Chromium 150.0.7871.224, development build, cache enabled,
+  DevTools window closed, viewport 1080 × 720 CSS pixels at DPR 2;
+- the real AppShell, sidebar, ChatArea, ChatTimeline, turn rows and composer run in
+  Electron with identical React Profiler wrappers before and after;
+- an in-memory service fixture replaces only session/chat data, with 200 historical
+  messages (100 user/assistant pairs; 93,180 text characters), Markdown, no images,
+  no artifacts, and one sidebar task;
+- each turn emits 625 cumulative text updates at 32 ms intervals, producing 10,000
+  characters over 20 seconds; scripted textarea input runs every 250 ms;
+- each condition has five runs, discards run zero as warm-up, and measures five seconds
+  before and after the streaming window; heap is sampled again 30 seconds after all runs;
+- input latency is dispatch-to-next-animation-frame for scripted textarea input,
+  excluding the final draft-clear event. It is a scheduling proxy, **not native-input INP**.
+  Percentiles use the nearest-rank method.
+
+The fixture bypasses model latency and main-process chat IPC, so this measures renderer
+behavior rather than provider throughput or end-to-end request latency. It does not modify
+backend chat history. Existing runtime/account setup is used only to load the app shell.
+
+### Before/after results
+
+Values below are measured during each 20-second streaming window. Aggregate durations are
+medians of the four valid runs. Profiler subtree durations are inclusive and must not be
+summed across nested components.
+
+| Metric                                            |    Before |      After | Interpretation                                                      |
+| ------------------------------------------------- | --------: | ---------: | ------------------------------------------------------------------- |
+| Sidebar Profiler updates per run                  |   626–627 |        1–2 | Token-driven invalidation removed; real status/clock updates remain |
+| Sidebar cumulative render time, median            |  719.7 ms |    4.25 ms | 99.4% reduction in this subtree                                     |
+| AppShell subtree cumulative render time, median   | 5067.2 ms | 4739.45 ms | 6.5% reduction in inclusive React render work                       |
+| Historical turn Profiler updates during streaming |         0 |          0 | Existing turn identity/memoization remains effective                |
+| Scripted input-to-frame p95, median across runs   |   14.2 ms |   13.15 ms | Variable; insufficient to claim a general typing improvement        |
+| Animation-frame interval p95, median across runs  |    9.1 ms |     9.8 ms | No overall frame-latency improvement established                    |
+| Long tasks over 50 ms during streaming            |         0 |          0 | This fixture did not reproduce a severe stall                       |
+
+Per-run render data, in milliseconds:
+
+| Valid run | Sidebar before | Sidebar after | AppShell before | AppShell after |
+| --------- | -------------: | ------------: | --------------: | -------------: |
+| 1         |          719.2 |           6.2 |          5078.8 |         4736.0 |
+| 2         |          721.9 |           2.7 |          5071.5 |         4768.9 |
+| 3         |          718.1 |           5.6 |          5062.9 |         4727.9 |
+| 4         |          720.2 |           2.9 |          5021.2 |         4742.9 |
+
+The active timeline continues to do most rendering work. Its commit frequency and cumulative
+cost increased after the sidebar fix, while inclusive AppShell render time decreased. Do not
+translate the sidebar percentage into a whole-app speedup or claim that smooth-text rendering
+has been optimized. The current measurements justify removing callback-induced invalidation,
+not replacing the timeline with a virtual list or adding blanket memoization.
+
+### Evidence and remaining coverage
+
+Local raw artifacts are under `.wanta-dev/quality/chat-perf/` and intentionally excluded from
+Git: `baseline-confirm.json`, `after-fixed.json`, their `*-summary.json` files, CPU profiles,
+Chromium traces, `environment.json`, archived baseline source, and the fixture/collector.
+The collector uses only profiling commands over loopback CDP. `diagnostic.json` records prop
+names and change counts, without serializing prop values. Prop-identity diagnostics established that all four callbacks must be stable to preserve
+the memo boundary.
+
+Full-duration React/RAF/long-task samples were saved. Chromium tracing reached its buffer
+limit and retained only the beginning of the run, so it is not evidence for a full-duration
+layout/paint/GC comparison. Memory observations are not a leak diagnosis. Native keyboard
+latency, manual scroll interaction, large tool results, larger sidebar inventories and
+production-build profiles remain separate follow-up scenarios.
+
+Validation includes a React hook regression covering stable callbacks on unrelated renders,
+dragging from a keyboard-updated width, Shift+Arrow/Home/End behavior, width persistence and
+collapsed-state guards. No changes were made to text batching, message identity, Markdown
+semantics or artifact presentation.

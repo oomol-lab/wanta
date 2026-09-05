@@ -128,35 +128,41 @@ export function useSidebarChromeState(
     })
   }, [])
 
-  const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (sidebarCollapsed) {
-      return
-    }
-    event.preventDefault()
-    sidebarResizeStart.current = { pointerX: event.clientX, width: sidebarWidth }
-    setIsSidebarResizing(true)
-  }
+  const handleSidebarResizeStart = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      if (sidebarCollapsed) {
+        return
+      }
+      event.preventDefault()
+      sidebarResizeStart.current = { pointerX: event.clientX, width: sidebarWidth }
+      setIsSidebarResizing(true)
+    },
+    [sidebarCollapsed, sidebarWidth],
+  )
 
-  const handleSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (sidebarCollapsed) {
-      return
-    }
+  const handleSidebarResizeKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (sidebarCollapsed) {
+        return
+      }
 
-    const step = event.shiftKey ? 24 : 12
-    if (event.key === "ArrowLeft") {
-      event.preventDefault()
-      setSidebarWidth((width) => clampSidebarWidth(width - step))
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault()
-      setSidebarWidth((width) => clampSidebarWidth(width + step))
-    } else if (event.key === "Home") {
-      event.preventDefault()
-      setSidebarWidth(SIDEBAR_MIN_WIDTH_PX)
-    } else if (event.key === "End") {
-      event.preventDefault()
-      setSidebarWidth(SIDEBAR_MAX_WIDTH_PX)
-    }
-  }
+      const step = event.shiftKey ? 24 : 12
+      if (event.key === "ArrowLeft") {
+        event.preventDefault()
+        setSidebarWidth((width) => clampSidebarWidth(width - step))
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault()
+        setSidebarWidth((width) => clampSidebarWidth(width + step))
+      } else if (event.key === "Home") {
+        event.preventDefault()
+        setSidebarWidth(SIDEBAR_MIN_WIDTH_PX)
+      } else if (event.key === "End") {
+        event.preventDefault()
+        setSidebarWidth(SIDEBAR_MAX_WIDTH_PX)
+      }
+    },
+    [sidebarCollapsed],
+  )
 
   return {
     handleSidebarResizeKeyDown,

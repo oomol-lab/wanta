@@ -21,10 +21,10 @@ const publicSkillSearchResultSize = 100
 const myPublishedSkillPackagePageSize = 20
 const myPublishedSkillPackageInfoConcurrency = 10
 const skillCatalogRequestTimeoutMs = 10_000
-const publicSkillPackageListCacheMs = 5 * 60_000
-const publicSkillSearchCacheMs = 2 * 60_000
+export const publicSkillPackageListCacheMs = 5 * 60_000
+export const publicSkillSearchCacheMs = 2 * 60_000
 const publicSkillPackageInfoCacheMs = 10 * 60_000
-const myPublishedSkillPackageCacheMs = 2 * 60_000
+export const myPublishedSkillPackageCacheMs = 2 * 60_000
 
 export interface MyPublishedSkillAccount {
   id: string

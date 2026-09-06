@@ -1,10 +1,12 @@
 import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
-import type { AddTeamSkillInput, TeamSkillConfigItem } from "@/lib/team-skills-client"
+import type { SharedRequest } from "@/lib/shared-request"
+import type { AddTeamSkillInput, TeamSkillConfig, TeamSkillConfigItem } from "@/lib/team-skills-client"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 import * as React from "react"
 import { OomolHttpError } from "@/lib/oomol-http"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
+import { createSharedRequest, waitForSharedRequest } from "@/lib/shared-request"
 import {
   addTeamSkill,
   listTeamSkills,
@@ -53,6 +55,34 @@ const teamSkillPersistentCacheStorageKey = "wanta.team-skill-cache.v3"
 const legacyTeamSkillPersistentCacheStorageKey = "wanta.organization-skill-cache.v2"
 const teamSkillCache = new Map<string, TeamSkillCacheEntry>()
 let teamSkillPersistentCacheRead = false
+const pendingTeamSkills = new Map<string, SharedRequest<TeamSkillConfig>>()
+
+function readSharedTeamSkills(cacheKey: string, teamId: string, signal: AbortSignal): Promise<TeamSkillConfig> {
+  let request = pendingTeamSkills.get(cacheKey)
+  if (!request || request.controller.signal.aborted) {
+    const shared = createSharedRequest(async (requestSignal) => {
+      // Let a same-turn effect cleanup cancel before starting network work.
+      await Promise.resolve()
+      requestSignal.throwIfAborted()
+      const config = await listTeamSkills(teamId, requestSignal).catch((cause: unknown) => {
+        if (!isTeamSkillsUnavailable(cause)) throw cause
+        return { skills: [], updatedAt: new Date().toISOString() }
+      })
+      requestSignal.throwIfAborted()
+      if (pendingTeamSkills.get(cacheKey) === shared) {
+        setTeamSkillCacheEntry({ cacheKey, fetchedAt: Date.now(), teamId, skills: config.skills })
+      }
+      return config
+    })
+    request = shared
+    pendingTeamSkills.set(cacheKey, shared)
+    const cleanup = () => {
+      if (pendingTeamSkills.get(cacheKey) === shared) pendingTeamSkills.delete(cacheKey)
+    }
+    void shared.promise.then(cleanup, cleanup)
+  }
+  return waitForSharedRequest(request, signal)
+}
 
 export function selectTeamSkillCacheEntries(
   entries: readonly TeamSkillCacheEntry[],
@@ -120,7 +150,6 @@ function readPersistentTeamSkillCache(): void {
         teamSkillCache.set(entry.cacheKey, entry)
       }
     }
-    pruneTeamSkillCache()
     persistTeamSkillCache()
     if (legacySerialized !== null) {
       window.localStorage.removeItem(legacyTeamSkillPersistentCacheStorageKey)
@@ -145,18 +174,17 @@ function persistTeamSkillCache(): void {
 }
 
 function getTeamSkillCacheEntry(cacheKey: string, teamId: string): TeamSkillCacheEntry | undefined {
-  readPersistentTeamSkillCache()
   const entry = teamSkillCache.get(cacheKey)
   return entry?.teamId === teamId ? entry : undefined
 }
 
 function setTeamSkillCacheEntry(entry: TeamSkillCacheEntry): void {
   teamSkillCache.set(entry.cacheKey, entry)
-  pruneTeamSkillCache()
   persistTeamSkillCache()
 }
 
 function deleteTeamSkillCacheEntry(cacheKey: string): void {
+  pendingTeamSkills.delete(cacheKey)
   if (teamSkillCache.delete(cacheKey)) {
     persistTeamSkillCache()
   }
@@ -204,26 +232,28 @@ export function useTeamSkills(workspace: WorkspaceSelection, accountId?: string)
   const remoteApiEnabled = teamSkillsApiEnabled()
   const canManage = workspace.canManage
   const [skills, setSkills] = React.useState<TeamSkillConfigItem[]>([])
-  const [skillsTeamId, setSkillsTeamId] = React.useState<string | null>(null)
+  const [skillsCacheKey, setSkillsCacheKey] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const [hasLoaded, setHasLoaded] = React.useState(false)
   const requestIdRef = React.useRef(0)
   const latestTeamIdRef = React.useRef<string | null>(teamId)
   const latestCacheKeyRef = React.useRef(cacheKey)
+  const activeRequests = React.useRef(new Set<AbortController>())
 
   React.useEffect(() => {
+    readPersistentTeamSkillCache()
     latestTeamIdRef.current = teamId
     latestCacheKeyRef.current = cacheKey
     requestIdRef.current += 1
     const cached = teamId ? getTeamSkillCacheEntry(cacheKey, teamId) : undefined
     setSkills(cached?.skills ?? [])
-    setSkillsTeamId(cached ? teamId : null)
+    setSkillsCacheKey(cached ? cacheKey : null)
     setError(null)
     setHasLoaded(Boolean(cached))
     if (!teamId || !remoteApiEnabled) {
       setLoading(false)
-      setSkillsTeamId(teamId)
+      setSkillsCacheKey(cacheKey)
       setHasLoaded(Boolean(teamId && !remoteApiEnabled))
     }
   }, [cacheKey, teamId, remoteApiEnabled, workspaceKey])
@@ -232,54 +262,54 @@ export function useTeamSkills(workspace: WorkspaceSelection, accountId?: string)
     async (options: { forceRefresh?: boolean } = {}): Promise<void> => {
       if (!teamId || !remoteApiEnabled) {
         setSkills([])
-        setSkillsTeamId(teamId)
+        setSkillsCacheKey(cacheKey)
         setError(null)
         setHasLoaded(Boolean(teamId && !remoteApiEnabled))
         setLoading(false)
         return
       }
 
+      if (options.forceRefresh) {
+        pendingTeamSkills.delete(cacheKey)
+        // Release only this hook's consumers; other hooks may still need the old read.
+        for (const controller of activeRequests.current) controller.abort()
+        activeRequests.current.clear()
+      }
       const now = Date.now()
       const cached = getTeamSkillCacheEntry(cacheKey, teamId)
       if (!options.forceRefresh && cached && now - cached.fetchedAt < teamSkillCacheMs) {
         setSkills(cached.skills)
-        setSkillsTeamId(teamId)
+        setSkillsCacheKey(cacheKey)
         setError(null)
         setHasLoaded(true)
         setLoading(false)
         return
       }
 
+      const controller = new AbortController()
+      activeRequests.current.add(controller)
       const requestId = requestIdRef.current + 1
       requestIdRef.current = requestId
       setLoading(true)
       try {
-        const config = await listTeamSkills(teamId)
-        if (requestIdRef.current !== requestId) {
+        const config = await readSharedTeamSkills(cacheKey, teamId, controller.signal)
+        if (controller.signal.aborted || requestIdRef.current !== requestId) {
           return
         }
-        setTeamSkillCacheEntry({ cacheKey, fetchedAt: Date.now(), teamId, skills: config.skills })
         setSkills(config.skills)
-        setSkillsTeamId(teamId)
+        setSkillsCacheKey(cacheKey)
         setError(null)
         setHasLoaded(true)
       } catch (cause) {
-        if (requestIdRef.current === requestId) {
-          if (isTeamSkillsUnavailable(cause)) {
-            setTeamSkillCacheEntry({ cacheKey, fetchedAt: Date.now(), teamId, skills: [] })
-            setSkills([])
-            setSkillsTeamId(teamId)
-            setError(null)
-            setHasLoaded(true)
-          } else {
-            const fallback = getTeamSkillCacheEntry(cacheKey, teamId)
-            setSkills(fallback?.skills ?? [])
-            setSkillsTeamId(fallback ? teamId : null)
-            setError(teamSkillError(cause))
-            setHasLoaded(Boolean(fallback))
-          }
+        if (!controller.signal.aborted && requestIdRef.current === requestId) {
+          const fallback = getTeamSkillCacheEntry(cacheKey, teamId)
+          setSkills(fallback?.skills ?? [])
+          setSkillsCacheKey(cacheKey)
+          setError(teamSkillError(cause))
+          setHasLoaded(Boolean(fallback))
         }
       } finally {
+        activeRequests.current.delete(controller)
         if (requestIdRef.current === requestId) {
           setLoading(false)
         }
@@ -292,6 +322,11 @@ export function useTeamSkills(workspace: WorkspaceSelection, accountId?: string)
     void refresh().catch((error: unknown) => {
       reportRendererHandledError("team-skills", "team skills refresh failed", error)
     })
+    return () => {
+      requestIdRef.current += 1
+      for (const controller of activeRequests.current) controller.abort()
+      activeRequests.current.clear()
+    }
   }, [refresh])
 
   const reloadAfterMutation = React.useCallback(
@@ -342,7 +377,7 @@ export function useTeamSkills(workspace: WorkspaceSelection, accountId?: string)
   )
 
   const cached = teamId ? getTeamSkillCacheEntry(cacheKey, teamId) : undefined
-  const skillsBelongToCurrentTeam = skillsTeamId === teamId
+  const skillsBelongToCurrentTeam = skillsCacheKey === cacheKey
   const currentSkills = skillsBelongToCurrentTeam ? skills : (cached?.skills ?? [])
   const currentError = skillsBelongToCurrentTeam ? error : null
   const currentHasLoaded = skillsBelongToCurrentTeam ? hasLoaded : Boolean(cached)

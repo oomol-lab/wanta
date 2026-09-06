@@ -58,6 +58,8 @@ import {
   invalidateMyPublishedSkillCatalog,
   invalidatePublicSkillCatalog,
   listMyPublishedSkillPackages,
+  myPublishedSkillPackageCacheMs,
+  publicSkillSearchCacheMs,
   listPublicSkillPackages,
   searchPublicSkillPackages,
 } from "@/lib/skills-catalog-client"
@@ -271,6 +273,7 @@ export function SkillsRoute({
   } = useSkillCatalog({
     enabled: activeTab === "discover" && discoveryFilter === "mine" && Boolean(account),
     load: loadPublished,
+    staleTimeMs: myPublishedSkillPackageCacheMs,
   })
   const {
     catalog: publicPackageSearchCatalog,
@@ -279,6 +282,7 @@ export function SkillsRoute({
   } = useSkillCatalog({
     enabled: activeTab === "discover" && discoveryFilter === "all" && Boolean(debouncedDiscoveryQuery),
     load: loadSearch,
+    staleTimeMs: publicSkillSearchCacheMs,
   })
 
   const isPublicSearchActive = discoveryFilter === "all" && Boolean(debouncedDiscoveryQuery)

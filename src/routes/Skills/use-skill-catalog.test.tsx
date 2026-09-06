@@ -17,6 +17,7 @@ afterEach(async () => {
   await act(async () => root?.unmount())
   root = undefined
   clearSkillCatalogCache()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -130,4 +131,35 @@ test("switching tabs preserves previously appended pages", async () => {
   await probe.render(false)
   await probe.render(true)
   expect(probe.view.catalog.items.map((item) => item.name)).toEqual(["first", "second"])
+})
+
+test("expired tab reentry refreshes while fresh appended pages remain intact", async () => {
+  let now = Date.now()
+  vi.spyOn(Date, "now").mockImplementation(() => now)
+  const fetcher = vi.fn(async () => Response.json({ data: [{ name: "fresh" }] }))
+  vi.stubGlobal("fetch", fetcher)
+  const probe = await mount()
+  const calls = fetcher.mock.calls.length
+  await probe.render(false)
+  now += 6 * 60_000
+  await probe.render(true)
+  expect(fetcher).toHaveBeenCalledTimes(calls + 1)
+  expect(probe.view.catalog.status).toBe("ready")
+})
+
+test("appending a fresh page does not extend the oldest page lifetime", async () => {
+  let now = Date.now()
+  vi.spyOn(Date, "now").mockImplementation(() => now)
+  const load = vi.fn(async () => ({ items: [], next: "next", updatedAt: new Date(now).toISOString() }))
+  const probe = await mount(load)
+  now += 4 * 60_000
+  await act(async () => probe.view.loadPage({ next: "next" }))
+  const calls = load.mock.calls.length
+  await probe.render(false)
+  await probe.render(true)
+  expect(load).toHaveBeenCalledTimes(calls)
+  await probe.render(false)
+  now += 2 * 60_000
+  await probe.render(true)
+  expect(load).toHaveBeenCalledTimes(calls + 1)
 })

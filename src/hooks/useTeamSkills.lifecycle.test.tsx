@@ -6,7 +6,7 @@ import * as React from "react"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, expect, test, vi } from "vitest"
-import { useTeamSkills } from "./useTeamSkills.ts"
+import { invalidateTeamSkillCache, useTeamSkills } from "./useTeamSkills.ts"
 
 let root: Root | undefined
 let view: UseTeamSkills
@@ -130,4 +130,54 @@ test("force refresh prevents a superseded response from replacing fresh data or 
   expect(fetcher).toHaveBeenCalledTimes(2)
   expect(view.skills.map((s) => s.skillName)).toEqual(["fresh"])
   expect(view.error).toBeNull()
+})
+
+test.each([
+  ["force-refresh", 200],
+  ["force-refresh", 404],
+  ["invalidation", 200],
+  ["invalidation", 404],
+] as const)("%s preserves another consumer and rejects stale cache writes (status %i)", async (mode, status) => {
+  const { requests, fetcher } = pendingFetch()
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
+  root = createRoot(document.createElement("div"))
+  const teamId = `shared-${++sequence}`
+  const views: UseTeamSkills[] = []
+  function Consumer({ index }: { index: number }) {
+    views[index] = useTeamSkills({ canManage: true, team: null, teamId, role: null }, "shared-account")
+    return null
+  }
+  await act(async () =>
+    root!.render(
+      <>
+        <Consumer index={0} />
+        <Consumer index={1} />
+      </>,
+    ),
+  )
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  let refresh!: Promise<void>
+  await act(async () => {
+    if (mode === "invalidation") invalidateTeamSkillCache("shared-account", teamId)
+    refresh = views[0]!.refresh({ forceRefresh: mode === "force-refresh" })
+  })
+  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(requests[0]!.signal.aborted).toBe(false)
+  await act(async () => {
+    requests[1]!.resolve(Response.json({ data: [{ name: "fresh", skills: [{ name: "fresh" }] }] }))
+    await refresh
+  })
+  await act(async () =>
+    requests[0]!.resolve(
+      status === 404
+        ? new Response("not found", { status: 404 })
+        : Response.json({ data: [{ name: "old", skills: [{ name: "old" }] }] }),
+    ),
+  )
+  expect(views[1]!.error).toBeNull()
+  expect(views[1]!.hasLoaded).toBe(true)
+  expect(views[0]!.skills.map((s) => s.skillName)).toEqual(["fresh"])
+  await act(async () => views[1]!.refresh())
+  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(views[1]!.skills.map((s) => s.skillName)).toEqual(["fresh"])
 })

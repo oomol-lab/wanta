@@ -64,7 +64,10 @@ function readSharedTeamSkills(cacheKey: string, teamId: string, signal: AbortSig
       // Let a same-turn effect cleanup cancel before starting network work.
       await Promise.resolve()
       requestSignal.throwIfAborted()
-      const config = await listTeamSkills(teamId, requestSignal)
+      const config = await listTeamSkills(teamId, requestSignal).catch((cause: unknown) => {
+        if (!isTeamSkillsUnavailable(cause)) throw cause
+        return { skills: [], updatedAt: new Date().toISOString() }
+      })
       requestSignal.throwIfAborted()
       if (pendingTeamSkills.get(cacheKey) === shared) {
         setTeamSkillCacheEntry({ cacheKey, fetchedAt: Date.now(), teamId, skills: config.skills })
@@ -181,7 +184,6 @@ function setTeamSkillCacheEntry(entry: TeamSkillCacheEntry): void {
 }
 
 function deleteTeamSkillCacheEntry(cacheKey: string): void {
-  pendingTeamSkills.get(cacheKey)?.controller.abort()
   pendingTeamSkills.delete(cacheKey)
   if (teamSkillCache.delete(cacheKey)) {
     persistTeamSkillCache()
@@ -268,8 +270,10 @@ export function useTeamSkills(workspace: WorkspaceSelection, accountId?: string)
       }
 
       if (options.forceRefresh) {
-        pendingTeamSkills.get(cacheKey)?.controller.abort()
         pendingTeamSkills.delete(cacheKey)
+        // Release only this hook's consumers; other hooks may still need the old read.
+        for (const controller of activeRequests.current) controller.abort()
+        activeRequests.current.clear()
       }
       const now = Date.now()
       const cached = getTeamSkillCacheEntry(cacheKey, teamId)
@@ -298,19 +302,11 @@ export function useTeamSkills(workspace: WorkspaceSelection, accountId?: string)
         setHasLoaded(true)
       } catch (cause) {
         if (!controller.signal.aborted && requestIdRef.current === requestId) {
-          if (isTeamSkillsUnavailable(cause)) {
-            setTeamSkillCacheEntry({ cacheKey, fetchedAt: Date.now(), teamId, skills: [] })
-            setSkills([])
-            setSkillsCacheKey(cacheKey)
-            setError(null)
-            setHasLoaded(true)
-          } else {
-            const fallback = getTeamSkillCacheEntry(cacheKey, teamId)
-            setSkills(fallback?.skills ?? [])
-            setSkillsCacheKey(cacheKey)
-            setError(teamSkillError(cause))
-            setHasLoaded(Boolean(fallback))
-          }
+          const fallback = getTeamSkillCacheEntry(cacheKey, teamId)
+          setSkills(fallback?.skills ?? [])
+          setSkillsCacheKey(cacheKey)
+          setError(teamSkillError(cause))
+          setHasLoaded(Boolean(fallback))
         }
       } finally {
         activeRequests.current.delete(controller)

@@ -64,7 +64,7 @@ is brought into the renderer.
 ## Page loading and supplemental details
 
 `useSkillCatalog` owns the Skills page's browse, search, and my-published pagination. Successful
-empty results settle as `ready`; only a new query, an explicit retry, or cache invalidation starts
+empty results settle as `ready`; a new query, an explicit retry, cache invalidation, or TTL expiry on tab reentry starts
 another load. Completed pages survive tab switches while fresh. On tab reentry, the page checks the oldest loaded page timestamp against the list/search TTL and refreshes expired data. Appending a page does not extend the lifetime of older pages. Abandoned requests release their shared-request
 consumer, and cancelled pending requests are never reused by new consumers, including StrictMode
 remounts. A failed refresh keeps the previous rows and exposes an error for retry.
@@ -147,8 +147,9 @@ degradation path.
 Team configuration reads share pending requests by account and team. Each hook releases its
 consumers when its scope changes or it unmounts; the last consumer cancels the network request.
 A microtask before network dispatch avoids dispatching work already cancelled by same-turn
-StrictMode cleanup. Force refresh and mutations invalidate older pending reads, whose results
-cannot repopulate the cache. Failed refreshes preserve the last successful configuration.
+StrictMode cleanup. Force refresh and mutations detach older pending reads so new requests can start. Existing
+consumers can finish those reads, but detached results cannot repopulate the cache. Force refresh
+releases only the calling hook's old consumers; other hooks keep their shared request alive. Failed refreshes preserve the last successful configuration.
 Persistent cache initialization and maintenance run outside render, and UI state is scoped by
 account plus team rather than team alone.
 

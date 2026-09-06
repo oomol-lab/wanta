@@ -485,3 +485,10 @@ function externalManagedSkillGroup(
 function t(key: string, vars?: Record<string, string | number>): string {
   return vars ? `${key}:${JSON.stringify(vars)}` : key
 }
+
+test("packages without skills are unavailable even when a matching local group exists", () => {
+  const pkg = { ...publicPackage("demo"), skills: [] }
+  assert.equal(getPublicPackageInstallState(undefined, pkg), "unavailable")
+  assert.equal(getPublicPackageInstallState(new Map([["demo", managedSkillGroup("demo", "demo")]]), pkg), "unavailable")
+  assert.equal(shouldOpenPublicSkillManagement(getPublicPackageInstallState(undefined, pkg)), false)
+})

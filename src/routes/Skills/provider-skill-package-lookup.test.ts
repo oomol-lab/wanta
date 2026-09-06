@@ -142,3 +142,26 @@ test("public invalidation and account cleanup invalidate provider results too", 
   expect(readPublicSkillPackageByName).toHaveBeenCalledTimes(3)
   clearSkillCatalogCache()
 })
+
+test("a failed conventional lookup cannot become a cached missing package", async () => {
+  clearSkillCatalogCache()
+  vi.mocked(readPublicSkillPackageByName).mockReset().mockRejectedValueOnce(new Error("503"))
+  vi.mocked(searchPublicSkillPackages).mockReset().mockResolvedValue({ items: [], next: null, updatedAt: "now" })
+  const candidate = { service: "posthog", providerDisplayName: "PostHog" }
+  await expect(readProviderSkillPackage(candidate)).rejects.toThrow("503")
+  vi.mocked(readPublicSkillPackageByName).mockResolvedValue(posthogPackage)
+  await expect(readProviderSkillPackage(candidate)).resolves.toBe(posthogPackage)
+  clearSkillCatalogCache()
+})
+
+test("search may recover a failed conventional lookup with a matching package", async () => {
+  clearSkillCatalogCache()
+  vi.mocked(readPublicSkillPackageByName).mockReset().mockRejectedValue(new Error("503"))
+  vi.mocked(searchPublicSkillPackages)
+    .mockReset()
+    .mockResolvedValue({ items: [posthogPackage], next: null, updatedAt: "now" })
+  await expect(readProviderSkillPackage({ service: "posthog", providerDisplayName: "PostHog" })).resolves.toBe(
+    posthogPackage,
+  )
+  clearSkillCatalogCache()
+})

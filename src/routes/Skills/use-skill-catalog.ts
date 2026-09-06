@@ -4,6 +4,7 @@ import type { ListPublicSkillPackagesInput } from "@/lib/skills-catalog-client"
 import * as React from "react"
 import { initialPublicPackageCatalogState, publicPackageCatalogReducer } from "./skill-route-model.ts"
 import { getSkillCatalogInvalidationRevision, subscribeSkillCatalogInvalidation } from "@/lib/skill-catalog-cache"
+import { publicSkillPackageListCacheMs } from "@/lib/skills-catalog-client"
 
 export interface SkillCatalogPageOptions {
   forceRefresh?: boolean
@@ -15,14 +16,16 @@ export interface SkillCatalogPageOptions {
 export function useSkillCatalog({
   enabled,
   load,
+  staleTimeMs = publicSkillPackageListCacheMs,
 }: {
   enabled: boolean
+  staleTimeMs?: number
   load: (input: ListPublicSkillPackagesInput) => Promise<PublicSkillPackageCatalog>
 }) {
   const [catalog, dispatch] = React.useReducer(publicPackageCatalogReducer, initialPublicPackageCatalogState)
   const activeRequest = React.useRef<AbortController | null>(null)
   const requestId = React.useRef(0)
-  const loadedScope = React.useRef<{ load: typeof load; revision: number } | null>(null)
+  const loadedScope = React.useRef<{ load: typeof load; revision: number; expiresAt: number } | null>(null)
   const previousLoader = React.useRef(load)
   const revision = React.useSyncExternalStore(subscribeSkillCatalogInvalidation, getSkillCatalogInvalidationRevision)
 
@@ -33,6 +36,7 @@ export function useSkillCatalog({
       activeRequest.current = controller
       const id = ++requestId.current
       const startedRevision = getSkillCatalogInvalidationRevision()
+      const previousExpiry = loadedScope.current?.expiresAt
       loadedScope.current = null
       const next = options.next?.trim() || undefined
       const append = Boolean(next && !options.forceRefresh && !options.replace)
@@ -40,7 +44,13 @@ export function useSkillCatalog({
       try {
         const result = await load({ next, forceRefresh: options.forceRefresh, signal: controller.signal })
         if (!controller.signal.aborted) {
-          loadedScope.current = { load, revision: startedRevision }
+          const fetchedAt = Date.parse(result.updatedAt)
+          const expiresAt = (Number.isFinite(fetchedAt) ? fetchedAt : Date.now()) + staleTimeMs
+          loadedScope.current = {
+            load,
+            revision: startedRevision,
+            expiresAt: append ? Math.min(previousExpiry ?? expiresAt, expiresAt) : expiresAt,
+          }
           dispatch({ type: "load-success", append, catalog: result, requestId: id })
         }
       } catch (cause) {
@@ -51,11 +61,16 @@ export function useSkillCatalog({
         if (activeRequest.current === controller) activeRequest.current = null
       }
     },
-    [load],
+    [load, staleTimeMs],
   )
 
   React.useEffect(() => {
-    if (enabled && (loadedScope.current?.load !== load || loadedScope.current.revision !== revision)) {
+    if (
+      enabled &&
+      (loadedScope.current?.load !== load ||
+        loadedScope.current.revision !== revision ||
+        Date.now() >= loadedScope.current.expiresAt)
+    ) {
       const replace = previousLoader.current !== load
       previousLoader.current = load
       void loadPage({ replace })

@@ -56,7 +56,7 @@ is brought into the renderer.
 | Public package detail                  | `public:package:{name,version}`                                       |                           10 min | Shared by exact-package-name lookup, search completion, and Provider recommendations                                                                      |
 | My published list                      | `my:{accountId}:{next}`                                               |                            2 min | Account-isolated in-memory cache only                                                                                                                     |
 | My published package detail            | `account:{accountId}:package:{name,version}`                          |                           10 min | Never reused across accounts                                                                                                                              |
-| Provider → package resolution          | `public:provider:{service,providerDisplayName}`                       |                           10 min | A "package not found" result is kept as a 24 h negative cache                                                                                             |
+| Provider → package resolution          | `public:provider:{service,providerDisplayName}`                       |                           10 min | A confirmed "package not found" result is kept as a 24 h negative cache                                                                                   |
 | Team Skill configuration               | `accountId + teamId`                                                  | 30 s freshness / 24 h local hold | See `useTeamSkills.ts`                                                                                                                                    |
 | Local installed Skill inventory        | global resource + main-process scan cache                             |                            5 min | Proactively invalidated on watcher changes; TTL is the fallback for missing directories                                                                   |
 | Installed Skill registry version check | auth snapshot + inventory fingerprint (`createVersionReportCacheKey`) |                           30 min | Main-process cache in `SkillServiceImpl.checkSkillVersions` with in-flight dedup; the renderer `skillVersions` resource mirrors it (30 min `staleTimeMs`) |
@@ -65,7 +65,7 @@ is brought into the renderer.
 
 `useSkillCatalog` owns the Skills page's browse, search, and my-published pagination. Successful
 empty results settle as `ready`; only a new query, an explicit retry, or cache invalidation starts
-another load. Completed pages survive tab switches. Abandoned requests release their shared-request
+another load. Completed pages survive tab switches while fresh. On tab reentry, the page checks the oldest loaded page timestamp against the list/search TTL and refreshes expired data. Appending a page does not extend the lifetime of older pages. Abandoned requests release their shared-request
 consumer, and cancelled pending requests are never reused by new consumers, including StrictMode
 remounts. A failed refresh keeps the previous rows and exposes an error for retry.
 
@@ -141,3 +141,20 @@ degradation path.
 - Team Skill artifact/runtime sync is not mixed into the catalog cache. That layer depends on the
   `resolved` artifact, checksums, and a main-process private directory, and belongs to later
   runtime-sync work.
+
+## Team request lifetime and error semantics
+
+Team configuration reads share pending requests by account and team. Each hook releases its
+consumers when its scope changes or it unmounts; the last consumer cancels the network request.
+A microtask before network dispatch avoids dispatching work already cancelled by same-turn
+StrictMode cleanup. Force refresh and mutations invalidate older pending reads, whose results
+cannot repopulate the cache. Failed refreshes preserve the last successful configuration.
+Persistent cache initialization and maintenance run outside render, and UI state is scoped by
+account plus team rather than team alone.
+
+A successful HTTP response must contain an array-valued `data` field. Malformed top-level
+responses fail explicitly; only a valid empty array is a successful empty configuration.
+
+Provider resolution may recover a failed conventional package lookup through a matching search
+result. If the conventional lookup failed and search finds nothing, resolution propagates the
+failure instead of storing a 24-hour missing-package result.

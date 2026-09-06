@@ -198,6 +198,7 @@ async function searchProviderSkillPackage(
   candidate: ProviderSkillCandidate,
   signal?: AbortSignal,
 ): Promise<PublicSkillPackage | null> {
+  let conventionalFailure: unknown
   const conventionalPackageName = getConventionalProviderSkillPackageName(candidate)
   if (conventionalPackageName) {
     try {
@@ -209,6 +210,7 @@ async function searchProviderSkillPackage(
       if (signal?.aborted) {
         throw error
       }
+      conventionalFailure = error
       reportRendererHandledError(
         "providerSkillPackageLookup.readConventionalPackage",
         "Failed to read conventional provider Skill package",
@@ -237,5 +239,7 @@ async function searchProviderSkillPackage(
     }
   }
 
-  return selectProviderSkillPackage(candidate, packages)
+  const selected = selectProviderSkillPackage(candidate, packages)
+  if (!selected && conventionalFailure) throw conventionalFailure
+  return selected
 }

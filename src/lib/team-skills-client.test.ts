@@ -118,3 +118,10 @@ test("teamSkillsApiEnabled prefers the team flag and supports the legacy flag", 
   vi.stubEnv("VITE_WANTA_ORGANIZATION_SKILLS_API", "true")
   assert.equal(teamSkillsApiEnabled(), true)
 })
+
+test("malformed team responses throw while a valid empty list succeeds", () => {
+  for (const value of [null, {}, { data: "invalid" }, { error: "unavailable" }]) {
+    assert.throws(() => normalizeTeamSkillPackages(value), /unsupported response/)
+  }
+  assert.deepEqual(normalizeTeamSkillPackages({ data: [] }).skills, [])
+})

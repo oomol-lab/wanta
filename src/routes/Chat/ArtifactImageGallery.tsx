@@ -4,7 +4,7 @@ import type { ArtifactPreviewMode } from "./ArtifactPreviewPane.tsx"
 
 import { Image } from "lucide-react"
 import * as React from "react"
-import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
+import { artifactPreviewCacheKey, useLocalArtifactPreview } from "./artifact-preview-cache.ts"
 import { useLocalArtifactThumbnail } from "./artifact-thumbnail-cache.ts"
 import { ArtifactConsumablePreview, ArtifactInfo, ArtifactsEmptyState } from "./ArtifactPreviewPane.tsx"
 import { useT } from "@/i18n/i18n"
@@ -96,7 +96,7 @@ export function ImageGalleryPreview({
   onOpen: () => void
 }) {
   const t = useT()
-  const { loading, preview, reload } = useLocalArtifactPreview(item, previewCache)
+  const { loading, preview, reload, retry, resourceLoaded } = useLocalArtifactPreview(item, previewCache)
 
   React.useEffect(() => {
     if (mode === "source") {
@@ -112,16 +112,13 @@ export function ImageGalleryPreview({
     <section
       className="flex min-h-0 flex-1 flex-col"
       onContextMenu={(event) => {
-        if (!item) {
-          return
-        }
         event.preventDefault()
         event.stopPropagation()
         onContextMenu(item, event.clientX, event.clientY)
       }}
     >
       <div
-        key={item.path}
+        key={artifactPreviewCacheKey(item)}
         className={cn(
           "min-h-0 flex-1",
           mode === "preview" && preview?.kind === "pdf" ? "overflow-hidden" : "overflow-auto",
@@ -133,20 +130,16 @@ export function ImageGalleryPreview({
           <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
             {t("artifacts.previewLoading")}
           </div>
-        ) : preview?.kind === "image" && (preview.resourceUrl || preview.dataUrl) ? (
-          <div className="flex min-h-full items-center justify-center bg-[var(--oo-artifact-preview-canvas)] p-4">
-            <img
-              src={preview.resourceUrl ?? preview.dataUrl}
-              alt={item.name}
-              className="max-h-full max-w-full object-contain drop-shadow-sm"
-              draggable={false}
-              decoding="async"
-              onError={reload}
-              onDoubleClick={onOpen}
-            />
-          </div>
         ) : (
-          <ArtifactConsumablePreview item={item} preview={preview} onOpen={onOpen} onResourceError={reload} />
+          <ArtifactConsumablePreview
+            imageGallery
+            item={item}
+            preview={preview}
+            onOpen={onOpen}
+            onResourceError={reload}
+            onResourceLoaded={resourceLoaded}
+            onRetry={retry}
+          />
         )}
       </div>
     </section>

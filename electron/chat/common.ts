@@ -596,7 +596,7 @@ export interface LocalArtifactArchiveEntry {
 export interface LocalArtifactArchivePreview {
   entries: LocalArtifactArchiveEntry[]
   format: "tar" | "zip"
-  totalEntries: number
+  totalEntries: number | null
 }
 
 export interface LocalArtifactPreviewRequest {

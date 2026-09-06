@@ -38,23 +38,31 @@ function rememberThumbnail(key: string, value: ThumbnailCacheEntry): void {
 
 export function useLocalArtifactThumbnail(item: LocalArtifactItem | null): string | null {
   const chatService = useChatService()
-  const [thumbnail, setThumbnail] = React.useState<string | null>(null)
+  const key = item ? thumbnailCacheKey(item) : null
+  const requestItem = React.useMemo(() => item, [key, item?.kind])
+  const [thumbnail, setThumbnail] = React.useState<{ key: string; source: string | null } | null>(null)
 
   React.useEffect(() => {
-    if (!item || item.kind !== "file") {
+    if (!requestItem || requestItem.kind !== "file" || !key) {
       setThumbnail(null)
       return
     }
-    const key = thumbnailCacheKey(item)
     const controller = new AbortController()
     let entry = thumbnailCache.get(key)
+    if (entry?.request.controller.signal.aborted) {
+      thumbnailCache.delete(key)
+      entry = undefined
+    }
     if (entry) {
       rememberThumbnail(key, entry)
     } else {
       setThumbnail(null)
       const request = createSharedRequest((sharedSignal) =>
         scheduleArtifactPreviewLoad(
-          () => chatService.invoke("getLocalArtifactThumbnail", { path: item.path }).then((result) => result.dataUrl),
+          () =>
+            chatService
+              .invoke("getLocalArtifactThumbnail", { path: requestItem.path })
+              .then((result) => result.dataUrl),
           "background",
           sharedSignal,
         ),
@@ -64,7 +72,11 @@ export function useLocalArtifactThumbnail(item: LocalArtifactItem | null): strin
       void createdRequest.promise.then(
         (result) => {
           if (thumbnailCache.get(key)?.request === createdRequest) {
-            rememberThumbnail(key, { estimatedBytes: (result?.length ?? 0) * 2, request: createdRequest })
+            if (result === null || createdRequest.controller.signal.aborted) {
+              thumbnailCache.delete(key)
+            } else {
+              rememberThumbnail(key, { estimatedBytes: result.length * 2, request: createdRequest })
+            }
           }
         },
         () => {
@@ -79,7 +91,7 @@ export function useLocalArtifactThumbnail(item: LocalArtifactItem | null): strin
     void waitForSharedRequest(entry.request, controller.signal)
       .then((result) => {
         if (!cancelled) {
-          setThumbnail(result)
+          setThumbnail({ key, source: result })
         }
       })
       .catch(() => undefined)
@@ -87,7 +99,7 @@ export function useLocalArtifactThumbnail(item: LocalArtifactItem | null): strin
       cancelled = true
       controller.abort()
     }
-  }, [chatService, item])
+  }, [chatService, requestItem, key])
 
-  return thumbnail
+  return thumbnail?.key === key ? (thumbnail?.source ?? null) : null
 }

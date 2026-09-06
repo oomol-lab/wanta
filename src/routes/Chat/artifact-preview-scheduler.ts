@@ -74,8 +74,8 @@ export class ArtifactPreviewLoadScheduler {
       }
       task.cleanup?.()
       this.activeCount += 1
-      void task
-        .load()
+      void Promise.resolve()
+        .then(task.load)
         .then(task.resolve, task.reject)
         .finally(() => {
           this.activeCount -= 1
@@ -85,12 +85,16 @@ export class ArtifactPreviewLoadScheduler {
   }
 }
 
-const artifactPreviewLoadScheduler = new ArtifactPreviewLoadScheduler(6)
+// Native thumbnail generation cannot be interrupted. Keep its real work in a separate
+// pool so stale thumbnails cannot occupy the slots needed by the selected file.
+const interactivePreviewLoadScheduler = new ArtifactPreviewLoadScheduler(2)
+const backgroundPreviewLoadScheduler = new ArtifactPreviewLoadScheduler(4)
 
 export function scheduleArtifactPreviewLoad<T>(
   load: () => Promise<T>,
   priority: ArtifactPreviewLoadPriority,
   signal?: AbortSignal,
 ): Promise<T> {
-  return artifactPreviewLoadScheduler.schedule(load, priority, signal)
+  const scheduler = priority === "interactive" ? interactivePreviewLoadScheduler : backgroundPreviewLoadScheduler
+  return scheduler.schedule(load, priority, signal)
 }

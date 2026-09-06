@@ -1,8 +1,12 @@
-import type { LocalArtifactArchiveEntry, LocalArtifactPreviewResult } from "./common.ts"
+import type { LocalArtifactPreviewResult } from "./common.ts"
 
-import JSZip from "jszip"
-import { readFile } from "node:fs/promises"
-import { list as listTar } from "tar"
+export {
+  archiveFormatFromPath,
+  archivePreview,
+  archivePreviewMaxBytes,
+  archivePreviewMaxEntries,
+  zipPreviewFromBytes,
+} from "./archive-preview.ts"
 import { spreadsheetPreviewFormat } from "./spreadsheet-preview.ts"
 export {
   delimitedSpreadsheetPreview,
@@ -16,7 +20,6 @@ export {
 } from "./spreadsheet-preview.ts"
 
 export const richPreviewMaxBytes = 16 * 1024 * 1024
-export const archivePreviewMaxEntries = 300
 
 function fileNameFromPath(filePath: string): string {
   return filePath.split(/[\\/]/).pop() ?? filePath
@@ -56,24 +59,6 @@ export function isRtfArtifact(filePath: string, mime: string): boolean {
   return normalized === "application/rtf" || normalized === "text/rtf" || extensionFromPath(filePath) === ".rtf"
 }
 
-export function archiveFormatFromPath(filePath: string, mime: string): "tar" | "zip" | null {
-  const name = fileNameFromPath(filePath).toLowerCase()
-  const extension = extensionFromPath(filePath)
-  const normalized = mime.toLowerCase()
-  if (extension === ".zip" || normalized === "application/zip") {
-    return "zip"
-  }
-  if (
-    extension === ".tar" ||
-    extension === ".tgz" ||
-    name.endsWith(".tar.gz") ||
-    ["application/x-gtar", "application/x-tar"].includes(normalized)
-  ) {
-    return "tar"
-  }
-  return null
-}
-
 export function isBinaryDataPreviewArtifact(filePath: string, mime: string): boolean {
   return isPdfArtifact(filePath, mime) || isDocxArtifact(filePath, mime)
 }
@@ -91,80 +76,6 @@ export function binaryDataPreview(
     return { kind: "document", mime, size, documentFormat: "docx", dataUrl: dataUrl(mime, bytes) }
   }
   return null
-}
-
-export async function zipPreviewFromBytes(
-  bytes: Buffer,
-  mime: string,
-  size: number,
-): Promise<LocalArtifactPreviewResult> {
-  const zip = await JSZip.loadAsync(bytes)
-  const files = Object.values(zip.files)
-  const entries: LocalArtifactArchiveEntry[] = []
-  for (const entry of files) {
-    if (entries.length >= archivePreviewMaxEntries) {
-      break
-    }
-    entries.push({
-      kind: entry.dir ? "directory" : "file",
-      modifiedAt: entry.date?.getTime(),
-      path: entry.name,
-    })
-  }
-  return {
-    kind: "archive",
-    mime,
-    size,
-    archive: { entries, format: "zip", totalEntries: files.length },
-    truncated: files.length > entries.length,
-  }
-}
-
-async function zipPreview(filePath: string, mime: string, size: number): Promise<LocalArtifactPreviewResult> {
-  return zipPreviewFromBytes(await readFile(filePath), mime, size)
-}
-
-function tarEntryKind(type: string): "directory" | "file" {
-  return type === "Directory" ? "directory" : "file"
-}
-
-async function tarPreview(filePath: string, mime: string, size: number): Promise<LocalArtifactPreviewResult> {
-  const entries: LocalArtifactArchiveEntry[] = []
-  let totalEntries = 0
-  await listTar({
-    file: filePath,
-    onentry(entry) {
-      totalEntries += 1
-      if (entries.length >= archivePreviewMaxEntries) {
-        return
-      }
-      entries.push({
-        kind: tarEntryKind(entry.type),
-        modifiedAt: entry.mtime?.getTime(),
-        path: entry.path,
-        size: entry.size,
-      })
-    },
-  })
-  return {
-    kind: "archive",
-    mime,
-    size,
-    archive: { entries, format: "tar", totalEntries },
-    truncated: totalEntries > entries.length,
-  }
-}
-
-export async function archivePreview(
-  filePath: string,
-  mime: string,
-  size: number,
-): Promise<LocalArtifactPreviewResult | null> {
-  const format = archiveFormatFromPath(filePath, mime)
-  if (!format) {
-    return null
-  }
-  return format === "zip" ? zipPreview(filePath, mime, size) : tarPreview(filePath, mime, size)
 }
 
 function decodeRtfHex(value: string): string {

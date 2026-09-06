@@ -521,7 +521,25 @@ Local artifact previews have their own IPC surface beyond `resolveLocalArtifacts
 archive / docx / pdf / text, etc.), with XLSX parsing running in the main-process
 `node:worker_threads` worker (`spreadsheet-preview-worker-client.ts`). The renderer side is
 `ArtifactPreviewPane`, `ArtifactUniverSpreadsheetPreview` (a hard-rule-#11-protected component),
-`ArtifactDocxPreview`, and `ArtifactPdfPreview`, backed by a preview cache and scheduler.
+`ArtifactDocxPreview`, and `ArtifactPdfPreview`, backed by a preview cache and scheduler. Preview
+loads and native thumbnails use separate two-slot / four-slot pools, so an uncancellable thumbnail
+cannot occupy a selected-file slot; active native work retains its slot until it actually settles.
+The cache checks resource-lease freshness at its shared entry point, does not retain transient
+`read_failed` / `missing` results, and only lets the current request publish a result for its key.
+Hooks subscribe by semantic file identity. Resource recovery is limited to one automatic retry until
+actual rendering succeeds; a visible retry action permits another explicit attempt.
+
+The spreadsheet pane keeps its Univer host across file-loading gaps and the info view, disposing
+and replacing only the workbook. Other file types retain semantic-key isolation, and PDF/HTML
+wrappers preserve a definite viewport height. External artifact selections are navigation commands;
+local breadcrumb selection is not re-applied from the initial command on every directory change.
+
+Archive previews reject files above 64 MiB before copying a trusted snapshot. ZIP previews read the
+end record and at most 300 central-directory entries without loading or inflating file bodies;
+TAR/TGZ streams stop at 300 entries, 32 MiB of decompressed input, or a cooperative 1.5-second parse
+budget. Unknown totals are `null` and rendered as a shown count with a truncation notice. Gzip
+inflation uses asynchronous native zlib; filesystem reads and snapshot copying cannot be preempted
+by the parser deadline, and renderer cancellation has not been added to the IPC contract.
 
 ## 6. Login and credential flow
 

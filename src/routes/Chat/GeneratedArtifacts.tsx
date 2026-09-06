@@ -331,10 +331,6 @@ export function ArtifactsPanel({
   const entries = React.useMemo(() => flattenPanelEntries(activeGroups), [activeGroups])
   const showArtifactList = entries.length > 1 || browseLevels.length > 0
   const hasArtifactBrowser = entries.length > 0 || browseLevels.length > 0
-  const fallbackPath =
-    browseLevels.at(-1) && entries.length > 0
-      ? entries[0]?.item.path
-      : (selection?.selectedPath ?? entries[0]?.item.path ?? selection?.group.root?.path ?? null)
 
   React.useLayoutEffect(() => {
     const content = contentRef.current
@@ -350,7 +346,9 @@ export function ArtifactsPanel({
   const artifactListHeight = artifactListHeightForRatio(artifactListRatio, panelHeight)
   const artifactListMinHeight = artifactListMinimumHeight(panelHeight)
   const artifactListMaxHeight = artifactListMaximumHeight(panelHeight)
-  const [selectedPath, setSelectedPath] = React.useState<string | null>(fallbackPath)
+  const [selectedPath, setSelectedPath] = React.useState<string | null>(
+    () => selection?.selectedPath ?? firstPanelEntryPath(groups),
+  )
   const [previewMode, setPreviewMode] = React.useState<ArtifactPreviewMode>("preview")
   const selectedEntry = entries.find((entry) => entry.item.path === selectedPath) ?? entries[0] ?? null
   const selectedItem = selectedEntry?.item ?? null
@@ -381,26 +379,18 @@ export function ArtifactsPanel({
     [openPath],
   )
 
+  // A new selection object is an external navigation command. After applying it,
+  // local navigation owns the path until the next command arrives.
   React.useLayoutEffect(() => {
     navigationRequestRef.current += 1
     setBrowseLevels([])
-  }, [selection])
-
-  React.useEffect(() => {
-    setSelectedPath((current) => {
-      if (selection?.selectedPath && entries.some((entry) => entry.item.path === selection.selectedPath)) {
-        return selection.selectedPath
-      }
-      if (current && entries.some((entry) => entry.item.path === current)) {
-        return current
-      }
-      return entries[0]?.item.path ?? null
-    })
-  }, [entries, selection?.selectedPath])
-
-  React.useEffect(() => {
+    setSelectedPath(selection?.selectedPath ?? firstPanelEntryPath(groups))
     setPreviewMode("preview")
-  }, [selection])
+    return () => {
+      // Invalidate pending folder work on replacement and unmount, including errors.
+      navigationRequestRef.current += 1
+    }
+  }, [groups, selection])
 
   const selectPreviewPath = React.useCallback((path: string): void => {
     navigationRequestRef.current += 1

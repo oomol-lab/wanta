@@ -129,3 +129,63 @@ test.skipIf(process.platform === "win32")(
     }
   },
 )
+
+test("archive size budget rejects before any trusted-handle reads and closes the handle", async () => {
+  const { archivePreviewMaxBytes } = await import("./archive-preview.ts")
+  for (const extension of ["zip", "tar", "tgz"]) {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-archive-snapshot-budget-"))
+    try {
+      const file = path.join(directory, `large.${extension}`)
+      const handle = await open(file, "wx+")
+      await handle.truncate(archivePreviewMaxBytes + 1)
+      const info = await handle.stat()
+      let reads = 0
+      handle.read = (async () => {
+        reads++
+        throw new Error("Must reject before copying")
+      }) as typeof handle.read
+      const result = await localArtifactPreview({ path: file }, undefined, undefined, {
+        dev: info.dev,
+        ino: info.ino,
+        handle,
+        modifiedAt: info.mtimeMs,
+        size: info.size,
+      })
+      assert.equal(result.reason, "too_large")
+      assert.equal(reads, 0)
+      await assert.rejects(handle.stat(), { code: "EBADF" })
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  }
+})
+
+test.skipIf(process.platform === "win32")(
+  "archive preview keeps using the trusted handle after path replacement",
+  async () => {
+    const { default: JSZip } = await import("jszip")
+    const root = await mkdtemp(path.join(tmpdir(), "wanta-archive-trusted-"))
+    try {
+      const file = path.join(root, "archive.zip")
+      await writeFile(file, await new JSZip().file("trusted", "hello").generateAsync({ type: "nodebuffer" }))
+      const handle = await open(file, "r")
+      const info = await handle.stat()
+      await rename(file, path.join(root, "original.zip"))
+      await writeFile(file, await new JSZip().file("replacement", "outside").generateAsync({ type: "nodebuffer" }))
+      const result = await localArtifactPreview({ path: file }, undefined, undefined, {
+        dev: info.dev,
+        ino: info.ino,
+        handle,
+        modifiedAt: info.mtimeMs,
+        size: info.size,
+      })
+      assert.deepEqual(
+        result.archive?.entries.map((e) => e.path),
+        ["trusted"],
+      )
+      await assert.rejects(handle.stat(), { code: "EBADF" })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  },
+)

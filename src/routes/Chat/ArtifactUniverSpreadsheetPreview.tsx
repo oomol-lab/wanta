@@ -117,7 +117,7 @@ function ArtifactUniverRuntimeHost({
   darkMode: boolean
   locale: LocaleType
   localeMessages: NonNullable<IUniverConfig["locales"]>[LocaleType]
-  snapshot: Parameters<FUniver["createWorkbook"]>[0]
+  snapshot: Parameters<FUniver["createWorkbook"]>[0] | null
 }) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const runtimeRef = React.useRef<PreviewUniverRuntime | null>(null)
@@ -158,7 +158,7 @@ function ArtifactUniverRuntimeHost({
       runtimeRef.current = runtime
     }
 
-    replaceWorkbook(runtime, snapshot)
+    if (snapshot) replaceWorkbook(runtime, snapshot)
 
     return () => {
       if (runtimeRef.current !== runtime || !runtime.currentWorkbookId) {
@@ -169,7 +169,14 @@ function ArtifactUniverRuntimeHost({
     }
   }, [darkMode, locale, localeMessages, snapshot])
 
-  return <div ref={containerRef} className="absolute inset-0 size-full" aria-readonly="true" />
+  return (
+    <div
+      ref={containerRef}
+      className="absolute inset-0 size-full"
+      style={{ visibility: snapshot ? "visible" : "hidden" }}
+      aria-readonly="true"
+    />
+  )
 }
 
 export function ArtifactUniverSpreadsheetPreview({
@@ -177,7 +184,7 @@ export function ArtifactUniverSpreadsheetPreview({
   preview,
 }: {
   className?: string
-  preview: LocalArtifactPreviewResult
+  preview: LocalArtifactPreviewResult | null
 }) {
   const { locale, t } = useI18n()
   const { effectiveTheme } = useTheme()
@@ -187,7 +194,10 @@ export function ArtifactUniverSpreadsheetPreview({
   >(null)
   const localeMessages = univerLocale === LocaleType.EN_US ? enUSMessages : zhCN
   const runtimeConfigKey = `${univerLocale}:${effectiveTheme}`
-  const snapshot = React.useMemo(() => workbookSnapshotFromPreview(preview, univerLocale), [preview, univerLocale])
+  const snapshot = React.useMemo(
+    () => (preview ? workbookSnapshotFromPreview(preview, univerLocale) : null),
+    [preview, univerLocale],
+  )
 
   React.useEffect(() => {
     if (univerLocale !== LocaleType.EN_US || enUSMessages) {
@@ -201,10 +211,6 @@ export function ArtifactUniverSpreadsheetPreview({
       cancelled = true
     }
   }, [enUSMessages, univerLocale])
-
-  if (!snapshot) {
-    return null
-  }
 
   return (
     <div className={cn("flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3", className)}>
@@ -224,7 +230,7 @@ export function ArtifactUniverSpreadsheetPreview({
           </div>
         ) : null}
       </div>
-      {preview.truncated ? (
+      {preview?.truncated ? (
         <p className="oo-text-caption mt-2 shrink-0 text-muted-foreground">{t("artifacts.sheetTruncated")}</p>
       ) : null}
     </div>

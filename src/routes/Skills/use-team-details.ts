@@ -23,14 +23,17 @@ function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
 export function useTeamDetails({
   activeAccountId,
   selectedTeam,
+  includeAllSummaries = true,
 }: {
   activeAccountId: string | undefined
   selectedTeam: Team | null
+  includeAllSummaries?: boolean
 }) {
   const [membersState, setMembersState] = React.useState<LoadState<TeamMember[]>>(() => loadState([]))
   const [summariesState, setSummariesState] = React.useState<LoadState<Record<string, TeamUserSummary>>>(() =>
     loadState({}),
   )
+  const mountedRef = React.useRef(false)
   const requestIdRef = React.useRef(0)
   const loadedTeamIdRef = React.useRef<string | null>(null)
   const activeAccountIdRef = React.useRef(activeAccountId)
@@ -51,20 +54,28 @@ export function useTeamDetails({
 
   const load = React.useCallback(
     async (team: Team, options: { forceRefresh?: boolean } = {}) => {
-      if (latestActiveAccountIdRef.current !== activeAccountId || selectedTeamIdRef.current !== team.id) return
+      if (
+        !mountedRef.current ||
+        latestActiveAccountIdRef.current !== activeAccountId ||
+        selectedTeamIdRef.current !== team.id
+      )
+        return
       const requestId = requestIdRef.current + 1
       requestIdRef.current = requestId
       const resourceAccountId = activeAccountId ?? "anonymous"
       const cachedMembers = options.forceRefresh ? null : getCachedTeamMembers(resourceAccountId, team.id)
       const fallbackUserIds = uniqueStrings([team.creator_user_id, activeAccountId ?? ""])
-      const cachedSummaryUserIds = cachedMembers
-        ? uniqueStrings([...cachedMembers.map((member) => member.user_id), ...fallbackUserIds])
-        : fallbackUserIds
-      const cachedSummaries = options.forceRefresh
-        ? null
-        : getCachedTeamUserSummaries(resourceAccountId, team.id, cachedSummaryUserIds)
+      const summaryIds = (members: TeamMember[]) =>
+        uniqueStrings([
+          ...(includeAllSummaries ? members : members.slice(0, members.length > 5 ? 4 : 5)).map(
+            (member) => member.user_id,
+          ),
+          ...fallbackUserIds,
+        ])
+      const cachedSummaryUserIds = summaryIds(cachedMembers ?? [])
+      const cachedSummaries = getCachedTeamUserSummaries(resourceAccountId, team.id, cachedSummaryUserIds)
       const preserveCurrentData = loadedTeamIdRef.current === team.id
-      loadedTeamIdRef.current = null
+      loadedTeamIdRef.current = team.id
       setMembersState((current) =>
         cachedMembers ? readyState(cachedMembers) : loadingState(preserveCurrentData ? current : loadState([])),
       )
@@ -76,15 +87,9 @@ export function useTeamDetails({
         getTeamMembersResource(resourceAccountId, team.id, { forceRefresh: options.forceRefresh }),
       )
       if (requestIdRef.current !== requestId) return
-      const summaryUserIds = membersResult.ok
-        ? uniqueStrings([...membersResult.value.map((member) => member.user_id), ...fallbackUserIds])
-        : fallbackUserIds
+      const summaryUserIds = membersResult.ok ? summaryIds(membersResult.value) : fallbackUserIds
       const summariesPromise = summaryUserIds.length
-        ? settle(
-            getTeamUserSummariesResource(resourceAccountId, team.id, summaryUserIds, {
-              forceRefresh: options.forceRefresh,
-            }),
-          )
+        ? settle(getTeamUserSummariesResource(resourceAccountId, team.id, summaryUserIds))
         : Promise.resolve<AsyncResult<Record<string, TeamUserSummary>>>({ ok: true, value: {} })
 
       if (membersResult.ok) setMembersState(readyState(membersResult.value))
@@ -97,7 +102,7 @@ export function useTeamDetails({
       )
       loadedTeamIdRef.current = team.id
     },
-    [activeAccountId],
+    [activeAccountId, includeAllSummaries],
   )
 
   React.useEffect(() => {
@@ -108,11 +113,16 @@ export function useTeamDetails({
   }, [activeAccountId, reset])
 
   React.useEffect(() => {
+    mountedRef.current = true
     if (!selectedTeam) {
       reset()
       return
     }
     void load(selectedTeam)
+    return () => {
+      mountedRef.current = false
+      requestIdRef.current += 1
+    }
   }, [load, reset, selectedTeam?.id])
 
   const reload = React.useCallback(async () => {

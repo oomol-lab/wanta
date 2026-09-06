@@ -5,6 +5,7 @@ import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill
 import type { RuntimeSkillRemoveTarget } from "@/routes/Skills/skill-route-model"
 
 import { Link2OffIcon, MoreHorizontalIcon, PackageIcon, RefreshCwIcon } from "lucide-react"
+import * as React from "react"
 import { SkillListRow } from "./SkillListRow.tsx"
 import {
   canInstallProviderRecommendationRuntime,
@@ -202,7 +203,7 @@ export function TeamSkillPackageListSkeleton() {
   )
 }
 
-export function TeamSkillMarketRow({
+export const TeamSkillMarketRow = React.memo(function TeamSkillMarketRow({
   busyAction,
   canManage,
   groupById,
@@ -217,10 +218,10 @@ export function TeamSkillMarketRow({
   canManage: boolean
   groupById: ReadonlyMap<string, ManagedSkillGroup>
   linked: boolean
-  onAdd: (skillName?: string) => Promise<void>
-  onInstallRuntime: (skillName: string) => void
+  onAdd: (pkg: PublicSkillPackage, options: { installRuntime: boolean; skillName?: string }) => Promise<void>
+  onInstallRuntime: (skill: { packageName: string; skillName: string }) => void
   onOpenManagedSkill: (skillName: string) => void
-  onOpenPackageDetail: () => void
+  onOpenPackageDetail: (pkg: PublicSkillPackage) => void
   pkg: PublicSkillPackage
 }) {
   const { t } = useAppI18n()
@@ -269,7 +270,7 @@ export function TeamSkillMarketRow({
               variant="outline"
               size="sm"
               disabled={disabled || installBusy || !targetSkillName}
-              onClick={() => onInstallRuntime(targetSkillName)}
+              onClick={() => onInstallRuntime({ packageName: pkg.name, skillName: targetSkillName })}
             >
               {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
               {installBusy ? t("skills.registryInstalling") : t("teams.skillManageInstallRuntime")}
@@ -280,7 +281,7 @@ export function TeamSkillMarketRow({
               type="button"
               size="sm"
               disabled={disabled || addBusy}
-              onClick={() => void onAdd(primarySkill?.name)}
+              onClick={() => void onAdd(pkg, { installRuntime: false, skillName: primarySkill?.name })}
             >
               {addBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
               {addBusy ? t("skills.teamAdding") : t("teams.skillManageAddOnly")}
@@ -288,10 +289,12 @@ export function TeamSkillMarketRow({
           ) : null}
         </>
       }
-      onSelect={primarySkill && opensManagement ? () => onOpenManagedSkill(primarySkill.name) : onOpenPackageDetail}
+      onSelect={
+        primarySkill && opensManagement ? () => onOpenManagedSkill(primarySkill.name) : () => onOpenPackageDetail(pkg)
+      }
     />
   )
-}
+})
 
 function TeamConfiguredSkillActionsMenu({
   busy,
@@ -433,9 +436,9 @@ export function TeamPackageRemoveConfirmDialog({
   )
 }
 
-export function TeamSkillManageRow({
+export const TeamSkillManageRow = React.memo(function TeamSkillManageRow({
   busy,
-  busyAction,
+  actionsDisabled,
   canManage,
   groupById,
   installBusy,
@@ -445,20 +448,21 @@ export function TeamSkillManageRow({
   skill,
 }: {
   busy: boolean
-  busyAction: BusyAction | null
+  actionsDisabled: boolean
   canManage: boolean
   groupById: ReadonlyMap<string, ManagedSkillGroup>
   installBusy: boolean
-  onInstallRuntime: () => void
-  onOpenManagedSkill: () => void
-  onRemove: () => void
+  onInstallRuntime: (skill: { packageName: string; skillName: string }) => void
+  onOpenManagedSkill: (skillName: string) => void
+  onRemove: (skill: UseTeamSkills["skills"][number]) => void
   skill: UseTeamSkills["skills"][number]
 }) {
   const { t } = useAppI18n()
   const runtimeStatus = getTeamSkillRuntimeStatus(groupById, skill)
   const runtimeTone = teamRuntimeStatusTone(runtimeStatus.state)
   const runtimeInstallable = runtimeStatus.state === "missing" || runtimeStatus.state === "external-only"
-  const menuBusy = Boolean(busyAction) || busy || installBusy
+  const menuBusy = actionsDisabled || busy || installBusy
+  const openManagedSkill = () => onOpenManagedSkill(skill.skillName)
   const opensManagement = shouldOpenTeamSkillManagement(runtimeStatus.state)
 
   return (
@@ -485,26 +489,34 @@ export function TeamSkillManageRow({
       actions={
         <>
           {runtimeInstallable ? (
-            <Button type="button" variant="outline" size="sm" disabled={installBusy} onClick={onInstallRuntime}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={installBusy}
+              onClick={() => onInstallRuntime(skill)}
+            >
               {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
               {installBusy ? t("skills.registryInstalling") : t("teams.skillManageInstallRuntime")}
             </Button>
           ) : null}
           {opensManagement ? (
-            <Button type="button" variant="ghost" size="sm" onClick={onOpenManagedSkill}>
+            <Button type="button" variant="ghost" size="sm" onClick={openManagedSkill}>
               {t("skills.installedManage")}
             </Button>
           ) : null}
-          <TeamConfiguredSkillActionsMenu busy={menuBusy} canManage={canManage} onRemove={onRemove} />
+          <TeamConfiguredSkillActionsMenu busy={menuBusy} canManage={canManage} onRemove={() => onRemove(skill)} />
         </>
       }
-      onSelect={opensManagement ? onOpenManagedSkill : undefined}
+      onSelect={opensManagement ? openManagedSkill : undefined}
     />
   )
-}
+})
 
-export function TeamSkillRecommendationRow({
-  busyAction,
+export const TeamSkillRecommendationRow = React.memo(function TeamSkillRecommendationRow({
+  addBusy,
+  installBusy,
+  actionsDisabled,
   canManage,
   onAdd,
   onInstallRuntime,
@@ -512,23 +524,22 @@ export function TeamSkillRecommendationRow({
   onOpenPackageDetail,
   recommendation,
 }: {
-  busyAction: BusyAction | null
+  addBusy: boolean
+  installBusy: boolean
+  actionsDisabled: boolean
   canManage: boolean
-  onAdd: () => Promise<void>
-  onInstallRuntime: () => void
-  onOpenManagedSkill: () => void
-  onOpenPackageDetail: () => void
+  onAdd: (recommendation: ProviderSkillRecommendation, options: { installRuntime: boolean }) => Promise<void>
+  onInstallRuntime: (skill: { packageName: string; skillName: string }) => void
+  onOpenManagedSkill: (skillName: string) => void
+  onOpenPackageDetail: (pkg: PublicSkillPackage) => void
   recommendation: ProviderSkillRecommendation
 }) {
   const { t } = useAppI18n()
   const canInstallRuntime = canInstallProviderRecommendationRuntime(recommendation)
-  const addBusyKey = `addSkill:${recommendation.packageName}:${recommendation.skillId}`
-  const installBusyKey = `installSkill:${recommendation.packageName}:${recommendation.skillId}`
-  const addBusy = busyAction === addBusyKey || busyAction === "addSkillBatch"
-  const installBusy = busyAction === installBusyKey || busyAction === "installSkillBatch"
-  const disabled = Boolean(busyAction && !addBusy && !installBusy)
+  const disabled = actionsDisabled && !addBusy && !installBusy
   const skillDescription = providerRecommendationSkillDescription(recommendation)
-  const menuBusy = Boolean(busyAction && !addBusy)
+  const menuBusy = actionsDisabled && !addBusy
+  const openManagedSkill = () => onOpenManagedSkill(recommendation.skillId)
   const opensManagement = canOpenManagedProviderRecommendation(recommendation)
 
   return (
@@ -555,7 +566,7 @@ export function TeamSkillRecommendationRow({
       actions={
         <>
           {opensManagement ? (
-            <Button type="button" variant="ghost" size="sm" onClick={onOpenManagedSkill}>
+            <Button type="button" variant="ghost" size="sm" onClick={openManagedSkill}>
               {t("skills.installedManage")}
             </Button>
           ) : null}
@@ -565,21 +576,28 @@ export function TeamSkillRecommendationRow({
               variant="outline"
               size="sm"
               disabled={disabled || installBusy}
-              onClick={onInstallRuntime}
+              onClick={() =>
+                onInstallRuntime({ packageName: recommendation.packageName, skillName: recommendation.skillId })
+              }
             >
               {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
               {installBusy ? t("skills.registryInstalling") : t("teams.skillManageInstallRuntime")}
             </Button>
           ) : null}
           {canManage ? (
-            <Button type="button" size="sm" disabled={menuBusy || addBusy} onClick={() => void onAdd()}>
+            <Button
+              type="button"
+              size="sm"
+              disabled={menuBusy || addBusy}
+              onClick={() => void onAdd(recommendation, { installRuntime: false })}
+            >
               {addBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
               {t("teams.skillManageAddOnly")}
             </Button>
           ) : null}
         </>
       }
-      onSelect={opensManagement ? onOpenManagedSkill : onOpenPackageDetail}
+      onSelect={opensManagement ? openManagedSkill : () => onOpenPackageDetail(recommendation.package)}
     />
   )
-}
+})

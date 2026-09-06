@@ -140,13 +140,15 @@ export function useTeamSkillActions({
     [action, skillInventory, skillService, skillVersionReport, t],
   )
 
+  const addSkill = teamSkills?.addSkill
+  const canManageTeam = teamSkills?.canManage ?? false
   const linkTeamSkill = React.useCallback(
     async (input: TeamSkillLinkInput, options: { installRuntime: boolean; refreshTeam?: boolean }) => {
-      if (!teamSkills?.canManage) {
+      if (!canManageTeam || !addSkill) {
         return { runtimeError: undefined }
       }
 
-      await teamSkills.addSkill(
+      await addSkill(
         {
           packageName: input.packageName,
           skillName: input.skillName,
@@ -169,7 +171,7 @@ export function useTeamSkillActions({
       }
       return { runtimeError: undefined }
     },
-    [teamSkills, skillInventory, skillService, skillVersionReport],
+    [addSkill, canManageTeam, skillInventory, skillService, skillVersionReport],
   )
 
   const addTeamSkillFromRecommendation = React.useCallback(

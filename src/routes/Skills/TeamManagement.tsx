@@ -65,6 +65,8 @@ export function TeamManagementRoute({
   workspace: UseTeamWorkspace
 }) {
   const { locale, t } = useAppI18n()
+  const pageRef = React.useRef<HTMLDivElement>(null)
+  const fallbackFocus = React.useCallback(() => pageRef.current, [])
   const authResource = useAuthStateResource()
   const skillInventory = useSkillInventoryResource()
   const skillVersions = useSkillVersionReportResource({ autoLoad: true })
@@ -169,6 +171,7 @@ export function TeamManagementRoute({
   } = useTeamDetails({
     activeAccountId,
     selectedTeam,
+    includeAllSummaries: overlay.kind === "settings",
   })
   const {
     activeSearchUserId,
@@ -190,7 +193,7 @@ export function TeamManagementRoute({
         team: selectedTeam,
         summaries: summariesState.data,
       }),
-    [activeAccount, activeWorkspace, membersState.data, selectedTeam, summariesState.data],
+    [activeAccount, activeWorkspace.role, membersState.data, selectedTeam, summariesState.data],
   )
   const membersError = membersState.error
   const membersForbidden = membersState.errorStatus === 403
@@ -210,14 +213,17 @@ export function TeamManagementRoute({
     setSelectedPackage(null)
   }, [resetMemberSearch, selectedTeam?.id])
 
+  const refreshTeamSkills = selectedTeamSkills?.refresh
   React.useEffect(() => {
+    void refreshTeamSkills?.()
     const handleWindowFocus = () => {
       void refreshWorkspace()
       void refreshDetails()
+      void refreshTeamSkills?.()
     }
     window.addEventListener("focus", handleWindowFocus)
     return () => window.removeEventListener("focus", handleWindowFocus)
-  }, [refreshDetails, refreshWorkspace])
+  }, [refreshDetails, refreshTeamSkills, refreshWorkspace])
 
   const teamForms = useTeamForms({
     busyAction,
@@ -250,7 +256,7 @@ export function TeamManagementRoute({
     canManage,
     memberInput,
     memberSearch,
-    reloadDetails: reload,
+    reloadDetails: refreshDetails,
     resetMemberSearch,
     selectedTeam,
     selectedSearchUserId,
@@ -260,7 +266,7 @@ export function TeamManagementRoute({
   })
   return (
     <>
-      <div className="h-full min-h-0 overflow-hidden px-3 py-3">
+      <div ref={pageRef} tabIndex={-1} className="h-full min-h-0 overflow-hidden px-3 py-3 outline-none">
         {showOverviewError ? (
           <div className="flex min-h-full items-center justify-center px-4 py-10">
             <ErrorBlock
@@ -324,6 +330,7 @@ export function TeamManagementRoute({
                 ) : null}
                 {selectedTeam ? (
                   <TeamSettingsSheet
+                    fallbackFocus={fallbackFocus}
                     open={overlay.kind !== "none"}
                     title={t(canManage ? "teams.teamSettings" : "teams.viewMembers")}
                     onClose={closeTeamSettings}
@@ -356,6 +363,7 @@ export function TeamManagementRoute({
                         membersError={membersError}
                         membersForbidden={membersForbidden}
                         membersLoading={membersState.status === "loading"}
+                        membersRefreshing={membersState.status === "loading" && membersState.data.length > 0}
                         team={selectedTeam}
                         onAddMember={() => setAddMemberOpen(true)}
                         onDisableMembers={memberActions.disableMembers}
@@ -374,6 +382,7 @@ export function TeamManagementRoute({
       </div>
       {managedSkill ? (
         <SkillManagementSheet
+          fallbackFocus={fallbackFocus}
           subjectName={managedSkill.name}
           onClose={() => {
             setManagedSkillId(null)
@@ -405,6 +414,7 @@ export function TeamManagementRoute({
       ) : null}
       {selectedPackage ? (
         <PublicSkillPackageSheet
+          fallbackFocus={fallbackFocus}
           groupById={skillGroupById}
           installingKey={
             selectedPackageInstallBusy

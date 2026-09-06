@@ -38,6 +38,7 @@ import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 interface TeamSkillsPaneProps {
+  fallbackFocus?: () => HTMLElement | null
   busyAction: BusyAction | null
   groupById: ManagedSkillGroupById
   onAddRecommendation: (
@@ -57,6 +58,7 @@ interface TeamSkillsPaneProps {
 }
 
 export function TeamSkillsPane({
+  fallbackFocus,
   busyAction,
   groupById,
   onAddRecommendation,
@@ -210,6 +212,7 @@ export function TeamSkillsPane({
       )}
       {selectedTeamItem ? (
         <SkillManagementSheet
+          fallbackFocus={fallbackFocus}
           subjectName={
             selectedTeamItem.type === "configured"
               ? selectedTeamItem.skill.displayName

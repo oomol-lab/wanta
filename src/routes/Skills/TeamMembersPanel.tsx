@@ -100,6 +100,7 @@ export function TeamDetailPanel({
   membersError,
   membersForbidden,
   membersLoading,
+  membersRefreshing = false,
   onAddMember,
   onDisableMembers,
   onEnableMembers,
@@ -117,6 +118,7 @@ export function TeamDetailPanel({
   membersError: string | null
   membersForbidden: boolean
   membersLoading: boolean
+  membersRefreshing?: boolean
   onAddMember: () => void
   onDisableMembers: (userIds: string[]) => void
   onEnableMembers: (userIds: string[]) => void
@@ -161,14 +163,15 @@ export function TeamDetailPanel({
         }
       >
         <>
-          {membersLoading ? (
+          {membersLoading && !membersRefreshing ? (
             <MemberRowsSkeleton canManage={canManage} />
-          ) : membersError && !membersForbidden ? (
+          ) : membersError && !membersForbidden && members.length === 0 ? (
             <MemberLoadError onRetry={onRetryMembers} />
           ) : members.length === 0 ? (
             <EmptyBlock>{t("teams.emptyMembersDescription")}</EmptyBlock>
           ) : (
             <>
+              {membersError && !membersForbidden ? <MemberLoadError onRetry={onRetryMembers} /> : null}
               {membersForbidden ? <MemberAccessWarning onRetry={onRetryMembers} /> : null}
               <MembersTable
                 actorRole={actorRole}

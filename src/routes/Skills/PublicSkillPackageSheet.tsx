@@ -25,6 +25,7 @@ import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 interface PublicSkillPackageSheetProps {
+  fallbackFocus?: () => HTMLElement | null
   additionalActions?: React.ReactNode
   canInstall?: boolean
   groupById: ManagedSkillGroupById
@@ -38,6 +39,7 @@ interface PublicSkillPackageSheetProps {
 }
 
 export function PublicSkillPackageSheet({
+  fallbackFocus,
   additionalActions,
   canInstall = true,
   groupById,
@@ -51,6 +53,7 @@ export function PublicSkillPackageSheet({
 }: PublicSkillPackageSheetProps) {
   return (
     <SkillManagementSheet
+      fallbackFocus={fallbackFocus}
       ariaLabel={pkg.displayName}
       subjectName={pkg.displayName}
       title={pkg.displayName}

@@ -28,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
 
 interface DiscoverSkillsPaneProps {
+  fallbackFocus?: () => HTMLElement | null
   error: string | null
   filter: DiscoverSkillFilter
   groupById: ManagedSkillGroupById
@@ -82,6 +83,7 @@ function ProviderSkillRecommendationNotice({
 }
 
 export function DiscoverSkillsPane({
+  fallbackFocus,
   error,
   filter,
   groupById,
@@ -193,6 +195,7 @@ export function DiscoverSkillsPane({
 
       {selectedPackage ? (
         <PublicSkillPackageSheet
+          fallbackFocus={fallbackFocus}
           installingKey={installingKey}
           canInstall={canInstall}
           groupById={groupById}

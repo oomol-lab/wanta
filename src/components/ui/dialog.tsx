@@ -16,6 +16,7 @@ export interface DialogProps {
   contentClassName?: string
   headerHidden?: boolean
   initialFocus?: () => HTMLElement | null
+  fallbackFocus?: () => HTMLElement | null
   titleId?: string
 }
 
@@ -51,9 +52,11 @@ export function Dialog({
   contentClassName,
   headerHidden = false,
   initialFocus,
+  fallbackFocus,
   titleId: titleIdProp,
 }: DialogProps) {
   const panelRef = React.useRef<HTMLDivElement>(null)
+  const focusOrigin = React.useRef<HTMLElement | null>(null)
   const initialFocusRef = React.useRef(initialFocus)
   const generatedTitleId = React.useId()
   const generatedDescriptionId = React.useId()
@@ -84,7 +87,16 @@ export function Dialog({
           aria-label={ariaLabel}
           aria-labelledby={ariaLabel ? undefined : titleId}
           aria-describedby={description ? generatedDescriptionId : undefined}
+          onCloseAutoFocus={(event) => {
+            const target = focusOrigin.current?.isConnected ? focusOrigin.current : fallbackFocus?.()
+            if (!target?.isConnected) return
+            event.preventDefault()
+            target.focus()
+          }}
           onOpenAutoFocus={(event) => {
+            const activeElement = document.activeElement
+            focusOrigin.current =
+              activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : null
             const requestedFocus = initialFocusRef.current?.()
             if (requestedFocus && panelRef.current?.contains(requestedFocus)) {
               event.preventDefault()

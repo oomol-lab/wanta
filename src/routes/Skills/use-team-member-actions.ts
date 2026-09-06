@@ -103,7 +103,7 @@ export function useTeamMemberActions({
       setAddMemberError(null)
       try {
         await addTeamMember({ teamId: selectedTeam.id, userId })
-        invalidateTeamDetailsResource(activeAccountId, selectedTeam.id)
+        invalidateTeamDetailsResource(activeAccountId, selectedTeam.id, { preserveUserSummaries: true })
         if (!operationIsCurrent(operation)) return
         toast.success(t("teams.addMemberSuccess"))
         resetMemberSearch()
@@ -147,7 +147,7 @@ export function useTeamMemberActions({
       const operation = beginOperation(`remove:${member.user_id}`)
       try {
         await removeTeamMember({ teamId: selectedTeam.id, userId: member.user_id })
-        invalidateTeamDetailsResource(activeAccountId, selectedTeam.id)
+        invalidateTeamDetailsResource(activeAccountId, selectedTeam.id, { preserveUserSummaries: true })
         if (!operationIsCurrent(operation)) return
         toast.success(t("teams.removeMemberSuccess"))
         await reloadDetails()
@@ -177,7 +177,7 @@ export function useTeamMemberActions({
       const operation = beginOperation(`updateMemberRole:${member.user_id}`)
       try {
         await updateTeamMemberRole({ role, teamId: selectedTeam.id, userId: member.user_id })
-        invalidateTeamDetailsResource(activeAccountId, selectedTeam.id)
+        invalidateTeamDetailsResource(activeAccountId, selectedTeam.id, { preserveUserSummaries: true })
         if (!operationIsCurrent(operation)) return
         toast.success(t("teams.updateMemberRoleSuccess"))
         await reloadDetails()
@@ -210,7 +210,7 @@ export function useTeamMemberActions({
       try {
         const input = { teamId: selectedTeam.id, userIds: normalizedUserIds }
         await (disabled ? disableTeamMembers(input) : enableTeamMembers(input))
-        invalidateTeamDetailsResource(activeAccountId, selectedTeam.id)
+        invalidateTeamDetailsResource(activeAccountId, selectedTeam.id, { preserveUserSummaries: true })
         if (!operationIsCurrent(operation)) return
         toast.success(disabled ? t("teams.disableMembersSuccess") : t("teams.enableMembersSuccess"))
         await reloadDetails()

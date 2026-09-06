@@ -22,7 +22,7 @@ import {
   previewLanguage,
   readableArtifactTitle,
 } from "./artifact-metadata.ts"
-import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
+import { artifactPreviewCacheKey, useLocalArtifactPreview } from "./artifact-preview-cache.ts"
 import { FileKindIcon } from "./file-type-icons.tsx"
 import {
   CodeBlock,
@@ -110,7 +110,15 @@ export function ArtifactPreview({
   onOpen: () => void
 }) {
   const t = useT()
-  const { loading, preview, reload } = useLocalArtifactPreview(item, previewCache)
+  const { loading, preview, reload, retry, resourceLoaded } = useLocalArtifactPreview(item, previewCache)
+  const scrollRef = React.useRef<HTMLDivElement | null>(null)
+  const fileKey = item ? artifactPreviewCacheKey(item) : null
+  React.useLayoutEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0
+      scrollRef.current.scrollLeft = 0
+    }
+  }, [fileKey])
   const [internalMode, setInternalMode] = React.useState<ArtifactPreviewMode>("preview")
   const activeMode = mode ?? internalMode
   const canShowSource = preview?.kind === "text"
@@ -132,20 +140,22 @@ export function ArtifactPreview({
     }
   }, [item?.path, onModeChange])
 
+  const spreadsheetSelected =
+    !!item &&
+    (isCsvArtifact(item) ||
+      item.name.toLowerCase().endsWith(".xlsx") ||
+      item.mime.toLowerCase() === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
   React.useEffect(() => {
-    if (
-      item &&
-      (isCsvArtifact(item) ||
-        item.name.toLowerCase().endsWith(".xlsx") ||
-        item.mime.toLowerCase() === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    ) {
-      void loadArtifactUniverSpreadsheetPreview()
+    if (spreadsheetSelected) {
+      // Rendering the lazy component reports a chunk failure through its error boundary.
+      void loadArtifactUniverSpreadsheetPreview().catch(() => undefined)
     }
-  }, [item?.mime, item?.name])
+  }, [spreadsheetSelected])
 
   if (!item) {
     return <ArtifactsEmptyState />
   }
+  const spreadsheetReady = !loading && preview?.kind === "spreadsheet"
 
   return (
     <section
@@ -207,29 +217,51 @@ export function ArtifactPreview({
       ) : null}
 
       <div
-        key={item.path}
+        ref={scrollRef}
         className={cn(
           "min-h-0 flex-1",
           activeMode === "preview" && preview?.kind === "pdf" ? "overflow-hidden" : "overflow-auto",
         )}
       >
-        {activeMode === "info" ? (
-          <ArtifactInfo item={item} group={group} />
-        ) : loading ? (
-          <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
-            {t("artifacts.previewLoading")}
+        {spreadsheetSelected ? (
+          <div className={cn("min-h-full", (activeMode !== "preview" || !spreadsheetReady) && "hidden")}>
+            <ErrorBoundary
+              resetKey={preview ?? fileKey}
+              fallback={<ArtifactUnavailablePreview item={item} preview={preview} onOpen={onOpen} onRetry={retry} />}
+            >
+              <React.Suspense fallback={<ArtifactSpreadsheetLoadingPreview />}>
+                <ArtifactUniverSpreadsheetPreview preview={spreadsheetReady ? preview : null} />
+              </React.Suspense>
+            </ErrorBoundary>
           </div>
-        ) : activeMode === "source" && canShowSource ? (
-          <ArtifactSourcePreview item={item} preview={preview} />
-        ) : (
-          <ArtifactConsumablePreview
-            item={item}
-            pack={pack}
-            preview={preview}
-            onOpen={onOpen}
-            onResourceError={reload}
-          />
-        )}
+        ) : null}
+        <div
+          key={fileKey}
+          className={cn(
+            !(spreadsheetSelected && spreadsheetReady && activeMode === "preview") && "min-h-full",
+            activeMode === "preview" && (preview?.kind === "pdf" || isHtmlArtifact(item)) && "h-full",
+          )}
+        >
+          {activeMode === "info" ? (
+            <ArtifactInfo item={item} group={group} />
+          ) : loading ? (
+            <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
+              {t("artifacts.previewLoading")}
+            </div>
+          ) : activeMode === "source" && canShowSource ? (
+            <ArtifactSourcePreview item={item} preview={preview} />
+          ) : spreadsheetSelected && spreadsheetReady ? null : (
+            <ArtifactConsumablePreview
+              item={item}
+              pack={pack}
+              preview={preview}
+              onOpen={onOpen}
+              onResourceError={reload}
+              onResourceLoaded={resourceLoaded}
+              onRetry={retry}
+            />
+          )}
+        </div>
       </div>
     </section>
   )
@@ -328,6 +360,7 @@ function localArtifactPreviewUnavailableDescription(
 }
 
 function ArtifactUnavailablePreview({
+  onRetry,
   description,
   item,
   onOpen,
@@ -335,6 +368,7 @@ function ArtifactUnavailablePreview({
   preview,
 }: {
   description?: string
+  onRetry?: () => void
   item: LocalArtifactItem
   onOpen: () => void
   pack?: LocalArtifactPack | null
@@ -353,6 +387,11 @@ function ArtifactUnavailablePreview({
       <p className="oo-text-caption mt-1 max-w-72 text-muted-foreground">
         {description ?? localArtifactPreviewUnavailableDescription(t, item, preview)}
       </p>
+      {onRetry ? (
+        <Button type="button" variant="outline" size="sm" className="mt-4" onClick={onRetry}>
+          {t("artifacts.retry")}
+        </Button>
+      ) : null}
       <Button type="button" variant="outline" size="sm" className="mt-4 h-8 gap-1 px-3" onClick={onOpen}>
         <ExternalLink className="size-3.5" />
         {t("artifacts.open")}
@@ -389,7 +428,9 @@ function ArtifactArchivePreview({ preview }: { preview: LocalArtifactPreviewResu
           {t("artifacts.archiveFormat", { format: archive.format.toUpperCase() })}
         </div>
         <div className="oo-text-caption text-muted-foreground">
-          {t("artifacts.archiveCount", { count: archive.entries.length, total: archive.totalEntries })}
+          {archive.totalEntries === null
+            ? t("artifacts.archiveShownCount", { count: archive.entries.length })
+            : t("artifacts.archiveCount", { count: archive.entries.length, total: archive.totalEntries })}
         </div>
       </div>
       <div className="oo-border-divider overflow-hidden rounded-md border">
@@ -436,6 +477,8 @@ function ArtifactVideoPreview({
   item,
   onOpen,
   onResourceError,
+  onResourceLoaded,
+  onRetry,
   pack,
   preview,
   source,
@@ -443,6 +486,8 @@ function ArtifactVideoPreview({
   item: LocalArtifactItem
   onOpen: () => void
   onResourceError?: () => void
+  onResourceLoaded?: () => void
+  onRetry?: () => void
   pack?: LocalArtifactPack | null
   preview: LocalArtifactPreviewResult
   source: string
@@ -464,6 +509,7 @@ function ArtifactVideoPreview({
         pack={pack}
         preview={preview}
         onOpen={onOpen}
+        onRetry={failure === "resource" ? onRetry : undefined}
       />
     )
   }
@@ -476,6 +522,7 @@ function ArtifactVideoPreview({
         playsInline
         preload="metadata"
         className="max-h-full max-w-full rounded-md bg-black shadow-sm"
+        onLoadedData={onResourceLoaded}
         onError={(event) => {
           if (event.currentTarget.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
             setFailure("unsupported_source")
@@ -495,20 +542,36 @@ export function ArtifactConsumablePreview({
   onOpen,
   pack,
   onResourceError,
+  onResourceLoaded,
+  onRetry,
+  imageGallery = false,
 }: {
   item: LocalArtifactItem
   preview: LocalArtifactPreviewResult | null
   onOpen: () => void
   pack?: LocalArtifactPack | null
   onResourceError?: () => void
+  onResourceLoaded?: () => void
+  onRetry?: () => void
+  imageGallery?: boolean
 }) {
   const t = useT()
-  const lazyPreviewFallback = (
-    <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-center text-muted-foreground">
-      {t("artifacts.previewReadFailed")}
-    </div>
-  )
+  const [failedSource, setFailedSource] = React.useState<string | null>(null)
   const resourceSource = preview?.resourceUrl ?? preview?.dataUrl
+  const lazyPreviewFallback = (
+    <ArtifactUnavailablePreview
+      item={item}
+      preview={preview}
+      onOpen={onOpen}
+      onRetry={onRetry}
+      description={t("artifacts.previewReadFailed")}
+    />
+  )
+  const resourceError = () => {
+    setFailedSource(resourceSource ?? null)
+    onResourceError?.()
+  }
+  if (resourceSource && failedSource === resourceSource) return lazyPreviewFallback
 
   if (preview?.kind === "image" && resourceSource) {
     return (
@@ -516,10 +579,15 @@ export function ArtifactConsumablePreview({
         <img
           src={resourceSource}
           alt={item.name}
-          className="max-h-full max-w-full rounded-md border border-border bg-background object-contain shadow-sm"
+          className={cn(
+            "max-h-full max-w-full object-contain",
+            imageGallery ? "drop-shadow-sm" : "rounded-md border border-border bg-background shadow-sm",
+          )}
+          onDoubleClick={imageGallery ? onOpen : undefined}
           draggable={false}
           decoding="async"
-          onError={onResourceError}
+          onLoad={onResourceLoaded}
+          onError={resourceError}
         />
       </div>
     )
@@ -534,6 +602,8 @@ export function ArtifactConsumablePreview({
         source={resourceSource}
         onOpen={onOpen}
         onResourceError={onResourceError}
+        onResourceLoaded={onResourceLoaded}
+        onRetry={onRetry}
       />
     )
   }
@@ -545,7 +615,14 @@ export function ArtifactConsumablePreview({
           <Music className="size-6" />
         </div>
         <div className="w-full max-w-sm">
-          <audio src={resourceSource} controls preload="metadata" className="w-full" onError={onResourceError} />
+          <audio
+            src={resourceSource}
+            controls
+            preload="metadata"
+            className="w-full"
+            onLoadedData={onResourceLoaded}
+            onError={resourceError}
+          />
         </div>
       </div>
     )
@@ -561,7 +638,13 @@ export function ArtifactConsumablePreview({
             </div>
           }
         >
-          <ArtifactPdfPreview source={resourceSource} name={item.name} onResourceError={onResourceError} />
+          <ArtifactPdfPreview
+            source={resourceSource}
+            name={item.name}
+            onResourceError={onResourceError}
+            onResourceLoaded={onResourceLoaded}
+            onRetry={onRetry}
+          />
         </React.Suspense>
       </ErrorBoundary>
     )
@@ -577,7 +660,13 @@ export function ArtifactConsumablePreview({
             </div>
           }
         >
-          <ArtifactDocxPreview source={resourceSource} name={item.name} onResourceError={onResourceError} />
+          <ArtifactDocxPreview
+            source={resourceSource}
+            name={item.name}
+            onResourceError={onResourceError}
+            onResourceLoaded={onResourceLoaded}
+            onRetry={onRetry}
+          />
         </React.Suspense>
       </ErrorBoundary>
     )
@@ -627,7 +716,15 @@ export function ArtifactConsumablePreview({
     return <ArtifactSourcePreview item={item} preview={preview} />
   }
 
-  return <ArtifactUnavailablePreview item={item} pack={pack} preview={preview} onOpen={onOpen} />
+  return (
+    <ArtifactUnavailablePreview
+      item={item}
+      pack={pack}
+      preview={preview}
+      onOpen={onOpen}
+      onRetry={preview?.reason === "read_failed" ? onRetry : undefined}
+    />
+  )
 }
 
 function ArtifactHtmlPreview({ preview }: { preview: LocalArtifactPreviewResult }) {
@@ -643,11 +740,6 @@ function ArtifactHtmlPreview({ preview }: { preview: LocalArtifactPreviewResult 
         referrerPolicy="no-referrer"
         className="block h-full min-h-0 w-full min-w-0 flex-1 border-0 bg-transparent"
       />
-      {preview.truncated ? (
-        <p className="oo-text-caption oo-border-divider border-t px-3 py-2 text-muted-foreground">
-          {t("artifacts.previewTruncated")}
-        </p>
-      ) : null}
     </div>
   )
 }

@@ -12,6 +12,7 @@ import path from "node:path"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import {
   archivePreview,
+  archivePreviewMaxBytes,
   archiveFormatFromPath,
   binaryDataPreview,
   isBinaryDataPreviewArtifact,
@@ -280,6 +281,9 @@ export async function localArtifactPreview(
     }
 
     if (archiveFormatFromPath(item.path, item.mime)) {
+      if (size > archivePreviewMaxBytes) {
+        return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
+      }
       const archive = await archivePreview(await previewPath(), item.mime, size).catch((error: unknown) => {
         logPreviewFailure("getLocalArtifactPreview archive", item.path, error, item.mime)
         return { kind: "unsupported" as const, mime: item.mime, size, reason: "read_failed" as const }

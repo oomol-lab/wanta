@@ -1,6 +1,10 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { ArtifactPreviewLoadCancelledError, ArtifactPreviewLoadScheduler } from "./artifact-preview-scheduler.ts"
+import {
+  ArtifactPreviewLoadCancelledError,
+  ArtifactPreviewLoadScheduler,
+  scheduleArtifactPreviewLoad,
+} from "./artifact-preview-scheduler.ts"
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -98,4 +102,46 @@ test("preview scheduler drops the oldest background task when the queue is full"
   blocker.resolve()
   await Promise.all([first, retained])
   assert.deepEqual(order, ["retained"])
+})
+
+test("occupied native thumbnail slots do not delay the selected file", async () => {
+  const blocker = deferred<void>()
+  const thumbnails = Array.from({ length: 4 }, () => scheduleArtifactPreviewLoad(() => blocker.promise, "background"))
+  let interactiveStarted = false
+  const interactive = scheduleArtifactPreviewLoad(async () => {
+    interactiveStarted = true
+  }, "interactive")
+  await interactive
+  assert.equal(interactiveStarted, true)
+  blocker.resolve()
+  await Promise.all(thumbnails)
+})
+
+test("synchronously throwing loaders release their slot and reject normally", async () => {
+  const scheduler = new ArtifactPreviewLoadScheduler(1)
+  const error = new Error("sync failure")
+  const failed = scheduler.schedule(() => {
+    throw error
+  }, "interactive")
+  const next = scheduler.schedule(async () => "next", "interactive")
+  await assert.rejects(failed, error)
+  assert.equal(await next, "next")
+})
+
+test("cancelling active native work does not undercount real concurrency", async () => {
+  const scheduler = new ArtifactPreviewLoadScheduler(1)
+  const blocker = deferred<void>()
+  const controller = new AbortController()
+  const first = scheduler.schedule(() => blocker.promise, "background", controller.signal)
+  await Promise.resolve()
+  controller.abort()
+  let nextStarted = false
+  const next = scheduler.schedule(async () => {
+    nextStarted = true
+  }, "interactive")
+  await Promise.resolve()
+  assert.equal(nextStarted, false)
+  blocker.resolve()
+  await Promise.all([first, next])
+  assert.equal(nextStarted, true)
 })

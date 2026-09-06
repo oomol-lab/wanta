@@ -123,40 +123,44 @@ export function loadCachedArtifactPreview(
   priority: ArtifactPreviewLoadPriority,
   signal: AbortSignal,
 ): Promise<LocalArtifactPreviewResult> {
+  if (signal.aborted) return Promise.reject(signal.reason)
   const key = artifactPreviewCacheKey(item)
-  const cached = cache.get(key)
-  if (cached?.result) {
-    rememberArtifactPreview(cache, key, cached)
-    return Promise.resolve(cached.result)
+  const cached = cachedArtifactPreviewResult(cache, item)
+  if (cached) return Promise.resolve(cached)
+
+  let request = cache.get(key)?.request
+  if (!request || request.controller.signal.aborted) {
+    request = createSharedRequest((sharedSignal) => scheduleArtifactPreviewLoad(load, priority, sharedSignal))
+    const createdRequest = request
+    rememberArtifactPreview(cache, key, { request })
+    void request.promise.then(
+      (result) => {
+        // Invalidation or eviction may already have started a newer request for this key.
+        if (cache.get(key)?.request !== createdRequest) return
+        if (
+          createdRequest.controller.signal.aborted ||
+          result.reason === "read_failed" ||
+          result.reason === "missing"
+        ) {
+          cache.delete(key)
+          return
+        }
+        rememberArtifactPreview(cache, key, { estimatedBytes: artifactPreviewEstimatedBytes(result), result })
+      },
+      () => {
+        if (cache.get(key)?.request === createdRequest) cache.delete(key)
+      },
+    )
   }
-  if (cached?.request) {
-    rememberArtifactPreview(cache, key, cached)
-    return waitForSharedRequest(cached.request, signal).catch((error: unknown) => {
-      if (signal.aborted) {
-        throw error
-      }
-      return fallbackArtifactPreview(item)
-    })
-  }
-  const request = createSharedRequest((sharedSignal) => scheduleArtifactPreviewLoad(load, priority, sharedSignal))
-  rememberArtifactPreview(cache, key, { request })
-  void request.promise.then(
-    (result) => {
-      rememberArtifactPreview(cache, key, { estimatedBytes: artifactPreviewEstimatedBytes(result), result })
-    },
-    () => {
-      if (cache.get(key)?.request === request) {
-        cache.delete(key)
-      }
-    },
-  )
   return waitForSharedRequest(request, signal).catch((error: unknown) => {
-    if (signal.aborted) {
-      throw error
-    }
+    if (signal.aborted) throw error
     return fallbackArtifactPreview(item)
   })
 }
+
+type PreviewState =
+  | { key: string | null; status: "loading" }
+  | { key: string | null; status: "loaded"; preview: LocalArtifactPreviewResult | null }
 
 export function useLocalArtifactPreview(
   item: LocalArtifactItem | null,
@@ -166,78 +170,79 @@ export function useLocalArtifactPreview(
   loading: boolean
   preview: LocalArtifactPreviewResult | null
   reload: () => void
+  retry: () => void
+  resourceLoaded: () => void
 } {
   const chatService = useChatService()
-  const [preview, setPreview] = React.useState<LocalArtifactPreviewResult | null>(null)
-  const [loading, setLoading] = React.useState(false)
-  const [loadedPreviewKey, setLoadedPreviewKey] = React.useState<string | null>(null)
+  const [state, setState] = React.useState<PreviewState>({ key: null, status: "loaded", preview: null })
   const [reloadVersion, setReloadVersion] = React.useState(0)
-  const reloadAttemptRef = React.useRef<{ count: number; key: string | null }>({ count: 0, key: null })
   const previewKey = item ? artifactPreviewCacheKey(item) : null
+  // The loader only depends on file identity, not a freshly allocated item from the parent.
+  const requestItem = React.useMemo(() => item, [previewKey, item?.kind])
+  const reloadAttemptRef = React.useRef<{ count: number; key: string | null }>({ count: 0, key: null })
+
+  const invalidate = React.useCallback(() => {
+    if (!previewKey) return
+    previewCache.delete(previewKey)
+    setState({ key: previewKey, status: "loading" })
+    setReloadVersion((value) => value + 1)
+  }, [previewCache, previewKey])
+
   const reload = React.useCallback(() => {
     if (reloadAttemptRef.current.key !== previewKey) {
       reloadAttemptRef.current = { count: 0, key: previewKey }
     }
-    if (reloadAttemptRef.current.count >= 1) {
-      return
-    }
+    if (reloadAttemptRef.current.count >= 1) return
     reloadAttemptRef.current.count += 1
-    if (previewKey) {
-      previewCache.delete(previewKey)
-    }
-    setPreview(null)
-    setLoadedPreviewKey(null)
-    setReloadVersion((value) => value + 1)
-  }, [previewCache, previewKey])
+    invalidate()
+  }, [invalidate, previewKey])
+
+  const retry = React.useCallback(() => {
+    // An explicit retry is already a recovery attempt; don't auto-retry it again on failure.
+    reloadAttemptRef.current = { count: 1, key: previewKey }
+    invalidate()
+  }, [invalidate, previewKey])
+
+  const resourceLoaded = React.useCallback(() => {
+    // A new URL alone is not success: reset only after the browser/viewer consumes it.
+    reloadAttemptRef.current = { count: 0, key: previewKey }
+  }, [previewKey])
 
   React.useEffect(() => {
-    if (!item || item.kind !== "file") {
-      setPreview(null)
-      setLoadedPreviewKey(null)
-      setLoading(false)
+    if (!requestItem || requestItem.kind !== "file") {
+      setState({ key: previewKey, status: "loaded", preview: null })
       return
     }
-    const cached = cachedArtifactPreviewResult(previewCache, item)
+    const cached = cachedArtifactPreviewResult(previewCache, requestItem)
     if (cached) {
-      setPreview(cached)
-      setLoadedPreviewKey(previewKey)
-      setLoading(false)
+      setState({ key: previewKey, status: "loaded", preview: cached })
       return
     }
-    let cancelled = false
     const controller = new AbortController()
-    setPreview(null)
-    setLoadedPreviewKey(null)
-    setLoading(true)
+    setState({ key: previewKey, status: "loading" })
     void loadCachedArtifactPreview(
       previewCache,
-      item,
-      () => chatService.invoke("getLocalArtifactPreview", { path: item.path }),
+      requestItem,
+      () => chatService.invoke("getLocalArtifactPreview", { path: requestItem.path }),
       priority,
       controller.signal,
+    ).then(
+      (preview) => {
+        if (!controller.signal.aborted) setState({ key: previewKey, status: "loaded", preview })
+      },
+      () => {
+        // The only rejection exposed by loadCachedArtifactPreview is consumer cancellation.
+      },
     )
-      .then((result) => {
-        if (!cancelled) {
-          setPreview(result)
-          setLoadedPreviewKey(previewKey)
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      })
-    return () => {
-      cancelled = true
-      controller.abort()
-    }
-  }, [chatService, item, previewCache, priority, reloadVersion])
+    return () => controller.abort()
+  }, [chatService, requestItem, previewCache, priority, reloadVersion, previewKey])
 
-  const previewMatchesItem = loadedPreviewKey === previewKey
+  const previewMatchesItem = state.key === previewKey
   return {
-    loading: Boolean(item && item.kind === "file" && (!previewMatchesItem || loading)),
-    preview: previewMatchesItem ? preview : null,
+    loading: Boolean(item?.kind === "file" && (!previewMatchesItem || state.status === "loading")),
+    preview: previewMatchesItem && state.status === "loaded" ? state.preview : null,
     reload,
+    retry,
+    resourceLoaded,
   }
 }

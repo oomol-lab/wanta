@@ -1,5 +1,6 @@
 import type { Team } from "../../../electron/teams/common.ts"
 import type { BusyAction } from "./team-management-model.ts"
+import type { UseTeamWorkspace } from "@/hooks/useTeamWorkspace"
 
 import * as React from "react"
 import { toast } from "sonner"
@@ -19,7 +20,7 @@ interface TeamFormsOptions {
   busyAction: BusyAction | null
   canManageTeam: (team: Team) => boolean
   teams: Team[]
-  refreshWorkspace: (options?: { forceRefresh?: boolean }) => Promise<unknown>
+  refreshWorkspace: UseTeamWorkspace["refresh"]
   selectedTeamId: string | null
   selectTeam: (teamId: string) => void
   setBusyAction: React.Dispatch<React.SetStateAction<BusyAction | null>>
@@ -78,7 +79,7 @@ export function useTeamForms({
 
   const refreshAfterMutation = React.useCallback(async (): Promise<void> => {
     await refreshAfterCommittedTeamMutation(
-      () => refreshWorkspace({ forceRefresh: true }),
+      () => refreshWorkspace({ forceRefresh: true, throwOnError: true }),
       (error) => {
         reportRendererHandledError("teams", "workspace refresh after team mutation failed", error)
         toast.error(t("teams.refreshFailedTitle"))

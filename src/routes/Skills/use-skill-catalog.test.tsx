@@ -163,3 +163,34 @@ test("appending a fresh page does not extend the oldest page lifetime", async ()
   await probe.render(true)
   expect(load).toHaveBeenCalledTimes(calls + 1)
 })
+
+test("debounced search cancels before dispatch and disabling the tab aborts its active request", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  root = createRoot(document.createElement("div"))
+  const requests: Array<{ query: string; signal: AbortSignal }> = []
+  function Probe({ query, enabled }: { query: string; enabled: boolean }) {
+    const load = React.useCallback(
+      (input: { signal?: AbortSignal }) => {
+        requests.push({ query, signal: input.signal! })
+        return new Promise<{ items: []; next: null; updatedAt: string }>(() => undefined)
+      },
+      [query],
+    )
+    useSkillCatalog({ enabled, load, debounceMs: 300 })
+    return null
+  }
+  try {
+    await act(async () => root!.render(<Probe query="old" enabled />))
+    await act(async () => vi.advanceTimersByTimeAsync(200))
+    await act(async () => root!.render(<Probe query="new" enabled />))
+    await act(async () => vi.advanceTimersByTimeAsync(299))
+    expect(requests).toHaveLength(0)
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    expect(requests.map((request) => request.query)).toEqual(["new"])
+    await act(async () => root!.render(<Probe query="new" enabled={false} />))
+    expect(requests[0]?.signal.aborted).toBe(true)
+  } finally {
+    vi.useRealTimers()
+  }
+})

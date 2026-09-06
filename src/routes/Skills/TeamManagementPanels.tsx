@@ -18,7 +18,7 @@ import {
 import * as React from "react"
 import { planProviderSkillRecommendationBulkLinks } from "./team-management-model.ts"
 import { TeamAvatar, TeamMemberAccessButton } from "./TeamMembersPanel.tsx"
-import { TeamSkillManageDialog, TeamSkillManageLoadingSkeleton } from "./TeamSkillManageDialog.tsx"
+import { TeamSkillManagePanel, TeamSkillManageLoadingSkeleton } from "./TeamSkillManagePanel.tsx"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -329,7 +329,7 @@ export function TeamSkillGuidePanel({
         </div>
       </div>
       <div className="min-h-0">
-        <TeamSkillManageDialog
+        <TeamSkillManagePanel
           busyAction={busyAction}
           groupById={groupById}
           teamSkills={teamSkills}
@@ -337,7 +337,6 @@ export function TeamSkillGuidePanel({
           providerRecommendationsResolvedCount={providerRecommendationsResolvedCount}
           providerRecommendationsTotalCount={providerRecommendationsTotalCount}
           providerRecommendations={providerRecommendations}
-          variant="inline"
           onAddRecommendation={onAddRecommendation}
           onAddRecommendationBatch={onAddRecommendationBatch}
           onAddMarketPackage={onAddMarketPackage}

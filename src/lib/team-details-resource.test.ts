@@ -149,3 +149,103 @@ describe("team-details-resource", () => {
     expect(getCachedTeamMembers("account-1", "team-1")).toEqual([{ role: "member", user_id: "new-user" }])
   })
 })
+
+describe("incremental user summaries", () => {
+  afterEach(() => {
+    clearTeamDetailsResources()
+    vi.unstubAllGlobals()
+  })
+
+  it("shares overlapping requests and refetches only missing users", async () => {
+    const { getTeamUserSummariesResource } = await import("./team-details-resource.ts")
+    let resolveFirst!: (response: Response) => void
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve
+          }),
+      )
+      .mockResolvedValue(Response.json({ third: { username: "Third" } }))
+    vi.stubGlobal("fetch", fetchMock)
+    const first = getTeamUserSummariesResource("a", "t", ["first", "second"])
+    const overlap = getTeamUserSummariesResource("a", "t", ["second", "third"])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(new URL(String(fetchMock.mock.calls[1]?.[0])).searchParams.getAll("user_ids")).toEqual(["third"])
+    resolveFirst(Response.json({ first: { username: "First" }, second: { username: "Second" } }))
+    expect(await first).toHaveProperty("first")
+    expect(await overlap).toHaveProperty("second")
+    expect(await overlap).toHaveProperty("third")
+    await getTeamUserSummariesResource("a", "t", ["first", "third"])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps newer summaries after a superseded request finishes and isolates accounts", async () => {
+    const { getTeamUserSummariesResource, getCachedTeamUserSummaries } = await import("./team-details-resource.ts")
+    let resolveFirst!: (response: Response) => void
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve
+          }),
+      )
+      .mockImplementation(async () => Response.json({ user: { username: "New" } }))
+    vi.stubGlobal("fetch", fetchMock)
+    const first = getTeamUserSummariesResource("a", "t", ["user"])
+    await getTeamUserSummariesResource("a", "t", ["user"], { forceRefresh: true })
+    resolveFirst(Response.json({ user: { username: "Old" } }))
+    await first
+    expect(getCachedTeamUserSummaries("a", "t", ["user"])?.user.username).toBe("New")
+    expect(getCachedTeamUserSummaries("b", "t", ["user"])).toBeNull()
+    await getTeamUserSummariesResource("b", "t", ["user"])
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it("retries failed summaries and honors per-user expiry", async () => {
+    const { getTeamUserSummariesResource } = await import("./team-details-resource.ts")
+    const startedAt = Date.now()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(startedAt)
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockImplementation(async (input) => {
+        const ids = new URL(String(input)).searchParams.getAll("user_ids")
+        return Response.json(Object.fromEntries(ids.map((id) => [id, { username: id }])))
+      })
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      await expect(getTeamUserSummariesResource("a", "t", ["first"])).rejects.toThrow("offline")
+      await getTeamUserSummariesResource("a", "t", ["first"])
+      clock.mockReturnValue(startedAt + 30_000)
+      await getTeamUserSummariesResource("a", "t", ["second"])
+      clock.mockReturnValue(startedAt + 61_000)
+      await getTeamUserSummariesResource("a", "t", ["first", "second"])
+      expect(fetchMock).toHaveBeenCalledTimes(4)
+      expect(new URL(String(fetchMock.mock.calls[3]?.[0])).searchParams.getAll("user_ids")).toEqual(["first"])
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it("does not resurrect invalidated summaries after a late response", async () => {
+    const { getTeamUserSummariesResource, getCachedTeamUserSummaries } = await import("./team-details-resource.ts")
+    let finish!: (response: Response) => void
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve
+          }),
+      ),
+    )
+    const pending = getTeamUserSummariesResource("a", "t", ["user"])
+    invalidateTeamDetailsResource("a", "t")
+    finish(Response.json({ user: { username: "Late" } }))
+    await pending
+    expect(getCachedTeamUserSummaries("a", "t", ["user"])).toBeNull()
+  })
+})

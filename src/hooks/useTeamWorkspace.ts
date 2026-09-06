@@ -45,6 +45,7 @@ export interface UseTeamWorkspace {
 }
 
 export interface TeamWorkspaceRefreshOptions {
+  throwOnError?: boolean
   forceRefresh?: boolean
 }
 
@@ -267,6 +268,7 @@ export function useTeamWorkspace(accountId: string | undefined): UseTeamWorkspac
         if (requestIdRef.current === requestId) {
           setError(workspaceError(err, hadOverview))
         }
+        if (options.throwOnError) throw err
       } finally {
         if (requestIdRef.current === requestId) {
           setLoading(false)

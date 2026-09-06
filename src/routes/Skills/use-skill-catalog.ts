@@ -17,9 +17,11 @@ export function useSkillCatalog({
   enabled,
   load,
   staleTimeMs = publicSkillPackageListCacheMs,
+  debounceMs = 0,
 }: {
   enabled: boolean
   staleTimeMs?: number
+  debounceMs?: number
   load: (input: ListPublicSkillPackagesInput) => Promise<PublicSkillPackageCatalog>
 }) {
   const [catalog, dispatch] = React.useReducer(publicPackageCatalogReducer, initialPublicPackageCatalogState)
@@ -30,7 +32,7 @@ export function useSkillCatalog({
   const revision = React.useSyncExternalStore(subscribeSkillCatalogInvalidation, getSkillCatalogInvalidationRevision)
 
   const loadPage = React.useCallback(
-    async (options: SkillCatalogPageOptions = {}) => {
+    async (options: SkillCatalogPageOptions = {}, delayMs = 0) => {
       activeRequest.current?.abort()
       const controller = new AbortController()
       activeRequest.current = controller
@@ -42,6 +44,18 @@ export function useSkillCatalog({
       const append = Boolean(next && !options.forceRefresh && !options.replace)
       dispatch({ type: "load-start", append, clearItems: options.replace, requestId: id })
       try {
+        if (delayMs) {
+          await new Promise<void>((resolve) => {
+            const finish = () => {
+              window.clearTimeout(timer)
+              controller.signal.removeEventListener("abort", finish)
+              resolve()
+            }
+            const timer = window.setTimeout(finish, delayMs)
+            controller.signal.addEventListener("abort", finish, { once: true })
+          })
+          controller.signal.throwIfAborted()
+        }
         const result = await load({ next, forceRefresh: options.forceRefresh, signal: controller.signal })
         if (!controller.signal.aborted) {
           const fetchedAt = Date.parse(result.updatedAt)
@@ -73,12 +87,12 @@ export function useSkillCatalog({
     ) {
       const replace = previousLoader.current !== load
       previousLoader.current = load
-      void loadPage({ replace })
+      void loadPage({ replace }, debounceMs)
     }
     return () => {
       activeRequest.current?.abort()
     }
-  }, [enabled, load, loadPage, revision])
+  }, [debounceMs, enabled, load, loadPage, revision])
 
   return { catalog, dispatch, loadPage }
 }

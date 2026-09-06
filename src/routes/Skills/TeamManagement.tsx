@@ -169,6 +169,7 @@ export function TeamManagementRoute({
   } = useTeamDetails({
     activeAccountId,
     selectedTeam,
+    includeAllSummaries: overlay.kind === "settings",
   })
   const {
     activeSearchUserId,
@@ -190,7 +191,7 @@ export function TeamManagementRoute({
         team: selectedTeam,
         summaries: summariesState.data,
       }),
-    [activeAccount, activeWorkspace, membersState.data, selectedTeam, summariesState.data],
+    [activeAccount, activeWorkspace.role, membersState.data, selectedTeam, summariesState.data],
   )
   const membersError = membersState.error
   const membersForbidden = membersState.errorStatus === 403
@@ -210,14 +211,17 @@ export function TeamManagementRoute({
     setSelectedPackage(null)
   }, [resetMemberSearch, selectedTeam?.id])
 
+  const refreshTeamSkills = selectedTeamSkills?.refresh
   React.useEffect(() => {
+    void refreshTeamSkills?.()
     const handleWindowFocus = () => {
       void refreshWorkspace()
       void refreshDetails()
+      void refreshTeamSkills?.()
     }
     window.addEventListener("focus", handleWindowFocus)
     return () => window.removeEventListener("focus", handleWindowFocus)
-  }, [refreshDetails, refreshWorkspace])
+  }, [refreshDetails, refreshTeamSkills, refreshWorkspace])
 
   const teamForms = useTeamForms({
     busyAction,
@@ -250,7 +254,7 @@ export function TeamManagementRoute({
     canManage,
     memberInput,
     memberSearch,
-    reloadDetails: reload,
+    reloadDetails: refreshDetails,
     resetMemberSearch,
     selectedTeam,
     selectedSearchUserId,
@@ -356,6 +360,7 @@ export function TeamManagementRoute({
                         membersError={membersError}
                         membersForbidden={membersForbidden}
                         membersLoading={membersState.status === "loading"}
+                        membersRefreshing={membersState.status === "loading" && membersState.data.length > 0}
                         team={selectedTeam}
                         onAddMember={() => setAddMemberOpen(true)}
                         onDisableMembers={memberActions.disableMembers}

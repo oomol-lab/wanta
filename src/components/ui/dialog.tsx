@@ -54,6 +54,7 @@ export function Dialog({
   titleId: titleIdProp,
 }: DialogProps) {
   const panelRef = React.useRef<HTMLDivElement>(null)
+  const focusOrigin = React.useRef<HTMLElement | null>(null)
   const initialFocusRef = React.useRef(initialFocus)
   const generatedTitleId = React.useId()
   const generatedDescriptionId = React.useId()
@@ -84,7 +85,12 @@ export function Dialog({
           aria-label={ariaLabel}
           aria-labelledby={ariaLabel ? undefined : titleId}
           aria-describedby={description ? generatedDescriptionId : undefined}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            if (focusOrigin.current?.isConnected) focusOrigin.current.focus()
+          }}
           onOpenAutoFocus={(event) => {
+            focusOrigin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
             const requestedFocus = initialFocusRef.current?.()
             if (requestedFocus && panelRef.current?.contains(requestedFocus)) {
               event.preventDefault()

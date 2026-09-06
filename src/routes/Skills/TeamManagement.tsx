@@ -67,7 +67,7 @@ export function TeamManagementRoute({
   const { locale, t } = useAppI18n()
   const authResource = useAuthStateResource()
   const skillInventory = useSkillInventoryResource()
-  const skillVersions = useSkillVersionReportResource()
+  const skillVersions = useSkillVersionReportResource({ autoLoad: true })
   const skillService = useSkillService()
   const activeAccount = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
   const activeAccountId = activeAccount?.id

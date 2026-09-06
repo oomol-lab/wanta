@@ -2,6 +2,7 @@ import type { ManagedSkillGroup, SkillVersionReport } from "../../../electron/sk
 import type { SkillVersionCheckByKey } from "./skill-route-model.ts"
 import type { ObjectStatusTone } from "@/components/ObjectRow"
 
+import * as React from "react"
 import {
   getGroupRowPackageLine,
   getGroupStatus,
@@ -76,9 +77,9 @@ export function InstalledSkillsPane({
                 group={group}
                 selected={selectedSkill?.id === group.id}
                 updateRegistrySkill={updateRegistrySkill}
-                updatingRegistrySkillId={updatingRegistrySkillId}
+                isUpdating={updatingRegistrySkillId === group.id}
                 versionCheck={getSkillVersionCheck(versionCheckByKey, group)}
-                onOpen={() => onSelectSkill(group.id)}
+                onOpen={onSelectSkill}
               />
             ))}
           </div>
@@ -129,19 +130,19 @@ function CliUpdateNotice({
 
 interface InstalledSkillRowProps {
   group: ManagedSkillGroup
-  onOpen: () => void
+  onOpen: (skillId: string) => void
   selected: boolean
   updateRegistrySkill: (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => void
-  updatingRegistrySkillId: string | null
+  isUpdating: boolean
   versionCheck: SkillVersionReport["skills"][number] | undefined
 }
 
-function InstalledSkillRow({
+const InstalledSkillRow = React.memo(function InstalledSkillRow({
   group,
   onOpen,
   selected,
   updateRegistrySkill,
-  updatingRegistrySkillId,
+  isUpdating,
   versionCheck,
 }: InstalledSkillRowProps) {
   const { t } = useAppI18n()
@@ -186,7 +187,7 @@ function InstalledSkillRow({
           : isPublishable
             ? t("skills.publishableDescription")
             : t("skills.installedDescription")
-  const isUpdating = updatingRegistrySkillId === group.id
+  const creatorLine = getSkillCreatorLine(group, t)
 
   return (
     <SkillListRow
@@ -207,8 +208,8 @@ function InstalledSkillRow({
       meta={
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <InstalledSkillPlatformBadges group={group} />
-          <span className="min-w-0 truncate" title={getSkillCreatorLine(group, t)}>
-            {getSkillCreatorLine(group, t)}
+          <span className="min-w-0 truncate" title={creatorLine}>
+            {creatorLine}
           </span>
           <span className="min-w-0 truncate" title={runtimeLabel}>
             {runtimeLabel}
@@ -228,15 +229,15 @@ function InstalledSkillRow({
             {isUpdating ? t("skills.updatingRegistry") : t("skills.updateRegistry")}
           </Button>
         ) : (
-          <Button type="button" variant="ghost" size="sm" onClick={onOpen}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => onOpen(group.id)}>
             {t("skills.installedManage")}
           </Button>
         )
       }
-      onSelect={onOpen}
+      onSelect={() => onOpen(group.id)}
     />
   )
-}
+})
 
 function InstalledSkillPlatformBadges({ group }: { group: ManagedSkillGroup }) {
   const hosts = getInstalledPlatformHosts(group)

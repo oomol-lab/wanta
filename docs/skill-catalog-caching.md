@@ -12,8 +12,8 @@ detail of the same package gets fetched repeatedly through different entry point
 
 The cache goals are:
 
-- Within one app session, each catalog key issues at most one request; concurrent consumers share
-  the in-flight promise.
+- While an entry is fresh, consumers reuse it; concurrent consumers share the in-flight promise.
+  Explicit invalidation and TTL expiry allow a new request.
 - The public market, the team market, Provider recommendations, and exact-package-name lookups
   reuse the same package detail.
 - Only explicit changes — a user-initiated refresh, a successful publish — force-bypass or
@@ -29,7 +29,10 @@ The cache goals are:
 Pages / dialogs / Provider recommendations
           │
           ▼
-src/lib/skills-catalog-client.ts
+src/lib/skills-catalog-client.ts / provider resolution / maintainer client
+          │
+          ▼
+src/lib/skill-catalog-cache.ts
   - keyed cache
   - in-flight dedup
   - TTL / targeted invalidation
@@ -39,7 +42,8 @@ src/lib/skills-catalog-client.ts
           └── registry.<endpoint> (package detail)
 ```
 
-The cache lives in `skills-catalog-client.ts` because these requests all go directly from the
+The cache lives in `skill-catalog-cache.ts`, shared by the catalog, Provider resolution, and
+account-scoped maintainer clients. These requests all go directly from the
 renderer using the httpOnly session cookie; no main-process forwarding is introduced, and no token
 is brought into the renderer.
 
@@ -52,10 +56,29 @@ is brought into the renderer.
 | Public package detail                  | `public:package:{name,version}`                                       |                           10 min | Shared by exact-package-name lookup, search completion, and Provider recommendations                                                                      |
 | My published list                      | `my:{accountId}:{next}`                                               |                            2 min | Account-isolated in-memory cache only                                                                                                                     |
 | My published package detail            | `account:{accountId}:package:{name,version}`                          |                           10 min | Never reused across accounts                                                                                                                              |
-| Provider → package resolution          | `service + provider displayName`                                      |                           10 min | A "package not found" result is kept as a 24 h negative cache                                                                                             |
+| Provider → package resolution          | `public:provider:{service,providerDisplayName}`                       |                           10 min | A "package not found" result is kept as a 24 h negative cache                                                                                             |
 | Team Skill configuration               | `accountId + teamId`                                                  | 30 s freshness / 24 h local hold | See `useTeamSkills.ts`                                                                                                                                    |
 | Local installed Skill inventory        | global resource + main-process scan cache                             |                            5 min | Proactively invalidated on watcher changes; TTL is the fallback for missing directories                                                                   |
 | Installed Skill registry version check | auth snapshot + inventory fingerprint (`createVersionReportCacheKey`) |                           30 min | Main-process cache in `SkillServiceImpl.checkSkillVersions` with in-flight dedup; the renderer `skillVersions` resource mirrors it (30 min `staleTimeMs`) |
+
+## Page loading and supplemental details
+
+`useSkillCatalog` owns the Skills page's browse, search, and my-published pagination. Successful
+empty results settle as `ready`; only a new query, an explicit retry, or cache invalidation starts
+another load. Completed pages survive tab switches. Abandoned requests release their shared-request
+consumer, and cancelled pending requests are never reused by new consumers, including StrictMode
+remounts. A failed refresh keeps the previous rows and exposes an error for retry.
+
+My-published records that already contain a normalized Skill list render directly, without registry
+fan-out. Records without Skill metadata still need a package-info read to distinguish Skills from
+other package types. These supplemental reads retain the 20-record limit and concurrency cap of 10,
+use the listed version, and inherit `forceRefresh`. Failed supplements reject the page rather than
+silently dropping entries or caching an incomplete success. Valid non-Skill package details remain
+excluded. New work is not scheduled after a supplemental worker fails.
+
+Maintainer details share in-flight reads and a 30-second cache keyed by account, package, and version.
+Explicit retry bypasses that entry; invitations invalidate affected maintainer entries without
+refreshing or closing the catalog containing the invitation dialog. Unscoped callers remain uncached.
 
 ## Provider recommendation resolution
 
@@ -79,9 +102,11 @@ degradation path.
 ## Invalidation rules
 
 - Skill published successfully: invalidate the current account's "my published" list and private
-  package details, plus the public market / search caches.
+  package details, plus public market, search, and Provider resolution entries. Shared invalidation
+  revisions notify mounted catalog and Provider consumers; an unchanged search query still reloads.
 - Sign-in, sign-out, or account switch: clear the entire session-level catalog cache, so no
-  package response that may be permission-dependent is ever shown to another account.
+  package response that may be permission-dependent is ever shown to another account. Provider
+  resolution and account-scoped maintainer entries share this same cleanup lifecycle.
 - Installing, updating, or deleting a local Skill: only update `skillInventory`; do not invalidate
   the market catalog.
 - External agent or Wanta runtime Skill file changes: the main-process watcher immediately
@@ -89,7 +114,9 @@ degradation path.
   re-recurse and re-hash every Skill.
 - Skill version report: watcher-detected inventory changes and auth state changes both call
   `invalidateVersionReport`; the renderer `skillVersions` resource is invalidated on the
-  `skillInventoryChanged` event.
+  `skillInventoryChanged` event. While the Skills page is visible, the version-report resource
+  reloads after invalidation and deduplicates in-flight checks. There is no permanent page-level
+  once-only check flag; initial failures wait for retry/re-entry or a subsequent invalidation.
 - Team configuration create/update/delete: invalidate the current team's configuration cache; do
   not invalidate public market data.
 - Connector set changes: the Provider recommendation layer recomputes per candidate provider key;

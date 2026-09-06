@@ -2,6 +2,7 @@ import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { clearProviderSkillPackageCache, readProviderSkillPackage } from "./provider-skill-package-lookup.ts"
+import { invalidateSkillCatalogKeys, clearSkillCatalogCache } from "@/lib/skill-catalog-cache"
 import { readPublicSkillPackageByName, searchPublicSkillPackages } from "@/lib/skills-catalog-client"
 
 vi.mock("@/lib/skills-catalog-client", () => ({
@@ -127,4 +128,17 @@ describe("provider Skill package lookup", () => {
     expect(sharedSignal?.aborted).toBe(true)
     expect(searchPublicSkillPackages).not.toHaveBeenCalled()
   })
+})
+
+test("public invalidation and account cleanup invalidate provider results too", async () => {
+  clearSkillCatalogCache()
+  vi.mocked(readPublicSkillPackageByName).mockReset().mockResolvedValue(posthogPackage)
+  const candidate = { service: "posthog", providerDisplayName: "PostHog" }
+  await readProviderSkillPackage(candidate)
+  invalidateSkillCatalogKeys((key) => key.startsWith("public:"))
+  await readProviderSkillPackage(candidate)
+  clearSkillCatalogCache()
+  await readProviderSkillPackage(candidate)
+  expect(readPublicSkillPackageByName).toHaveBeenCalledTimes(3)
+  clearSkillCatalogCache()
 })

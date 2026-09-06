@@ -7,23 +7,36 @@ import { useAppDataResources } from "@/components/AppDataContext"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { ResourceStore, toResourceView } from "@/lib/resource-store"
 
-function useResource<T>(resource: ResourceStore<T>, options: { autoLoad?: boolean } = {}): ResourceView<T> {
+function useResource<T>(
+  resource: ResourceStore<T>,
+  options: { autoLoad?: boolean; reloadOnInvalidate?: boolean } = {},
+): ResourceView<T> {
   const snapshot = React.useSyncExternalStore(
     React.useCallback((listener) => resource.subscribe(listener), [resource]),
     React.useCallback(() => resource.getSnapshot(), [resource]),
     React.useCallback(() => resource.getSnapshot(), [resource]),
   )
 
-  React.useEffect(() => {
-    if (options.autoLoad === false) {
-      return
-    }
-
-    void resource.refresh().catch((error: unknown) => {
-      // 错误保存在 resource snapshot 中，页面按状态展示。
+  const refresh = React.useCallback(() => {
+    void resource.refresh({ silent: options.reloadOnInvalidate }).catch((error: unknown) => {
       reportRendererHandledError("resource", "resource auto-load failed", error)
     })
-  }, [options.autoLoad, resource])
+  }, [resource, options.reloadOnInvalidate])
+
+  React.useEffect(() => {
+    if (options.autoLoad !== false) refresh()
+  }, [options.autoLoad, refresh])
+
+  React.useEffect(() => {
+    if (
+      options.autoLoad !== false &&
+      options.reloadOnInvalidate &&
+      snapshot.updatedAt === null &&
+      snapshot.error === null &&
+      (snapshot.status === "idle" || snapshot.status === "ready")
+    )
+      refresh()
+  }, [options.autoLoad, options.reloadOnInvalidate, refresh, snapshot])
 
   return React.useMemo(() => toResourceView(snapshot, resource), [resource, snapshot])
 }
@@ -36,6 +49,9 @@ export function useSkillInventoryResource(): ResourceView<SkillInventory> {
   return useResource(useAppDataResources().skillInventory)
 }
 
-export function useSkillVersionReportResource(): ResourceView<SkillVersionReport> {
-  return useResource(useAppDataResources().skillVersions, { autoLoad: false })
+export function useSkillVersionReportResource(options: { autoLoad?: boolean } = {}): ResourceView<SkillVersionReport> {
+  return useResource(useAppDataResources().skillVersions, {
+    autoLoad: options.autoLoad ?? false,
+    reloadOnInvalidate: true,
+  })
 }

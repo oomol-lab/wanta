@@ -6,8 +6,10 @@ import {
   inviteSkillPackageMaintainer,
 } from "./skill-maintainers-client.ts"
 import { apiBaseUrl, consoleBaseUrl, registryBaseUrl } from "@/lib/domain"
+import { clearSkillCatalogCache } from "@/lib/skill-catalog-cache"
 
 afterEach(() => {
+  clearSkillCatalogCache()
   vi.unstubAllGlobals()
 })
 
@@ -49,4 +51,20 @@ test("builds the Console invitation URL from the initiating user and package", (
     getSkillMaintainerInvitationUrl({ fromUsername: "owner", packageName: "@acme/demo" }),
     `${consoleBaseUrl}/skill-maintainer-invitation?package=%40acme%2Fdemo&from=owner`,
   )
+})
+
+test("maintainer reads share a short-lived account cache, while force refresh and invitations invalidate it", async () => {
+  const fetchMock = vi.fn(async () => Response.json({ maintainers: [{ id: "owner", name: "Owner" }] }))
+  vi.stubGlobal("fetch", fetchMock)
+  const input = { accountId: "a", packageName: "@acme/demo", version: "1.0.0" }
+  await Promise.all([getSkillPackageMaintainerDetail(input), getSkillPackageMaintainerDetail(input)])
+  await getSkillPackageMaintainerDetail(input)
+  assert.equal(fetchMock.mock.calls.length, 1)
+  await getSkillPackageMaintainerDetail({ ...input, accountId: "b" })
+  assert.equal(fetchMock.mock.calls.length, 2)
+  await getSkillPackageMaintainerDetail({ ...input, forceRefresh: true })
+  assert.equal(fetchMock.mock.calls.length, 3)
+  await inviteSkillPackageMaintainer({ packageName: input.packageName, username: "alice" })
+  await getSkillPackageMaintainerDetail(input)
+  assert.equal(fetchMock.mock.calls.length, 5)
 })

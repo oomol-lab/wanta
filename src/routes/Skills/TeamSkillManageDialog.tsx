@@ -36,6 +36,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppI18n } from "@/i18n"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
+import { getSkillCatalogInvalidationRevision, subscribeSkillCatalogInvalidation } from "@/lib/skill-catalog-cache"
 import {
   listPublicSkillPackages,
   readPublicSkillPackageByName,
@@ -102,6 +103,10 @@ export function TeamSkillManageDialog({
   variant?: "dialog" | "inline"
 }) {
   const { t } = useAppI18n()
+  const catalogRevision = React.useSyncExternalStore(
+    subscribeSkillCatalogInvalidation,
+    getSkillCatalogInvalidationRevision,
+  )
   const isActive = variant === "inline" || open
   const skillRemoval = useTeamSkillRemoval({ teamSkills })
   const busyConfigId = skillRemoval.busySkillId
@@ -136,10 +141,10 @@ export function TeamSkillManageDialog({
       buildTeamSkillRecommendationItems({
         filter: recommendationSourceFilter,
         normalizedQuery,
-        providerRecommendations: recommendedTeamSkills,
+        providerRecommendations,
         skills: teamSkills.skills,
       }),
-    [normalizedQuery, teamSkills.skills, recommendationSourceFilter, recommendedTeamSkills],
+    [normalizedQuery, teamSkills.skills, recommendationSourceFilter, providerRecommendations],
   )
   const allRecommendationItems = React.useMemo(
     () =>
@@ -255,7 +260,7 @@ export function TeamSkillManageDialog({
 
     const timer = window.setTimeout(load, 300)
     return () => window.clearTimeout(timer)
-  }, [activeTab, isActive, loadMarketPackages, marketQuery])
+  }, [activeTab, isActive, loadMarketPackages, marketQuery, catalogRevision])
 
   React.useEffect(() => {
     const query = searchQuery.trim()
@@ -293,7 +298,7 @@ export function TeamSkillManageDialog({
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [activeTab, isActive, searchQuery])
+  }, [activeTab, isActive, searchQuery, catalogRevision])
 
   const changeActiveTab = React.useCallback((tab: TeamSkillManageTab) => {
     setActiveTab(tab)

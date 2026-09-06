@@ -165,12 +165,12 @@ export function DiscoverSkillsPane({
                 key={pkg.id}
                 groupById={groupById}
                 canInstall={canInstall}
-                installingKey={installingKey}
+                installingKey={installingKey?.startsWith(`${pkg.id}:`) ? installingKey : null}
                 pkg={pkg}
                 selected={selectedPackage?.id === pkg.id}
-                onInstall={(skillName) => onInstall(pkg, skillName)}
+                onInstall={onInstall}
                 onOpenManagedSkill={onOpenManagedSkill}
-                onSelect={() => onSelectPackage(pkg)}
+                onSelect={onSelectPackage}
               />
             ))}
           </div>
@@ -239,14 +239,14 @@ interface PublicSkillPackageRowProps {
   canInstall: boolean
   groupById: ManagedSkillGroupById
   installingKey: string | null
-  onInstall: (skillName?: string) => void
+  onInstall: (pkg: PublicSkillPackage, skillName?: string) => void
   onOpenManagedSkill: (skillName: string) => void
-  onSelect: () => void
+  onSelect: (pkg: PublicSkillPackage) => void
   pkg: PublicSkillPackage
   selected: boolean
 }
 
-function PublicSkillPackageRow({
+const PublicSkillPackageRow = React.memo(function PublicSkillPackageRow({
   canInstall,
   groupById,
   installingKey,
@@ -261,6 +261,7 @@ function PublicSkillPackageRow({
   const primaryInstallSkill = getPublicPackagePrimaryInstallSkill(groupById, pkg)
   const state = getPublicPackageInstallState(groupById, pkg)
   const isInstalling = installingKey === getPublicSkillInstallKey(pkg, primaryInstallSkill?.name)
+  const metaLine = getPublicPackageMetaLine(pkg, t)
   const stateBadge =
     state === "name-conflict" || state === "unavailable" ? (
       <Badge variant="outline">{getPublicSkillInstallStateLabel(state, t)}</Badge>
@@ -279,8 +280,8 @@ function PublicSkillPackageRow({
       description={pkg.description}
       badges={stateBadge}
       meta={
-        <div className="min-w-0 truncate" title={getPublicPackageMetaLine(pkg, t)}>
-          {getPublicPackageMetaLine(pkg, t)}
+        <div className="min-w-0 truncate" title={metaLine}>
+          {metaLine}
         </div>
       }
       actions={
@@ -298,7 +299,7 @@ function PublicSkillPackageRow({
             variant="outline"
             size="sm"
             disabled={!canInstall || isInstalling}
-            onClick={() => onInstall()}
+            onClick={() => onInstall(pkg)}
           >
             {isInstalling ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.installPackage />}
             {!canInstall
@@ -314,8 +315,8 @@ function PublicSkillPackageRow({
           onOpenManagedSkill(primarySkill.name)
           return
         }
-        onSelect()
+        onSelect(pkg)
       }}
     />
   )
-}
+})

@@ -49,33 +49,42 @@ export function SkillPackageMaintainers({ account, packageName, version }: Skill
     activeRequestRef.current = null
   }, [])
 
-  const loadMaintainers = React.useCallback(() => {
-    abortActiveRequest()
-    const controller = new AbortController()
-    activeRequestRef.current = controller
-    const requestId = requestIdRef.current + 1
-    requestIdRef.current = requestId
-    setLoading(true)
-    setError(null)
-    void getSkillPackageMaintainerDetail({ packageName, signal: controller.signal, version })
-      .then((nextDetail) => {
-        if (requestId === requestIdRef.current) {
-          setDetail(nextDetail)
-        }
+  const loadMaintainers = React.useCallback(
+    (forceRefresh = false) => {
+      abortActiveRequest()
+      const controller = new AbortController()
+      activeRequestRef.current = controller
+      const requestId = requestIdRef.current + 1
+      requestIdRef.current = requestId
+      setLoading(true)
+      setError(null)
+      void getSkillPackageMaintainerDetail({
+        accountId: account.id,
+        forceRefresh,
+        packageName,
+        signal: controller.signal,
+        version,
       })
-      .catch((cause: unknown) => {
-        if (!controller.signal.aborted && requestId === requestIdRef.current) {
-          setDetail(null)
-          setError(cause instanceof Error ? cause.message : String(cause))
-        }
-      })
-      .finally(() => {
-        if (requestId === requestIdRef.current && activeRequestRef.current === controller) {
-          activeRequestRef.current = null
-          setLoading(false)
-        }
-      })
-  }, [abortActiveRequest, packageName, version])
+        .then((nextDetail) => {
+          if (requestId === requestIdRef.current) {
+            setDetail(nextDetail)
+          }
+        })
+        .catch((cause: unknown) => {
+          if (!controller.signal.aborted && requestId === requestIdRef.current) {
+            setDetail(null)
+            setError(cause instanceof Error ? cause.message : String(cause))
+          }
+        })
+        .finally(() => {
+          if (requestId === requestIdRef.current && activeRequestRef.current === controller) {
+            activeRequestRef.current = null
+            setLoading(false)
+          }
+        })
+    },
+    [abortActiveRequest, account.id, packageName, version],
+  )
 
   React.useEffect(() => {
     loadMaintainers()
@@ -104,7 +113,7 @@ export function SkillPackageMaintainers({ account, packageName, version }: Skill
       ) : error ? (
         <div className="flex min-w-0 items-start gap-2">
           <SkillErrorNotice className="min-w-0 flex-1" error={error} />
-          <Button type="button" variant="outline" size="sm" onClick={loadMaintainers}>
+          <Button type="button" variant="outline" size="sm" onClick={() => loadMaintainers(true)}>
             {t("skills.retry")}
           </Button>
         </div>

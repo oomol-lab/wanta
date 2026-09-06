@@ -141,10 +141,10 @@ export function TeamSkillManageDialog({
       buildTeamSkillRecommendationItems({
         filter: recommendationSourceFilter,
         normalizedQuery,
-        providerRecommendations: recommendedTeamSkills,
+        providerRecommendations,
         skills: teamSkills.skills,
       }),
-    [normalizedQuery, teamSkills.skills, recommendationSourceFilter, recommendedTeamSkills],
+    [normalizedQuery, teamSkills.skills, recommendationSourceFilter, providerRecommendations],
   )
   const allRecommendationItems = React.useMemo(
     () =>

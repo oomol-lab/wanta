@@ -160,6 +160,30 @@ test("configured team rows ignore unrelated actions and recommendation updates",
       root.render(<TeamSkillsPane {...props} busyAction="installSkillBatch" providerRecommendations={updated} />),
     )
     expect(rowRender).toHaveBeenCalledTimes(101)
+    rowRender.mockClear()
+    const samePackage = {
+      ...recommendation.package,
+      skills: [
+        { name: "demo", title: "Demo" },
+        { name: "needle", title: "Needle", description: "Matched skill" },
+      ],
+    }
+    const duplicatePackageRecommendations = [
+      { ...recommendation, package: samePackage },
+      { ...recommendation, package: samePackage, skillId: "needle" },
+    ]
+    await act(async () =>
+      root.render(
+        <TeamSkillsPane {...props} teamQuery="needle" providerRecommendations={duplicatePackageRecommendations} />,
+      ),
+    )
+    expect(rowRender).toHaveBeenCalledTimes(1)
+    expect(rowRender).toHaveBeenLastCalledWith(expect.objectContaining({ description: "Matched skill" }), undefined)
+    rowRender.mockClear()
+    await act(async () =>
+      root.render(<TeamSkillsPane {...props} providerRecommendations={duplicatePackageRecommendations} />),
+    )
+    expect(rowRender).toHaveBeenCalledTimes(101)
   } finally {
     await act(async () => root.unmount())
     vi.unstubAllGlobals()

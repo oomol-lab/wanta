@@ -14,7 +14,6 @@ import {
 } from "./skill-route-model.ts"
 import { SkillListRow } from "./SkillListRow.tsx"
 import { SkillIconFrame, SkillManagementSheet, SkillPageScrollArea } from "./SkillUiParts.tsx"
-import { planProviderSkillRecommendationBulkLinks } from "./team-management-model.ts"
 import {
   buildTeamSkillRecommendationItems,
   canInstallProviderRecommendationRuntime,
@@ -111,11 +110,10 @@ export function TeamSkillsPane({
   }, [configuredSkills, includeConfigured, normalizedQuery])
   const recommendedItems = React.useMemo(() => {
     if (!configuredSkills || !includeRecommended) return []
-    const recommendedPlan = planProviderSkillRecommendationBulkLinks(providerRecommendations, configuredSkills)
     return buildTeamSkillRecommendationItems({
       filter: "recommended",
       normalizedQuery,
-      providerRecommendations: recommendedPlan.linkable,
+      providerRecommendations,
       skills: configuredSkills,
     })
   }, [configuredSkills, includeRecommended, normalizedQuery, providerRecommendations])

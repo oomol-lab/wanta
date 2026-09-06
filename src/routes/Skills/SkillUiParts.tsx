@@ -30,12 +30,14 @@ export function SkillManagementSheet({
   ariaLabel,
   children,
   onClose,
+  fallbackFocus,
   subjectName,
   title,
 }: {
   ariaLabel?: string
   children: React.ReactNode
   onClose: () => void
+  fallbackFocus?: () => HTMLElement | null
   subjectName: string
   title?: string
 }) {
@@ -45,6 +47,7 @@ export function SkillManagementSheet({
       title={title ?? t("skills.managementTitle")}
       ariaLabel={ariaLabel ?? t("skills.managementDialogLabel", { name: subjectName })}
       onClose={onClose}
+      fallbackFocus={fallbackFocus}
     >
       {children}
     </ManagementSheet>

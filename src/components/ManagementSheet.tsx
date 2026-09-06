@@ -9,6 +9,7 @@ export function ManagementSheet({
   title,
   ariaLabel,
   onClose,
+  fallbackFocus,
   open = true,
   wide = false,
 }: {
@@ -16,6 +17,7 @@ export function ManagementSheet({
   title: string
   ariaLabel?: string
   onClose: () => void
+  fallbackFocus?: () => HTMLElement | null
   open?: boolean
   wide?: boolean
 }) {
@@ -25,6 +27,7 @@ export function ManagementSheet({
     <Dialog
       open={open}
       onClose={onClose}
+      fallbackFocus={fallbackFocus}
       title={title}
       ariaLabel={ariaLabel}
       closeLabel={t("common.close")}

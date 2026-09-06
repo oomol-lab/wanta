@@ -56,3 +56,47 @@ test("nested dialogs close independently and the sheet restores its opening cont
     vi.unstubAllGlobals()
   }
 })
+
+test("a disappearing row opener falls back to the persistent page container", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  function Probe() {
+    const pageRef = React.useRef<HTMLElement>(null)
+    const [open, setOpen] = React.useState(false)
+    const [showRow, setShowRow] = React.useState(true)
+    return (
+      <>
+        <section ref={pageRef} tabIndex={-1} aria-label="Page">
+          {showRow ? <button onClick={() => setOpen(true)}>Open row</button> : null}
+        </section>
+        <ManagementSheet
+          title="Row"
+          open={open}
+          fallbackFocus={() => pageRef.current}
+          onClose={() => {
+            setShowRow(false)
+            setOpen(false)
+          }}
+        >
+          <p>Row detail</p>
+        </ManagementSheet>
+      </>
+    )
+  }
+  try {
+    await act(async () => root.render(<Probe />))
+    const opener = host.querySelector<HTMLButtonElement>("button")!
+    opener.focus()
+    await act(async () => opener.click())
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="common.close"]')!.click())
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(opener.isConnected).toBe(false)
+    expect(document.activeElement).toBe(host.querySelector("section"))
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+    vi.unstubAllGlobals()
+  }
+})

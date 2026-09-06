@@ -82,3 +82,35 @@ describe("Dialog", () => {
     act(() => root.unmount())
   })
 })
+
+describe("Dialog close focus", () => {
+  it.each(["connected", "removed", "absent"] as const)(
+    "restores focus when the original opener is %s",
+    async (originState) => {
+      const origin = document.createElement("button")
+      const fallback = document.createElement("button")
+      document.body.append(origin, fallback)
+      if (originState !== "absent") origin.focus()
+      const fallbackFocus = vi.fn(() => fallback)
+      const { root } = await renderDialog({ fallbackFocus })
+      if (originState === "removed") origin.remove()
+      await act(async () => root.unmount())
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+      expect(document.activeElement).toBe(originState === "connected" ? origin : fallback)
+      expect(fallbackFocus).toHaveBeenCalledTimes(originState === "connected" ? 0 : 1)
+    },
+  )
+
+  it("does not try to focus a disconnected fallback", async () => {
+    const origin = document.createElement("button")
+    document.body.append(origin)
+    origin.focus()
+    const fallback = document.createElement("button")
+    const focus = vi.spyOn(fallback, "focus")
+    const { root } = await renderDialog({ fallbackFocus: () => fallback })
+    origin.remove()
+    await act(async () => root.unmount())
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(focus).not.toHaveBeenCalled()
+  })
+})

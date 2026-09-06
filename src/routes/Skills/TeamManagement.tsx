@@ -65,6 +65,8 @@ export function TeamManagementRoute({
   workspace: UseTeamWorkspace
 }) {
   const { locale, t } = useAppI18n()
+  const pageRef = React.useRef<HTMLDivElement>(null)
+  const fallbackFocus = React.useCallback(() => pageRef.current, [])
   const authResource = useAuthStateResource()
   const skillInventory = useSkillInventoryResource()
   const skillVersions = useSkillVersionReportResource({ autoLoad: true })
@@ -264,7 +266,7 @@ export function TeamManagementRoute({
   })
   return (
     <>
-      <div className="h-full min-h-0 overflow-hidden px-3 py-3">
+      <div ref={pageRef} tabIndex={-1} className="h-full min-h-0 overflow-hidden px-3 py-3 outline-none">
         {showOverviewError ? (
           <div className="flex min-h-full items-center justify-center px-4 py-10">
             <ErrorBlock
@@ -328,6 +330,7 @@ export function TeamManagementRoute({
                 ) : null}
                 {selectedTeam ? (
                   <TeamSettingsSheet
+                    fallbackFocus={fallbackFocus}
                     open={overlay.kind !== "none"}
                     title={t(canManage ? "teams.teamSettings" : "teams.viewMembers")}
                     onClose={closeTeamSettings}
@@ -379,6 +382,7 @@ export function TeamManagementRoute({
       </div>
       {managedSkill ? (
         <SkillManagementSheet
+          fallbackFocus={fallbackFocus}
           subjectName={managedSkill.name}
           onClose={() => {
             setManagedSkillId(null)
@@ -410,6 +414,7 @@ export function TeamManagementRoute({
       ) : null}
       {selectedPackage ? (
         <PublicSkillPackageSheet
+          fallbackFocus={fallbackFocus}
           groupById={skillGroupById}
           installingKey={
             selectedPackageInstallBusy

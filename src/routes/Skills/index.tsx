@@ -101,6 +101,8 @@ export function SkillsRoute({
   workspace: UseTeamWorkspace
 }) {
   const { locale, t } = useAppI18n()
+  const pageRef = React.useRef<HTMLElement>(null)
+  const fallbackFocus = React.useCallback(() => pageRef.current, [])
   const skillService = useSkillService()
   const authResource = useAuthStateResource()
   const inventoryResource = useSkillInventoryResource()
@@ -544,7 +546,7 @@ export function SkillsRoute({
     ) : null
   return (
     <>
-      <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+      <section ref={pageRef} tabIndex={-1} className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] outline-none">
         <SkillPageHeader
           activeTab={activeTab}
           discoveryFilter={discoveryFilter}
@@ -567,6 +569,7 @@ export function SkillsRoute({
         />
         {activeTab === "team" ? (
           <TeamSkillsPane
+            fallbackFocus={fallbackFocus}
             busyAction={teamSkillBusyAction}
             groupById={installedSkillGroupById}
             teamFilter={teamFilter}
@@ -583,6 +586,7 @@ export function SkillsRoute({
           />
         ) : activeTab === "discover" ? (
           <DiscoverSkillsPane
+            fallbackFocus={fallbackFocus}
             canInstall={cloudEnabled}
             error={activePackageCatalog.error}
             filter={discoveryFilter}
@@ -643,7 +647,11 @@ export function SkillsRoute({
         )}
       </section>
       {selectedSkill ? (
-        <SkillManagementSheet subjectName={selectedSkill.name} onClose={() => setSelectedSkillId(null)}>
+        <SkillManagementSheet
+          fallbackFocus={fallbackFocus}
+          subjectName={selectedSkill.name}
+          onClose={() => setSelectedSkillId(null)}
+        >
           <SkillDetailContent {...detailContentProps} />
         </SkillManagementSheet>
       ) : null}

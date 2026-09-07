@@ -1,0 +1,42 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index af15143f2b4b1cef34c1cb5e3f8fe6fdbc62dbe0..84bb3e217d477841912790dff4e5494b4d8570d6 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -1,3 +1,4 @@
++var { withWikiGraphStorage: wantaWithWikiGraphStorage } = require("wiki-graph-core");
+ globalThis.__WIKIGRAPH_CLI_DIST_DIR__ ??= __dirname;
+ globalThis.__WIKIGRAPH_DATA_DIR__ ??= require("path").resolve(
+   __dirname,
+@@ -45,10 +46,7 @@ var init_files = __esm({
+ 
+ // ../core/src/runtime/platform/index.ts
+ async function withWikiGraphStorage(storage, operation) {
+-  if (storage === void 0) {
+-    return await operation();
+-  }
+-  return await storageContext.run(storage, operation);
++  return await wantaWithWikiGraphStorage(storage, operation);
+ }
+ var installedPlatform, DeferredHostAsyncContext, storageContext;
+ var init_platform = __esm({
+diff --git a/dist/index.js b/dist/index.js
+index 784f4749feb89526f6a10f202699b68aa79ed59d..94e332b5ef4d2e314e30032304bdae9a5f52605a 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1,3 +1,4 @@
++import { withWikiGraphStorage as wantaWithWikiGraphStorage } from "wiki-graph-core";
+ import { fileURLToPath as __WIKIGRAPH_FILE_URL_TO_PATH__ } from "url";
+ import { resolve as __WIKIGRAPH_RESOLVE__ } from "path";
+ globalThis.__WIKIGRAPH_CLI_DIST_DIR__ ??= __WIKIGRAPH_RESOLVE__(__WIKIGRAPH_FILE_URL_TO_PATH__(new URL(".", import.meta.url)));
+@@ -21,10 +22,7 @@ var init_files = __esm({
+ 
+ // ../core/src/runtime/platform/index.ts
+ async function withWikiGraphStorage(storage, operation) {
+-  if (storage === void 0) {
+-    return await operation();
+-  }
+-  return await storageContext.run(storage, operation);
++  return await wantaWithWikiGraphStorage(storage, operation);
+ }
+ var installedPlatform, DeferredHostAsyncContext, storageContext;
+ var init_platform = __esm({

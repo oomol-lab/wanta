@@ -4,6 +4,10 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  wiki-graph-core@0.6.0: 1d2f96655b993144485f62c6f0b24527fbcb500b1cd07ab61b5d1662fb60159d
+  wiki-graph@0.6.0: 379353702a49724bb1aa01232233f239bcde259a2a402303f910784878a625d6
+
 importers:
 
   .:
@@ -26,21 +30,33 @@ importers:
       electron-updater:
         specifier: 6.8.9
         version: 6.8.9(supports-color@7.2.0)
+      nunjucks:
+        specifier: 3.2.4
+        version: 3.2.4
       playwright-core:
         specifier: 1.62.1
         version: 1.62.1
       react-diff-view:
         specifier: 3.3.3
         version: 3.3.3(react@19.2.8)
+      sqlite3:
+        specifier: 6.0.1
+        version: 6.0.1
       unbash:
         specifier: 4.0.10
         version: 4.0.10
       wiki-graph:
-        specifier: 0.5.0
-        version: 0.5.0(wiki-graph-core@0.5.0)
+        specifier: 0.6.0
+        version: 0.6.0(patch_hash=379353702a49724bb1aa01232233f239bcde259a2a402303f910784878a625d6)(wiki-graph-core@0.6.0(patch_hash=1d2f96655b993144485f62c6f0b24527fbcb500b1cd07ab61b5d1662fb60159d))
       wiki-graph-core:
-        specifier: 0.5.0
-        version: 0.5.0
+        specifier: 0.6.0
+        version: 0.6.0(patch_hash=1d2f96655b993144485f62c6f0b24527fbcb500b1cd07ab61b5d1662fb60159d)
+      yauzl:
+        specifier: 3.3.0
+        version: 3.3.0
+      yazl:
+        specifier: 3.3.1
+        version: 3.3.1
     devDependencies:
       '@agentclientprotocol/claude-agent-acp':
         specifier: 0.70.0
@@ -96,12 +112,21 @@ importers:
       '@types/node':
         specifier: 26.2.0
         version: 26.2.0
+      '@types/nunjucks':
+        specifier: 3.2.6
+        version: 3.2.6
       '@types/react':
         specifier: 19.2.18
         version: 19.2.18
       '@types/react-dom':
         specifier: 19.2.4
         version: 19.2.4(@types/react@19.2.18)
+      '@types/yauzl':
+        specifier: 3.4.0
+        version: 3.4.0
+      '@types/yazl':
+        specifier: 3.3.1
+        version: 3.3.1
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260707.2
         version: 7.0.0-dev.20260707.2
@@ -605,8 +630,8 @@ packages:
     resolution: {integrity: sha512-V1JJ1WTRUqHHrOSh597hURcMqVKVGL/ea3kv0gSnEdsEZ0/+VyPghM1lMNGc00z7CIQorSvbKpuJkxvuHbvdbg==}
     engines: {node: '>= 16'}
 
-  '@noble/hashes@2.2.0':
-    resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
     engines: {node: '>= 20.19.0'}
 
   '@oomol/connection-electron-adapter@0.2.12':
@@ -2008,6 +2033,9 @@ packages:
   '@types/node@26.2.0':
     resolution: {integrity: sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg==}
 
+  '@types/nunjucks@3.2.6':
+    resolution: {integrity: sha512-pHiGtf83na1nCzliuAdq8GowYiXvH5l931xZ0YEHaLMNFgynpEqx+IPStlu7UaDkehfvl01e4x/9Tpwhy7Ue3w==}
+
   '@types/react-dom@19.2.4':
     resolution: {integrity: sha512-Bsc+QHgp+P/F02XDzNCY9jnZNCUuLki36KT7VKrTXXLdHf+vHMNZnW1rVu5DNW/rCK+fya3DATySbLM4yhtKUw==}
     peerDependencies:
@@ -2033,6 +2061,12 @@ packages:
 
   '@types/ws@8.18.1':
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
+
+  '@types/yauzl@3.4.0':
+    resolution: {integrity: sha512-NRPn5w6h8dhcnmx3YIRQcqMywY/+nND/uOkJessedcrowO3C0AssHp3tMJpxKAwOhFOo0OV1y9VtsC5hbKKBAw==}
+
+  '@types/yazl@3.3.1':
+    resolution: {integrity: sha512-DIWfCKpsTp6hE5BDBHV3+fIL/bLUF9Bv13iDrWnMlmhQpH67buNvI291ZauQ1xcccxK3FqQ9honnXpq4R8NMuQ==}
 
   '@typescript/native-preview-darwin-arm64@7.0.0-dev.20260707.2':
     resolution: {integrity: sha512-wny2pgKjGbiZtnOIHVa3tXC1UfDqxNEFzyPGmiqybedG8hipG2Nfp0l5UxbaKCjkLacUpH/W5bP2hBOMVhCOzg==}
@@ -2384,11 +2418,6 @@ packages:
     engines: {node: '>=10.0.0'}
     deprecated: this version has critical issues, please update to the latest version
 
-  '@xmldom/xmldom@0.9.10':
-    resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
-    engines: {node: '>=14.6'}
-    deprecated: this version has critical issues, please update to the latest version
-
   '@xmldom/xmldom@0.9.12':
     resolution: {integrity: sha512-5AXjrcMClTryPe9LgZrygpB1lj7s0S9E0+W+AHaVKAVyHanafK86iPSvG5xHVSp/jC+VH1UXu0TAEmY279xH7A==}
     engines: {node: '>=14.6'}
@@ -2535,6 +2564,9 @@ packages:
   brace-expansion@5.0.6:
     resolution: {integrity: sha512-kLpxurY4Z4r9sgMsyG0Z9uzsBlgiU/EFKhj/h91/8yHu0edo7XuixOIH3VcJ8kkxs6/jPzoI6U9Vj3WqbMQ94g==}
     engines: {node: 18 || 20 || >=22}
+
+  buffer-crc32@0.2.13:
+    resolution: {integrity: sha512-VO9Ht/+p3SN7SKWqcrgEzjGbRSJYTx+Q1pTQC0wrWqHx0vpJraQ6GtHx8tvcg1rlK1byhU5gccxgOgj7B0TDkQ==}
 
   buffer-crc32@1.0.0:
     resolution: {integrity: sha512-Db1SbgBS/fg/392AblrMJk97KggmvYhr4pB5ZIMTWtaivCPMWLkmb7m21cJvpvgK+J3nsU2CmmixNBZx4vFj/w==}
@@ -4759,11 +4791,6 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
-  semver@7.8.4:
-    resolution: {integrity: sha512-rUCObTnP32Q08R2uuIrt7r9PlEonuTmtuXYcW6s5kjdlj3xbnwe+21yXptAUYcMAABLkYYTtnmzb3w3EDZfueA==}
-    engines: {node: '>=10'}
-    hasBin: true
-
   semver@7.8.5:
     resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
     engines: {node: '>=10'}
@@ -4959,10 +4986,6 @@ packages:
   tar-stream@2.2.0:
     resolution: {integrity: sha512-ujeqbceABgwMZxEJnk2HDY2DlnUZ+9oEcb1KzTVfYHio0UE6dG71n60d8D2I4qNvleWrrXpmjpt7vZeF1LnMZQ==}
     engines: {node: '>=6'}
-
-  tar@7.5.19:
-    resolution: {integrity: sha512-4LeEWl96twnS2Q7Bz4MGqgazLqO+hJN63GZxXoIqh1T3VweYD997gbU1ItNsQafqqXTXd5WFyFdReLtwvRBNiw==}
-    engines: {node: '>=18'}
 
   tar@7.5.22:
     resolution: {integrity: sha512-MFO/QzvtAOmJbkhOaCTvbGcFN9L9b+JunIsDwaKljSOdcLMea3NJ1k9Usz/rjdfSXTq4dfzfeS7W4p4YOAAHeA==}
@@ -5307,16 +5330,15 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
-  wiki-graph-core@0.5.0:
-    resolution: {integrity: sha512-RKzRV3tjhjs/01Ya6n1L4ccZSdO3vUvkT9L2NAmquR759qaPaqPV+kv6ab3mM+RYvFNUYToZeNIhbZr6GL830A==}
-    engines: {node: '>=22.12.0'}
+  wiki-graph-core@0.6.0:
+    resolution: {integrity: sha512-KWRsuRXA9nktyfUwfwBz4XLIg1mweJjts6dRdYf8jxATfh1Pks0GfVjy7yDb84bU/bwTcf8jxjtJV4ExMo7jRA==}
 
-  wiki-graph@0.5.0:
-    resolution: {integrity: sha512-AOZIaz4uPHLEwm03d6++BzAaPI6hTj6cjMpIKyVHU0vO5sohGQWWPu1FL5f4H6mrXAmhXziBB3t5LjWa1GrL5A==}
+  wiki-graph@0.6.0:
+    resolution: {integrity: sha512-Q7tSjPQIRYCuBBsFTUQK+9f3oKwG2jRzv79kKLZrjHoxMGALy+jvRt+BG+zzSzNNnSp393UIAB4u+msEleqqUw==}
     engines: {node: '>=22.12.0'}
     hasBin: true
     peerDependencies:
-      wiki-graph-core: ^0.5.0
+      wiki-graph-core: ^0.6.0
     peerDependenciesMeta:
       wiki-graph-core:
         optional: true
@@ -5377,6 +5399,10 @@ packages:
 
   yargs@17.7.3:
     resolution: {integrity: sha512-GZtjxm/J/4TSxuL3FNYjCmLktBTnIw/rVmKSIyKeYAZpmJB2ig9VauCC5xsa82GNKVKDAqpOn3KVzNt0zmrU0g==}
+    engines: {node: '>=12'}
+
+  yauzl@3.3.0:
+    resolution: {integrity: sha512-PtGEvEP30p7sbIBJKUBjUnqgTVOyMURc4dLo9iNyAJnNIEz9pm88cCXF21w94Kg3k6RXkeZh5DHOGS0qEONvNQ==}
     engines: {node: '>=12'}
 
   yauzl@3.4.0:
@@ -5850,7 +5876,7 @@ snapshots:
 
   '@noble/hashes@1.4.0': {}
 
-  '@noble/hashes@2.2.0': {}
+  '@noble/hashes@2.4.0': {}
 
   '@oomol/connection-electron-adapter@0.2.12(@oomol/connection@0.2.28)':
     dependencies:
@@ -6956,7 +6982,7 @@ snapshots:
     dependencies:
       '@types/http-cache-semantics': 4.2.0
       '@types/keyv': 3.1.4
-      '@types/node': 24.13.2
+      '@types/node': 26.2.0
       '@types/responselike': 1.0.3
 
   '@types/chai@5.2.3':
@@ -7095,7 +7121,7 @@ snapshots:
 
   '@types/fs-extra@9.0.13':
     dependencies:
-      '@types/node': 24.13.2
+      '@types/node': 26.2.0
 
   '@types/geojson@7946.0.16': {}
 
@@ -7109,7 +7135,7 @@ snapshots:
 
   '@types/keyv@3.1.4':
     dependencies:
-      '@types/node': 24.13.2
+      '@types/node': 26.2.0
 
   '@types/mdast@4.0.4':
     dependencies:
@@ -7125,6 +7151,8 @@ snapshots:
     dependencies:
       undici-types: 8.3.0
 
+  '@types/nunjucks@3.2.6': {}
+
   '@types/react-dom@19.2.4(@types/react@19.2.18)':
     dependencies:
       '@types/react': 19.2.18
@@ -7135,7 +7163,7 @@ snapshots:
 
   '@types/responselike@1.0.3':
     dependencies:
-      '@types/node': 24.13.2
+      '@types/node': 26.2.0
 
   '@types/trusted-types@2.0.7':
     optional: true
@@ -7147,6 +7175,14 @@ snapshots:
   '@types/whatwg-mimetype@3.0.2': {}
 
   '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 26.2.0
+
+  '@types/yauzl@3.4.0':
+    dependencies:
+      '@types/node': 26.2.0
+
+  '@types/yazl@3.3.1':
     dependencies:
       '@types/node': 26.2.0
 
@@ -7556,8 +7592,6 @@ snapshots:
 
   '@xmldom/xmldom@0.8.13': {}
 
-  '@xmldom/xmldom@0.9.10': {}
-
   '@xmldom/xmldom@0.9.12': {}
 
   a-sync-waterfall@1.0.1: {}
@@ -7617,7 +7651,7 @@ snapshots:
       '@electron/rebuild': 4.0.4(supports-color@7.2.0)
       '@electron/universal': 2.0.3(supports-color@7.2.0)
       '@malept/flatpak-bundler': 0.4.0(supports-color@7.2.0)
-      '@noble/hashes': 2.2.0
+      '@noble/hashes': 2.4.0
       '@peculiar/webcrypto': 1.7.1
       '@types/fs-extra': 9.0.13
       ajv: 8.20.0
@@ -7647,7 +7681,7 @@ snapshots:
       proper-lockfile: 4.1.2
       resedit: 1.7.2
       semver: 7.7.4
-      tar: 7.5.19
+      tar: 7.5.22
       temp-file: 3.4.0
       tiny-async-pool: 1.3.0
       unzipper: 0.12.3
@@ -7734,6 +7768,8 @@ snapshots:
   brace-expansion@5.0.6:
     dependencies:
       balanced-match: 4.0.4
+
+  buffer-crc32@0.2.13: {}
 
   buffer-crc32@1.0.0: {}
 
@@ -8610,7 +8646,7 @@ snapshots:
       es6-error: 4.1.1
       matcher: 3.0.0
       roarr: 2.15.4
-      semver: 7.8.4
+      semver: 7.8.5
       serialize-error: 7.0.1
     optional: true
 
@@ -9607,13 +9643,13 @@ snapshots:
 
   node-abi@4.31.0:
     dependencies:
-      semver: 7.8.4
+      semver: 7.8.5
 
   node-addon-api@8.9.2: {}
 
   node-api-version@0.2.1:
     dependencies:
-      semver: 7.8.4
+      semver: 7.8.5
 
   node-gyp-build-optional-packages@5.2.2:
     dependencies:
@@ -9909,7 +9945,7 @@ snapshots:
 
   plist@3.1.1:
     dependencies:
-      '@xmldom/xmldom': 0.9.10
+      '@xmldom/xmldom': 0.9.12
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
 
@@ -10377,8 +10413,6 @@ snapshots:
 
   semver@7.7.4: {}
 
-  semver@7.8.4: {}
-
   semver@7.8.5: {}
 
   send@1.2.1(supports-color@7.2.0):
@@ -10621,14 +10655,6 @@ snapshots:
       fs-constants: 1.0.0
       inherits: 2.0.4
       readable-stream: 3.6.2
-
-  tar@7.5.19:
-    dependencies:
-      '@isaacs/fs-minipass': 4.0.1
-      chownr: 3.0.0
-      minipass: 7.1.3
-      minizlib: 3.1.0
-      yallist: 5.0.0
 
   tar@7.5.22:
     dependencies:
@@ -10933,33 +10959,27 @@ snapshots:
       siginfo: 2.0.0
       stackback: 0.0.2
 
-  wiki-graph-core@0.5.0:
+  wiki-graph-core@0.6.0(patch_hash=1d2f96655b993144485f62c6f0b24527fbcb500b1cd07ab61b5d1662fb60159d):
     dependencies:
       '@ai-sdk/anthropic': 3.0.111(zod@4.4.3)
       '@ai-sdk/google': 3.0.111(zod@4.4.3)
       '@ai-sdk/openai': 3.0.88(zod@4.4.3)
       '@ai-sdk/openai-compatible': 2.0.62(zod@4.4.3)
+      '@noble/hashes': 2.4.0
       ai: 6.0.202(zod@4.4.3)
       htmlparser2: 12.0.0
       jsonrepair: 3.15.0
-      nunjucks: 3.2.4
-      pino: 10.3.1
-      pino-pretty: 13.1.3
       saxes: 6.0.0
-      sqlite3: 6.0.1
       tinyld: 1.3.4
-      yauzl: 3.4.0
-      yazl: 3.3.1
       zod: 4.4.3
-    transitivePeerDependencies:
-      - chokidar
 
-  wiki-graph@0.5.0(wiki-graph-core@0.5.0):
+  wiki-graph@0.6.0(patch_hash=379353702a49724bb1aa01232233f239bcde259a2a402303f910784878a625d6)(wiki-graph-core@0.6.0(patch_hash=1d2f96655b993144485f62c6f0b24527fbcb500b1cd07ab61b5d1662fb60159d)):
     dependencies:
       '@ai-sdk/anthropic': 3.0.111(zod@4.4.3)
       '@ai-sdk/google': 3.0.111(zod@4.4.3)
       '@ai-sdk/openai': 3.0.88(zod@4.4.3)
       '@ai-sdk/openai-compatible': 2.0.62(zod@4.4.3)
+      '@noble/hashes': 2.4.0
       ai: 6.0.202(zod@4.4.3)
       htmlparser2: 12.0.0
       jsonrepair: 3.15.0
@@ -10973,7 +10993,7 @@ snapshots:
       yazl: 3.3.1
       zod: 4.4.3
     optionalDependencies:
-      wiki-graph-core: 0.5.0
+      wiki-graph-core: 0.6.0(patch_hash=1d2f96655b993144485f62c6f0b24527fbcb500b1cd07ab61b5d1662fb60159d)
     transitivePeerDependencies:
       - chokidar
 
@@ -11017,6 +11037,11 @@ snapshots:
       string-width: 4.2.3
       y18n: 5.0.8
       yargs-parser: 21.1.1
+
+  yauzl@3.3.0:
+    dependencies:
+      buffer-crc32: 0.2.13
+      pend: 1.2.0
 
   yauzl@3.4.0:
     dependencies:

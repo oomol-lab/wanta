@@ -36,6 +36,7 @@ export default {
   // resources/skills 是 oo 自带的 4 个内置 skill（同由 prepare-binaries.ts 导出）；运行时拷进 OpenCode
   // workspace 的 .opencode/skill/，使 Wanta agent 直接读到。
   extraResources: [
+    { from: "resources/licenses/wiki-graph-LICENSE", to: "licenses/wiki-graph-LICENSE" },
     {
       from: "LICENSE",
       to: "licenses/Wanta-LICENSE",

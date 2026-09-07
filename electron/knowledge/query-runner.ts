@@ -2,6 +2,7 @@ import type { RunWikiGraphCLIInput } from "wiki-graph"
 
 import { Readable, Writable } from "node:stream"
 import { runWikiGraphCLI } from "wiki-graph"
+import { withWikiGraphRuntime } from "./runtime.ts"
 
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 const dangerousEnvironmentNames = [
@@ -17,7 +18,11 @@ export interface WikiGraphQueryExecutor {
 
 /** Read-only, bounded WikiGraph execution used by every agent-facing transport. */
 export class WikiGraphQueryRunner implements WikiGraphQueryExecutor {
-  public constructor(private readonly stateDir: string) {}
+  private readonly stateDir: string
+
+  public constructor(stateDir: string) {
+    this.stateDir = stateDir
+  }
 
   public async run(argv: readonly string[]): Promise<string> {
     const stdout = new BoundedTextWriter()
@@ -35,7 +40,7 @@ export class WikiGraphQueryRunner implements WikiGraphQueryExecutor {
       stdout,
       stdoutIsTTY: false,
     }
-    const result = await runWikiGraphCLI(input)
+    const result = await withWikiGraphRuntime(this.stateDir, () => runWikiGraphCLI(input))
     const output = stdout.text().trim()
     if (result.exitCode !== 0) {
       throw new Error(stderr.text().trim() || output || `WikiGraph query failed with exit code ${result.exitCode}.`)

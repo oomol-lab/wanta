@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import os from "node:os"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
 import { runWikiGraphCLICaptured } from "wiki-graph"
@@ -117,7 +118,7 @@ describe("WikiGraph 0.6 host integration", () => {
 
   it("initializes the managed wg in a fresh process and preserves command exit failures", async () => {
     const root = await temporaryDirectory()
-    const script = path.resolve("electron/knowledge/wg.ts")
+    const script = fileURLToPath(new URL("./wg.ts", import.meta.url))
     const run = promisify(execFile)
     const args = ["--experimental-strip-types", script, "--wanta-state-dir", path.join(root, "state"), "--"]
     const result = await run(process.execPath, [...args, "--help"], { cwd: root })

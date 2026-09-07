@@ -111,7 +111,7 @@ export default function ArtifactDocxPreview({
   }, [onResourceError, onResourceLoaded, source])
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">
       <div className="oo-border-divider flex h-10 shrink-0 items-center border-b bg-background px-3">
         <div className="oo-text-caption-compact truncate font-medium text-foreground">{name}</div>
       </div>

@@ -224,7 +224,7 @@ export function ArtifactPreview({
         )}
       >
         {spreadsheetSelected ? (
-          <div className={cn("min-h-full", (activeMode !== "preview" || !spreadsheetReady) && "hidden")}>
+          <div className={cn("h-full min-h-0", (activeMode !== "preview" || !spreadsheetReady) && "hidden")}>
             <ErrorBoundary
               resetKey={preview ?? fileKey}
               fallback={<ArtifactUnavailablePreview item={item} preview={preview} onOpen={onOpen} onRetry={retry} />}
@@ -238,8 +238,8 @@ export function ArtifactPreview({
         <div
           key={fileKey}
           className={cn(
-            !(spreadsheetSelected && spreadsheetReady && activeMode === "preview") && "min-h-full",
-            activeMode === "preview" && (preview?.kind === "pdf" || isHtmlArtifact(item)) && "h-full",
+            "h-full min-h-0",
+            spreadsheetSelected && spreadsheetReady && activeMode === "preview" && "hidden",
           )}
         >
           {activeMode === "info" ? (
@@ -404,8 +404,8 @@ function ArtifactSpreadsheetLoadingPreview() {
   const t = useT()
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3">
-      <div className="oo-univer-spreadsheet-preview oo-border-divider relative min-h-[420px] flex-1 overflow-hidden rounded-md border bg-background">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3">
+      <div className="oo-univer-spreadsheet-preview oo-border-divider relative min-h-0 flex-1 overflow-hidden rounded-md border bg-background">
         <div className="oo-text-body absolute inset-0 flex items-center justify-center px-4 py-8 text-muted-foreground">
           {t("artifacts.previewLoading")}
         </div>
@@ -515,13 +515,13 @@ function ArtifactVideoPreview({
   }
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-[var(--oo-artifact-preview-canvas)] p-4">
+    <div className="flex h-full min-h-0 items-center justify-center bg-[var(--oo-artifact-preview-canvas)] p-4">
       <video
         src={source}
         controls
         playsInline
         preload="metadata"
-        className="max-h-full max-w-full rounded-md bg-black shadow-sm"
+        className="max-h-full max-w-full rounded-md bg-black object-contain shadow-sm"
         onLoadedData={onResourceLoaded}
         onError={(event) => {
           if (event.currentTarget.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
@@ -575,7 +575,7 @@ export function ArtifactConsumablePreview({
 
   if (preview?.kind === "image" && resourceSource) {
     return (
-      <div className="flex min-h-full items-center justify-center bg-[var(--oo-artifact-preview-canvas)] p-4">
+      <div className="flex h-full min-h-0 items-center justify-center bg-[var(--oo-artifact-preview-canvas)] p-4">
         <img
           src={resourceSource}
           alt={item.name}

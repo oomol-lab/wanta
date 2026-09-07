@@ -4665,7 +4665,66 @@ test("late tool events cannot use an old assistant to complete the current user 
   })
 })
 
-test("completion during cancellation cannot release the session or report success", async () => {
+test.each(["before", "after"] as const)(
+  "normal completion arriving %s a failed cancellation releases the turn and permits another send",
+  async (completionTiming) => {
+    const bridge = createBridgeAgent()
+    const service = new ChatServiceImpl(bridge.agent)
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+    await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "first" })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    const runId = (await service.getActiveRun("session-1"))?.runId
+    let rejectCancel!: (error: Error) => void
+    bridge.abort.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectCancel = reject
+        }),
+    )
+    const finalizer = vi
+      .spyOn(
+        service as unknown as { finalizeTurnOutput: (sessionId: string, messageId?: string) => Promise<void> },
+        "finalizeTurnOutput",
+      )
+      .mockResolvedValue(undefined)
+    const stopping = service.stopGeneration("session-1")
+    const rejected = expect(stopping).rejects.toThrow("cancel transport unavailable")
+    await waitForCondition(() => bridge.abort.mock.calls.length === 1)
+    if (completionTiming === "before") {
+      bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+      expect(finalizer).not.toHaveBeenCalled()
+    }
+    expect(await service.hasActiveGeneration()).toBe(true)
+    rejectCancel(new Error("cancel transport unavailable"))
+    await rejected
+    if (completionTiming === "after") {
+      // Failure alone does not prove the runtime stopped or completed.
+      expect(await service.hasActiveGeneration()).toBe(true)
+      expect(finalizer).not.toHaveBeenCalled()
+      await expect(
+        service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "too early" }),
+      ).rejects.toThrow("A generation is already active")
+      bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    }
+    await waitForCondition(() => events.some((event) => event.event === "messageCompleted"))
+    expect(await service.getActiveRun("session-1")).toBeNull()
+    expect(finalizer).toHaveBeenCalledExactlyOnceWith("session-1", "assistant-1")
+    expect(events.filter((event) => event.event === "turnOutcome").map((event) => event.data)).toEqual([
+      { sessionId: "session-1", runId, kind: "completed", messageId: "assistant-1" },
+    ])
+    expect(events.filter((event) => event.event === "generationStopped")).toHaveLength(0)
+    finalizer.mockRestore()
+    await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "second" })
+    expect(await service.hasActiveGeneration()).toBe(true)
+    await service.stopGeneration("session-1")
+  },
+)
+
+test("failed cancellation completion waits for terminal history instead of releasing on idle alone", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
   const events = captureServiceEvents(service)
@@ -4675,26 +4734,63 @@ test("completion during cancellation cannot release the session or report succes
     type: "message.updated",
     properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
   })
-  let release!: () => void
-  bridge.abort.mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        release = resolve
-      }),
-  )
-  const runId = (await service.getActiveRun("session-1"))?.runId
-  const stopping = service.stopGeneration("session-1")
-  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  expect(await service.getActiveRun("session-1")).not.toBeNull()
-  expect(events.filter((event) => event.event === "messageCompleted")).toHaveLength(0)
-  release()
-  await stopping
-  expect(await service.getActiveRun("session-1")).toBeNull()
-  expect(events.filter((event) => event.event === "turnOutcome").map((event) => event.data)).toEqual([
-    { sessionId: "session-1", runId, kind: "cancelled", messageId: "assistant-1" },
+  bridge.abort.mockRejectedValueOnce(new Error("cancel transport unavailable"))
+  await expect(service.stopGeneration("session-1")).rejects.toThrow("cancel transport unavailable")
+  const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
+  bridge.getMessages.mockResolvedValue([
+    { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+    { id: "assistant-1", role: "assistant", createdAt: 2, completedAt: 3, finishReason: "tool-calls", parts: [] },
   ])
+  bridge.getMessages.mockClear()
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await waitForCondition(() => bridge.getMessages.mock.calls.length >= 2)
+  expect(await service.hasActiveGeneration()).toBe(true)
+  expect(events.filter((event) => event.event === "messageCompleted")).toHaveLength(0)
+  bridge.getMessages.mockResolvedValue([
+    { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+    { id: "assistant-1", role: "assistant", createdAt: 2, completedAt: 3, finishReason: "stop", parts: [] },
+  ])
+  await waitForCondition(() => events.some((event) => event.event === "messageCompleted"))
+  expect(await service.hasActiveGeneration()).toBe(false)
 })
+
+test.each([false, true])(
+  "completion during cancellation cannot release the session (previous failure: %s)",
+  async (previousFailure) => {
+    const bridge = createBridgeAgent()
+    const service = new ChatServiceImpl(bridge.agent)
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+    await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "first" })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    if (previousFailure) {
+      bridge.abort.mockRejectedValueOnce(new Error("cancel transport unavailable"))
+      await expect(service.stopGeneration("session-1")).rejects.toThrow("cancel transport unavailable")
+    }
+    let release!: () => void
+    bridge.abort.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        }),
+    )
+    const runId = (await service.getActiveRun("session-1"))?.runId
+    const stopping = service.stopGeneration("session-1")
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(await service.getActiveRun("session-1")).not.toBeNull()
+    expect(events.filter((event) => event.event === "messageCompleted")).toHaveLength(0)
+    release()
+    await stopping
+    expect(await service.getActiveRun("session-1")).toBeNull()
+    expect(events.filter((event) => event.event === "turnOutcome").map((event) => event.data)).toEqual([
+      { sessionId: "session-1", runId, kind: "cancelled", messageId: "assistant-1" },
+    ])
+  },
+)
 
 test("late tool and activity events cannot mutate the replacement run or register child sessions", async () => {
   const bridge = createBridgeAgent()

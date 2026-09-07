@@ -1603,6 +1603,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     sessionId: string,
     generation: SessionGeneration,
   ): Promise<void> {
+    generation.completionObserved = true
+    if (!this.canCompleteGeneration(sessionId, generation)) return
     const completionKey = `${sessionId}\0${generation.id}`
     if (this.completionChecks.has(completionKey)) return
     this.clearCompletionRetry(completionKey, false)
@@ -1613,7 +1615,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.scheduleCompletionRetry(emit, sessionId, generation)
         return
       }
-      if (!this.isCurrentGeneration(sessionId, generation.id) || generation.controller.signal.aborted) return
+      if (!this.canCompleteGeneration(sessionId, generation)) return
       this.clearCompletionRetry(completionKey)
       const messageId = completedAssistant.id
       const completedRun = this.activeRuns.get(sessionId)
@@ -1621,7 +1623,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       await this.finalizeTurnOutput(sessionId, messageId).catch((error: unknown) => {
         console.warn("[wanta] failed to finalize turn output", error)
       })
-      if (!this.isCurrentGeneration(sessionId, generation.id) || generation.controller.signal.aborted) return
+      if (!this.canCompleteGeneration(sessionId, generation)) return
       this.clearSessionGeneration(sessionId, generation.id)
       this.activeAssistantMessages.delete(sessionId)
       this.activeToolParts.delete(sessionId)
@@ -1645,6 +1647,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
   }
 
+  private canCompleteGeneration(sessionId: string, generation: SessionGeneration): boolean {
+    // Keep the dispatch signal aborted: replacing it could resume cancelled setup.
+    // A failed cancel may still be followed by a verified normal runtime completion.
+    return (
+      this.isCurrentGeneration(sessionId, generation.id) &&
+      !this.stoppingGenerations.has(generation.id) &&
+      (!generation.controller.signal.aborted || generation.cancellationFailed === true)
+    )
+  }
+
   private async completedTurnAssistant(
     sessionId: string,
     generation: SessionGeneration,
@@ -1658,7 +1670,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const userIndex = messages.findIndex(
       (message) => message.id === generation.userMessageId && message.role === "user",
     )
-    if (userIndex < 0 || generation.controller.signal.aborted) return undefined
+    if (userIndex < 0 || !this.canCompleteGeneration(sessionId, generation)) return undefined
     // Only messages after this turn's user message can prove its completion.
     // A delayed tool event may still point activeAssistantMessages at an old turn.
     const turnMessages = messages.slice(userIndex + 1)
@@ -1678,7 +1690,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     sessionId: string,
     generation: SessionGeneration,
   ): void {
-    if (!this.isCurrentGeneration(sessionId, generation.id) || generation.controller.signal.aborted) return
+    if (!this.canCompleteGeneration(sessionId, generation)) return
     const completionKey = `${sessionId}\0${generation.id}`
     if (this.completionRetryTimers.has(completionKey)) return
     const attempt = this.completionRetryAttempts.get(completionKey) ?? 0
@@ -1922,11 +1934,17 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const key = generation?.id ?? `session:${sessionId}`
     const existing = this.stoppingGenerations.get(key)
     if (existing) return existing
+    if (generation) generation.cancellationFailed = false
     if (generation && options.reason === "user") generation.cancellationRequested = true
     const stopping = Promise.resolve()
       .then(() => this.performStopSessionGeneration(sessionId, generation, options))
       .finally(() => {
         if (this.stoppingGenerations.get(key) === stopping) this.stoppingGenerations.delete(key)
+        if (generation?.cancellationFailed && generation.completionObserved) {
+          // An idle event may have arrived while cancellation was still pending.
+          // Recheck history only after the stop operation releases its ownership.
+          void this.completeSessionGeneration(this.send.bind(this), sessionId, generation)
+        }
       })
     this.stoppingGenerations.set(key, stopping)
     generation?.controller.abort()
@@ -1957,6 +1975,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           options.throwOnAbortFailure &&
           (messageId || !generation || externalAgentKindForSessionId(sessionId))
         ) {
+          if (generation && this.generations.get(sessionId) === generation) generation.cancellationFailed = true
           this.userStops.delete(sessionId)
           throw error
         }

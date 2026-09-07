@@ -213,8 +213,8 @@ export function ArtifactUniverSpreadsheetPreview({
   }, [enUSMessages, univerLocale])
 
   return (
-    <div className={cn("flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3", className)}>
-      <div className="oo-univer-spreadsheet-preview oo-border-divider relative min-h-[420px] flex-1 overflow-hidden rounded-md border bg-background">
+    <div className={cn("flex h-full min-h-0 min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3", className)}>
+      <div className="oo-univer-spreadsheet-preview oo-border-divider relative min-h-0 flex-1 overflow-hidden rounded-md border bg-background">
         {localeMessages ? (
           <ArtifactUniverRuntimeHost
             key={runtimeConfigKey}

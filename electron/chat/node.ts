@@ -1943,7 +1943,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         if (generation?.cancellationFailed && generation.completionObserved) {
           // An idle event may have arrived while cancellation was still pending.
           // Recheck history only after the stop operation releases its ownership.
-          void this.completeSessionGeneration(this.send.bind(this), sessionId, generation)
+          void this.completeSessionGeneration(
+            this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+            sessionId,
+            generation,
+          )
         }
       })
     this.stoppingGenerations.set(key, stopping)

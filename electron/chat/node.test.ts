@@ -4696,6 +4696,7 @@ test.each(["before", "after"] as const)(
     await waitForCondition(() => bridge.abort.mock.calls.length === 1)
     if (completionTiming === "before") {
       bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+      await new Promise((resolve) => setTimeout(resolve, 0))
       expect(finalizer).not.toHaveBeenCalled()
     }
     expect(await service.hasActiveGeneration()).toBe(true)

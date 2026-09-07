@@ -169,6 +169,8 @@ export default defineConfig(({ command, mode }) => {
                   /^playwright-core(\/|$)/,
                   /^wiki-graph(\/|$)/,
                   /^wiki-graph-core(\/|$)/,
+                  // The host adapter uses native SQLite and Node-only ZIP/template loaders.
+                  /^(sqlite3|yauzl|yazl|nunjucks)(\/|$)/,
                   "electron-updater",
                 ],
               },

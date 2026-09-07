@@ -29,3 +29,7 @@ ignoredOptionalDependencies:
   - "@openai/codex-linux-x64"
   - "@openai/codex-win32-arm64"
   - "@openai/codex-win32-x64"
+
+patchedDependencies:
+  wiki-graph-core@0.6.0: patches/wiki-graph-core@0.6.0.patch
+  wiki-graph@0.6.0: patches/wiki-graph@0.6.0.patch

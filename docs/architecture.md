@@ -87,7 +87,7 @@ missing or not exactly `true` counts as off. The renderer reads and subscribes t
 Settings service; when off it hides the knowledge-base navigation, loads no knowledge-base list,
 injects no existing knowledge-base references into chat, and bounces any direct navigation to a
 knowledge-base route back to chat. The flag is saved to the local `userData/settings.json` and
-survives restart. App-side knowledge-base management uses the `wiki-graph-core` SDK against Wanta's
+survives restart. App-side knowledge-base management uses the `wiki-graph-core@0.6.0` SDK against Wanta's
 private `<userData>/wikigraph-state` default library; Wanta does not keep a parallel archive
 registry, and imports are always copied into that managed library folder. Cover imports are converged
 to a thumbnail with a longest edge of 320 px and at most 512 KiB encoded; oversized legacy Data URLs
@@ -171,7 +171,8 @@ Vite (`vite-plugin-electron/simple` in `vite.config.ts`) bundles `electron/main.
 loaded at runtime as a `node:worker_threads` Worker by `SpreadsheetPreviewWorkerClient` (deliberately
 resolved via `new URL("./spreadsheet-preview-worker.js", import.meta.url)` so Vite does not rewrite
 it as a renderer asset). In the main-process build, `@opencode-ai/sdk`, `electron-updater`,
-`playwright-core`, `wiki-graph`, and `wiki-graph-core` are **externalized** so Node resolves their
+`playwright-core`, `wiki-graph`, `wiki-graph-core`, and the Node adapter dependencies
+(`sqlite3`, `yauzl`, `yazl`, `nunjucks`) are **externalized** so Node resolves their
 runtime module structures from the packaged dependencies. `diff` (imported at `electron/git/turn-diff.ts`)
 is **inlined** into the main bundle and `react-diff-view` (a renderer import at
 `src/routes/Chat/TurnOutputs.tsx`) is bundled into the renderer — so these two sit in `dependencies`
@@ -724,3 +725,23 @@ src/
   index.css                  import hub for src/styles/*.css (theme base platform login app-shell ui markdown turn-diff — 8 files); Tailwind v4 theme (CSS variables); @source streamdown + @streamdown/mermaid live in src/styles/theme.css
   styles/                    the eight imported stylesheets above
 ```
+
+## WikiGraph Host Runtime
+
+`electron/knowledge/node-platform.ts` adapts the upstream 0.6.0 Node implementation to Wanta.
+Files and directories are host capabilities; business code uses the current Core APIs directly.
+`runtime.ts` installs platform services once and scopes storage with AsyncLocalStorage for every
+main-process operation, captured query, and managed `wg` invocation. It never installs a default
+home storage root. Template assets resolve from the installed CLI package, independent of cwd.
+
+The exact 0.6.0 dependencies use two pnpm patches recorded in `pnpm-workspace.yaml`: Core exposes
+its existing `withWikiGraphStorage` implementation, and both CLI SDK formats delegate to that same
+Core implementation instead of their bundled private context. Wanta initializes the platform at
+its entry points; the standalone upstream CLI remains unchanged. Keep these patches until an
+upstream release passes the real-package tests in `electron/knowledge/runtime.test.ts` without them.
+The Node adapter accepts the CLI's structurally equivalent file objects, not just its own class.
+
+Wanta targets current-format archives. It does not provide legacy schema migration, coordinator
+quarantine, or isolated upgrade retries. Import copies the source, validates the managed copy,
+and removes an unreadable managed import without modifying the original. Existing development
+profiles are not automatically deleted or reset.

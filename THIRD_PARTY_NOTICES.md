@@ -135,3 +135,13 @@ The repository also depends on Electron, React, Univer, wiki-graph, Streamdown, 
 and other direct and transitive packages under their respective licenses. Product names, service
 logos, and trademarks are not licensed merely because an open-source package contains a reference
 or icon. See [TRADEMARKS.md](TRADEMARKS.md).
+
+## WikiGraph Node Host Adapter
+
+`electron/knowledge/node-platform.ts` is adapted from
+[WikiGraph v0.6.0](https://github.com/oomol-lab/wiki-graph/blob/v0.6.0/packages/cli/src/runtime/node-platform.ts),
+Copyright WikiGraph contributors, licensed under Apache-2.0. Wanta modifies imports, field declarations,
+resource resolution, and host integration. The source license is included at
+`resources/licenses/wiki-graph-LICENSE`. Versioned pnpm patches expose scoped Core storage and connect
+the CLI SDK to the same runtime instance. SQLite, yauzl, yazl, and Nunjucks retain their respective
+package licenses.

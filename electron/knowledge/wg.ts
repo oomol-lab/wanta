@@ -1,6 +1,7 @@
 import type { RunWikiGraphCLIInput } from "wiki-graph"
 
 import { runWikiGraphCLI } from "wiki-graph"
+import { withWikiGraphRuntime } from "./runtime.ts"
 
 const stateDirFlag = "--wanta-state-dir"
 const dangerousWikiGraphEnvNames = [
@@ -36,7 +37,7 @@ async function main(): Promise<void> {
     stdout: process.stdout,
     stdoutIsTTY: process.stdout.isTTY,
   }
-  const result = await runWikiGraphCLI(input)
+  const result = await withWikiGraphRuntime(stateDir, () => runWikiGraphCLI(input))
   process.exitCode = result.exitCode
 }
 

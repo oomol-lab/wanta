@@ -1,7 +1,6 @@
-import type { BookMeta, ReadonlyDocument, WikiGraphLibraryArchiveRecord } from "wiki-graph-core"
+import type { BookMeta, File, ReadonlyDocument, WikiGraphLibraryArchiveRecord } from "wiki-graph-core"
 
-import { randomUUID } from "node:crypto"
-import { chmod, copyFile, mkdir, mkdtemp, readdir, rename, rm, rmdir, stat } from "node:fs/promises"
+import { mkdir, readdir, rmdir, stat } from "node:fs/promises"
 import path from "node:path"
 import {
   addWikiGraphLibraryArchive as addWikiGraphLibraryArchiveWithSDK,
@@ -14,17 +13,16 @@ import {
   rebindWikiGraphLibrary,
   removeWikiGraphLibraryArchive as removeWikiGraphLibraryArchiveWithSDK,
   moveWikiGraphLibraryArchive as moveWikiGraphLibraryArchiveWithSDK,
-  upgradeWikiGraphMaintenanceTarget,
   WikiGraphArchiveFile,
-  withWikiGraphRuntimeStateDirectoryPath,
 } from "wiki-graph-core"
+import { NodeFile, NodeDirectory, getNodeResourcePath } from "./node-platform.ts"
+import { withWikiGraphRuntime } from "./runtime.ts"
 
 const defaultLibraryUri = "wikg://lib"
 const defaultLibraryPreparationByStateDir = new Map<string, Promise<void>>()
 const archivePreparationByStateAndPath = new Map<string, Promise<void>>()
 const unreadableImportMessage =
   "WANTA_KNOWLEDGE_IMPORT_UNREADABLE: The selected WikiGraph file could not be imported because Wanta cannot make the managed copy readable with the current WikiGraph SDK. The original file was not modified."
-const nonDerivedHomeOverlayError = "Cannot upgrade home with non-derived coordinator overlays."
 
 export interface WikiGraphRuntime {
   managedLibraryDir: string
@@ -125,7 +123,7 @@ function archiveFromRecord(record: WikiGraphLibraryArchiveRecord): WikiGraphLibr
   return {
     id: record.publicId,
     uri: record.uri,
-    path: record.path,
+    path: record.file ? getNodeResourcePath(record.file) : undefined,
     relativePath: record.relativePath,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -222,7 +220,7 @@ async function importRelativePath(runtime: WikiGraphRuntime, sourcePath: string,
     ensureKnowledgePathWithinLibrary(runtime, candidate)
     const physicalPathExists = Boolean(await stat(path.join(runtime.managedLibraryDir, candidate)).catch(() => null))
     const archiveConflict = archives.some((archive) => {
-      const archivePath = archive.relativePath || archive.path || `${archive.id}.wikg`
+      const archivePath = archive.relativePath || `${archive.id}.wikg`
       return pathEquals(archivePath, candidate)
     })
     const folderConflict = folders.some((folder) => pathEquals(folder, candidate))
@@ -233,7 +231,7 @@ async function importRelativePath(runtime: WikiGraphRuntime, sourcePath: string,
 
 async function withRuntime<T>(runtime: WikiGraphRuntime, fallback: string, operation: () => Promise<T>): Promise<T> {
   try {
-    return await withWikiGraphRuntimeStateDirectoryPath(runtime.stateDir, operation)
+    return await withWikiGraphRuntime(runtime.stateDir, operation)
   } catch (error) {
     throw wikiGraphError(runtime, fallback, error)
   }
@@ -266,7 +264,7 @@ async function listKnowledgeLibraryFolders(runtime: WikiGraphRuntime): Promise<s
 
 async function archiveRelativePaths(runtime: WikiGraphRuntime): Promise<string[]> {
   const archives = await listWikiGraphLibraryArchives(runtime)
-  return archives.map((archive) => archive.relativePath || archive.path || `${archive.id}.wikg`)
+  return archives.map((archive) => archive.relativePath || `${archive.id}.wikg`)
 }
 
 async function ensureFolderCreateable(runtime: WikiGraphRuntime, relativePath: string): Promise<void> {
@@ -300,7 +298,7 @@ async function ensureArchiveTargetAvailable(
   const folders = await listKnowledgeLibraryFolders(runtime)
   for (const archive of archives) {
     if (excludeId && archive.id === excludeId) continue
-    const archivePath = archive.relativePath || archive.path || `${archive.id}.wikg`
+    const archivePath = archive.relativePath || `${archive.id}.wikg`
     if (pathEquals(archivePath, relativePath)) throw new Error("Knowledge library path already exists")
   }
   if (folders.some((item) => pathEquals(item, relativePath))) throw new Error("Knowledge library path already exists")
@@ -313,43 +311,16 @@ export async function prepareWikiGraphDefaultLibrary(runtime: WikiGraphRuntime):
   const preparation = withRuntime(runtime, "Failed to prepare WikiGraph library", async () => {
     await mkdir(runtime.stateDir, { recursive: true })
     await mkdir(runtime.managedLibraryDir, { recursive: true })
-    const rebind = async () =>
-      await rebindWikiGraphLibrary({
-        folderPath: runtime.managedLibraryDir,
-        target: requireLibraryTarget(defaultLibraryUri),
-      })
-    try {
-      await rebind()
-    } catch (error) {
-      if (!isNonDerivedHomeOverlayError(error)) throw error
-      await quarantineLegacyCoordinatorState(runtime)
-      console.warn("[wanta] preserved incompatible WikiGraph coordinator state before retrying the home upgrade")
-      await rebind()
-    }
+    await rebindWikiGraphLibrary({
+      folder: new NodeDirectory(runtime.managedLibraryDir),
+      target: requireLibraryTarget(defaultLibraryUri),
+    })
   }).catch((error: unknown) => {
     defaultLibraryPreparationByStateDir.delete(runtime.stateDir)
     throw error
   })
   defaultLibraryPreparationByStateDir.set(runtime.stateDir, preparation)
   return await preparation
-}
-
-function isNonDerivedHomeOverlayError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes(nonDerivedHomeOverlayError)
-}
-
-async function quarantineLegacyCoordinatorState(runtime: WikiGraphRuntime): Promise<void> {
-  const stagingDir = path.join(runtime.stateDir, "staging")
-  const staging = await stat(stagingDir).catch(() => null)
-  if (!staging?.isDirectory()) throw new Error(nonDerivedHomeOverlayError)
-
-  // WikiGraph deliberately refuses to delete database.db overlays because they
-  // may contain uncommitted document state. Move the complete coordinator tree
-  // aside on the same filesystem, then let the SDK recreate derived staging.
-  const recoveryDir = path.join(runtime.stateDir, "recovery")
-  await mkdir(recoveryDir, { recursive: true })
-  const preservedDir = path.join(recoveryDir, `coordinator-overlays-${Date.now()}-${randomUUID()}`)
-  await rename(stagingDir, preservedDir)
 }
 
 export async function listWikiGraphLibraryArchives(runtime: WikiGraphRuntime): Promise<WikiGraphLibraryArchive[]> {
@@ -383,76 +354,30 @@ export async function addWikiGraphLibraryArchive(
   if (!source.isFile()) throw new Error("Knowledge base must be a regular file")
   return await withRuntime(runtime, "Failed to import WikiGraph archive", async () => {
     const targetPath = await importRelativePath(runtime, sourcePath, targetDirectory)
-    const imported = await importPreparedWikiGraphArchive(runtime, sourcePath, targetPath)
+    const imported = await importWikiGraphArchive(sourcePath, targetPath)
     return archiveFromRecord(imported)
   })
 }
 
-async function importPreparedWikiGraphArchive(
-  runtime: WikiGraphRuntime,
-  inputPath: string,
-  targetPath: string,
-): Promise<WikiGraphLibraryArchiveRecord> {
+async function importWikiGraphArchive(inputPath: string, targetPath: string): Promise<WikiGraphLibraryArchiveRecord> {
   const imported = await addWikiGraphLibraryArchiveWithSDK({
-    inputPath,
+    inputFile: new NodeFile(inputPath),
     target: requireLibraryTarget(`${defaultLibraryUri}/arc`),
     to: targetPath,
   })
   try {
-    await prepareImportedArchiveForUse(imported)
+    await validateArchive(requireArchiveFile(imported))
   } catch (error) {
     await removeUnreadableImportedArchive(imported)
-    if (!isNonDerivedOverlayStateError(error)) throw new Error(unreadableImportMessage, { cause: error })
-    return await retryImportWithIsolatedUpgrade(runtime, inputPath, targetPath, error)
+    throw new Error(unreadableImportMessage, { cause: error })
   }
   return imported
 }
 
-async function retryImportWithIsolatedUpgrade(
-  runtime: WikiGraphRuntime,
-  inputPath: string,
-  targetPath: string,
-  cause: unknown,
-): Promise<WikiGraphLibraryArchiveRecord> {
-  const prepared = await prepareIsolatedImportCopy(runtime, inputPath)
-  try {
-    const imported = await addWikiGraphLibraryArchiveWithSDK({
-      inputPath: prepared.path,
-      target: requireLibraryTarget(`${defaultLibraryUri}/arc`),
-      to: targetPath,
-    })
-    try {
-      await prepareImportedArchiveForUse(imported)
-    } catch (error) {
-      await removeUnreadableImportedArchive(imported)
-      throw new Error(unreadableImportMessage, { cause: error })
-    }
-    return imported
-  } catch (error) {
-    if (error instanceof Error && error.message === unreadableImportMessage) throw error
-    throw new Error(unreadableImportMessage, { cause: error instanceof Error ? error : cause })
-  } finally {
-    await rm(prepared.directory, { force: true, recursive: true }).catch(() => undefined)
-  }
-}
-
-async function prepareIsolatedImportCopy(
-  runtime: WikiGraphRuntime,
-  sourcePath: string,
-): Promise<{ directory: string; path: string }> {
-  const directory = await mkdtemp(path.join(runtime.stateDir, "import-"))
-  const archivePath = path.join(directory, path.basename(sourcePath) || "archive.wikg")
-  try {
-    await copyFile(sourcePath, archivePath)
-    await chmod(archivePath, 0o600).catch(() => undefined)
-    await withWikiGraphRuntimeStateDirectoryPath(path.join(directory, "state"), async () => {
-      await upgradeWikiGraphMaintenanceTarget(archivePath)
-    })
-    return { directory, path: archivePath }
-  } catch (error) {
-    await rm(directory, { force: true, recursive: true }).catch(() => undefined)
-    throw error
-  }
+function requireArchiveFile(record: WikiGraphLibraryArchiveRecord): File {
+  if (!record.file || !record.exists || record.status === "missing")
+    throw new Error("Knowledge base file is unavailable")
+  return record.file
 }
 
 async function removeUnreadableImportedArchive(imported: WikiGraphLibraryArchiveRecord): Promise<void> {
@@ -463,27 +388,8 @@ async function removeUnreadableImportedArchive(imported: WikiGraphLibraryArchive
   )
 }
 
-async function prepareImportedArchiveForUse(record: WikiGraphLibraryArchiveRecord): Promise<void> {
-  await prepareArchivePathForUse(record.path)
-  await validateImportedArchive(record.path)
-}
-
-async function prepareArchivePathForUse(archivePath: string): Promise<void> {
-  try {
-    await upgradeWikiGraphMaintenanceTarget(archivePath)
-  } catch (error) {
-    if (!isNonDerivedOverlayStateError(error)) throw error
-    await upgradeWikiGraphMaintenanceTarget(defaultLibraryUri)
-    await upgradeWikiGraphMaintenanceTarget(archivePath)
-  }
-}
-
-function isNonDerivedOverlayStateError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes("non-derived overlay state")
-}
-
-async function validateImportedArchive(archivePath: string): Promise<void> {
-  const file = new WikiGraphArchiveFile(archivePath)
+async function validateArchive(source: File): Promise<void> {
+  const file = new WikiGraphArchiveFile(source)
   await file.read(async (archive) => {
     await archive.readMeta()
   })
@@ -514,7 +420,7 @@ export async function moveWikiGraphLibraryArchive(
   const archive = await withRuntime(runtime, "Failed to resolve WikiGraph archive", async () => {
     return await getWikiGraphLibraryArchive(requireLibraryTarget(archiveUri(normalizedId)))
   })
-  const currentRelativePath = archive.relativePath || archive.path || `${archive.id}.wikg`
+  const currentRelativePath = archive.relativePath || `${archive.id}.wikg`
   const nextRelativePath = normalizeKnowledgeTargetPath(targetDirectory, fileName ?? path.basename(currentRelativePath))
   if (pathEquals(currentRelativePath, nextRelativePath)) {
     return archiveFromRecord(archive)
@@ -674,7 +580,7 @@ async function preparedDocumentArchiveFile(runtime: WikiGraphRuntime, id: string
     return file
   }
   const preparation = withRuntime(runtime, "Failed to prepare WikiGraph archive", async () => {
-    await prepareArchivePathForUse(archivePath)
+    await validateArchive(new NodeFile(archivePath))
   }).catch((error: unknown) => {
     archivePreparationByStateAndPath.delete(preparationKey)
     throw error
@@ -691,7 +597,8 @@ async function resolveArchiveFile(
   await prepareWikiGraphDefaultLibrary(runtime)
   return await withRuntime(runtime, "Failed to resolve WikiGraph archive", async () => {
     const archive = await getWikiGraphLibraryArchive(requireLibraryTarget(archiveUri(id.trim())))
-    return { file: new WikiGraphArchiveFile(archive.path), path: archive.path }
+    const source = requireArchiveFile(archive)
+    return { file: new WikiGraphArchiveFile(source), path: getNodeResourcePath(source) }
   })
 }
 

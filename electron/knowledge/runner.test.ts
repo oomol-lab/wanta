@@ -1,9 +1,10 @@
 import type { WikiGraphRuntime } from "./runner.ts"
 
-import { mkdtemp, mkdir, readdir, readFile, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { describe, expect, it, vi, beforeEach } from "vitest"
+import { NodeFile, NodeDirectory } from "./node-platform.ts"
 import {
   addWikiGraphLibraryArchive,
   createWikiGraphLibraryFolder,
@@ -35,7 +36,6 @@ const sdk = vi.hoisted(() => {
       rebind: [] as unknown[],
       remove: [] as unknown[],
       runtimeStateDirs: [] as (string | undefined)[],
-      upgrade: [] as string[],
     },
     chapters: [] as MockChapter[],
     cover: undefined as { data: Uint8Array; mediaType: string; path: string } | undefined,
@@ -43,7 +43,6 @@ const sdk = vi.hoisted(() => {
     failGetArchive: undefined as Error | undefined,
     failListChapters: undefined as Error | undefined,
     failRebindQueue: [] as Error[],
-    failUpgradeQueue: [] as Error[],
     ftsCurrent: false,
     indexSettings: { ftsEmbedded: false },
     meta: undefined as MockBookMeta | undefined,
@@ -58,7 +57,7 @@ interface MockArchiveRecord {
   libraryId: number
   libraryUri: string
   relativePath: string
-  path: string
+  file?: NodeFile
   exists: boolean
   status: "conflict" | "missing" | "present"
   createdAt: string
@@ -98,9 +97,9 @@ vi.mock("wiki-graph-core", () => {
     WikiGraphArchiveFile: class {
       private readonly path: string
 
-      public constructor(filePath: string) {
-        this.path = filePath
-        sdk.calls.archiveFiles.push(filePath)
+      public constructor(file: NodeFile) {
+        this.path = file.path
+        sdk.calls.archiveFiles.push(file.path)
       }
 
       public async read<T>(operation: (archive: unknown) => Promise<T> | T): Promise<T> {
@@ -167,29 +166,15 @@ vi.mock("wiki-graph-core", () => {
       sdk.calls.move.push(input)
       return sdk.addRecord ?? sdk.archives[0]
     },
-    upgradeWikiGraphMaintenanceTarget: async (target: string) => {
-      sdk.calls.upgrade.push(target)
-      const error = sdk.failUpgradeQueue.shift()
-      if (error) {
-        throw error
-      }
-      return {
-        kind: "archive",
-        path: target,
-        schemaVersionAfter: 2,
-        schemaVersionBefore: 1,
-        status: "upgraded",
-      }
-    },
-    withWikiGraphRuntimeStateDirectoryPath: async <T>(
-      stateDir: string | undefined,
-      operation: () => Promise<T> | T,
-    ) => {
-      sdk.calls.runtimeStateDirs.push(stateDir)
-      return await operation()
-    },
   }
 })
+
+vi.mock("./runtime.ts", () => ({
+  withWikiGraphRuntime: async <T>(stateDir: string, operation: () => Promise<T> | T) => {
+    sdk.calls.runtimeStateDirs.push(stateDir)
+    return await operation()
+  },
+}))
 
 function runtime(dir: string): WikiGraphRuntime {
   return {
@@ -206,7 +191,7 @@ function archiveRecord(overrides: Partial<MockArchiveRecord> = {}): MockArchiveR
     libraryId: 1,
     libraryUri: "wikg://lib",
     relativePath: "copy.wikg",
-    path: "/managed/library/copy.wikg",
+    file: new NodeFile("/managed/library/copy.wikg"),
     exists: true,
     status: "present",
     createdAt: "2026-01-02T00:00:00.000Z",
@@ -272,7 +257,6 @@ beforeEach(() => {
     rebind: [],
     remove: [],
     runtimeStateDirs: [],
-    upgrade: [],
   }
   sdk.chapters = []
   sdk.cover = undefined
@@ -280,7 +264,6 @@ beforeEach(() => {
   sdk.failGetArchive = undefined
   sdk.failListChapters = undefined
   sdk.failRebindQueue = []
-  sdk.failUpgradeQueue = []
   sdk.ftsCurrent = false
   sdk.indexSettings = { ftsEmbedded: false }
   sdk.meta = undefined
@@ -297,29 +280,19 @@ describe("WikiGraph SDK adapter", () => {
     expect(sdk.calls.runtimeStateDirs).toEqual([rt.stateDir])
     expect(sdk.calls.rebind).toEqual([
       {
-        folderPath: rt.managedLibraryDir,
+        folder: new NodeDirectory(rt.managedLibraryDir),
         target: { kind: "mock", uri: "wikg://lib" },
       },
     ])
   })
 
-  it("preserves legacy coordinator overlays and retries the home upgrade", async () => {
+  it("surfaces library preparation failures and allows a later retry", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
     const rt = runtime(dir)
-    const stagingDir = path.join(rt.stateDir, "staging")
-    await mkdir(path.join(stagingDir, "work", "archive-key"), { recursive: true })
-    await writeFile(path.join(stagingDir, "work", "archive-key", "database.db"), "pending coordinator data")
-    sdk.failRebindQueue = [new Error("Cannot upgrade home with non-derived coordinator overlays.")]
-
+    sdk.failRebindQueue = [new Error("Library unavailable")]
+    await expect(prepareWikiGraphDefaultLibrary(rt)).rejects.toThrow("Library unavailable")
     await prepareWikiGraphDefaultLibrary(rt)
-
     expect(sdk.calls.rebind).toHaveLength(2)
-    const recoveries = await readdir(path.join(rt.stateDir, "recovery"))
-    expect(recoveries).toHaveLength(1)
-    expect(
-      await readFile(path.join(rt.stateDir, "recovery", recoveries[0]!, "work", "archive-key", "database.db"), "utf8"),
-    ).toBe("pending coordinator data")
-    await expect(readdir(stagingDir)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("lists default library archives using SDK publicId as the Wanta-facing id", async () => {
@@ -357,11 +330,10 @@ describe("WikiGraph SDK adapter", () => {
       uri: "wikg://lib/arc/imported-public-id",
     })
     expect(imported.id).not.toBe("99")
-    expect(sdk.calls.upgrade).toEqual(["/managed/library/copy.wikg"])
     expect(sdk.calls.archiveFiles).toEqual(["/managed/library/copy.wikg"])
     expect(sdk.calls.add).toEqual([
       {
-        inputPath: source,
+        inputFile: new NodeFile(source),
         target: { kind: "mock", uri: "wikg://lib/arc" },
         to: "research/Original Book.wikg",
       },
@@ -387,7 +359,7 @@ describe("WikiGraph SDK adapter", () => {
     expect(imported.relativePath).toBe("books/三国演义 3.wikg")
     expect(sdk.calls.add).toEqual([
       {
-        inputPath: source,
+        inputFile: new NodeFile(source),
         target: { kind: "mock", uri: "wikg://lib/arc" },
         to: "books/三国演义 3.wikg",
       },
@@ -412,46 +384,19 @@ describe("WikiGraph SDK adapter", () => {
     expect(imported.relativePath).toBe("books/三国演义 2.wikg")
     expect(sdk.calls.add).toEqual([
       {
-        inputPath: source,
+        inputFile: new NodeFile(source),
         target: { kind: "mock", uri: "wikg://lib/arc" },
         to: "books/三国演义 2.wikg",
       },
     ])
   })
 
-  it("retries imports blocked by stale overlay state with an isolated upgraded copy", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
-    const source = path.join(dir, "主义主义-哲学意识形态大全.wikg")
-    await writeFile(source, "archive")
-    sdk.addRecord = archiveRecord({
-      path: "/managed/library/主义主义-哲学意识形态大全.wikg",
-      publicId: "overlay-blocked",
-      relativePath: "主义主义-哲学意识形态大全.wikg",
-      uri: "wikg://lib/arc/overlay-blocked",
-    })
-    sdk.failUpgradeQueue = [
-      new Error("Cannot upgrade archive with non-derived overlay state: archive-key."),
-      new Error("Cannot upgrade archive with non-derived overlay state: archive-key."),
-    ]
-
-    await addWikiGraphLibraryArchive(runtime(dir), source)
-
-    expect(sdk.calls.add).toHaveLength(2)
-    expect(sdk.calls.add[0]).toMatchObject({ inputPath: source, to: "主义主义-哲学意识形态大全.wikg" })
-    expect(sdk.calls.add[1]).toMatchObject({ to: "主义主义-哲学意识形态大全.wikg" })
-    expect((sdk.calls.add[1] as { inputPath: string }).inputPath).not.toBe(source)
-    expect(sdk.calls.remove).toEqual([{ target: { kind: "mock", uri: "wikg://lib/arc/overlay-blocked" } }])
-    expect(sdk.calls.upgrade).toEqual(
-      expect.arrayContaining(["/managed/library/主义主义-哲学意识形态大全.wikg", "wikg://lib"]),
-    )
-  })
-
-  it("fails and removes the managed copy when post-upgrade validation cannot read chapters", async () => {
+  it("fails and removes the managed copy when validation cannot read chapters", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
     const source = path.join(dir, "Broken Book.wikg")
     await writeFile(source, "archive")
     sdk.addRecord = archiveRecord({
-      path: "/managed/library/broken-copy.wikg",
+      file: new NodeFile("/managed/library/broken-copy.wikg"),
       publicId: "broken-public-id",
       uri: "wikg://lib/arc/broken-public-id",
     })
@@ -470,12 +415,10 @@ describe("WikiGraph SDK adapter", () => {
 
     expect(sdk.calls.add).toEqual([
       expect.objectContaining({
-        inputPath: source,
+        inputFile: new NodeFile(source),
         target: { kind: "mock", uri: "wikg://lib/arc" },
       }),
     ])
-    expect(sdk.calls.upgrade).toEqual(["/managed/library/broken-copy.wikg"])
-    expect(sdk.calls.upgrade).not.toContain(source)
     expect(sdk.calls.archiveFiles).toEqual(["/managed/library/broken-copy.wikg"])
     expect(sdk.calls.remove).toEqual([{ target: { kind: "mock", uri: "wikg://lib/arc/broken-public-id" } }])
   })
@@ -543,7 +486,6 @@ describe("WikiGraph SDK adapter", () => {
       querySupport: true,
       status: "current",
     })
-    expect(sdk.calls.upgrade).toEqual(["/managed/library/copy.wikg"])
   })
 
   it("reads a chapter title tree on demand", async () => {
@@ -589,14 +531,14 @@ describe("WikiGraph SDK adapter", () => {
     })
   })
 
-  it("coalesces lazy upgrades for concurrent read-only document inspection", async () => {
+  it("coalesces validation for concurrent read-only document inspection", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
     sdk.chapters = [chapter(1, "sourced", 10)]
     const rt = runtime(dir)
 
     await Promise.all([inspectWikiGraph(rt, "public-archive"), readWikiGraphIndex(rt, "public-archive")])
 
-    expect(sdk.calls.upgrade).toEqual(["/managed/library/copy.wikg"])
+    expect(sdk.calls.archiveFiles).toHaveLength(3)
   })
 
   it("downgrades missing or failed cover reads to null", async () => {

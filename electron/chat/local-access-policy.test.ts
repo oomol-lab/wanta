@@ -124,6 +124,35 @@ test("session grants must cover every requested resource", () => {
   )
 })
 
+test("command grants retain the approved command and resources without broadening the scope", () => {
+  for (const save of [undefined, ["/work/input/**"]]) {
+    const request = permission({
+      metadata: { command: "pip3 install openpyxl" },
+      resources: ["/work/input/requirements.txt", "/work/output/report.xlsx"],
+      ...(save ? { save } : {}),
+    })
+    const context = { permissionMode: "default" as const }
+    assert.equal(evaluateLocalAccessRequest(request, context).type, "prompt")
+    const grant = localAccessGrantForRequest(request)
+    assert.ok(grant)
+    const approved = { ...context, sessionGrants: [grant] }
+    assert.equal(evaluateLocalAccessRequest(request, approved).type, "allow")
+    assert.equal(
+      evaluateLocalAccessRequest({ ...request, metadata: { command: "pip3 install pandas" } }, approved).type,
+      "prompt",
+    )
+    assert.equal(
+      evaluateLocalAccessRequest({ ...request, resources: [...request.resources, "/work/other/report.xlsx"] }, approved)
+        .type,
+      "prompt",
+    )
+    assert.equal(
+      evaluateLocalAccessRequest({ ...request, metadata: { command: "git reset --hard" } }, approved).type,
+      "prompt",
+    )
+  }
+})
+
 test("mixed project edits do not hide an env write", () => {
   const context = { permissionMode: "default" as const, trustedProjectRoot: "/work/project" }
   assert.equal(

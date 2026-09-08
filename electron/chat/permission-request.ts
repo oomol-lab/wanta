@@ -1097,14 +1097,21 @@ export function createSessionPermissionGrant(
       processRoot,
     }
   }
-  const basePatterns = request.save?.length
-    ? request.save
-    : request.resources.length > 0
-      ? request.resources
-      : permissionRequestKind(request) === "command"
-        ? [permissionCommand(request)].filter((item): item is string => typeof item === "string")
-        : []
-  const patterns = basePatterns.map((item) => item.trim()).filter(Boolean)
+  const basePatterns = request.save?.length ? request.save : request.resources
+  // Validation checks both the command and every resource. Retain both when
+  // granting a command, including when the agent also suggests save patterns.
+  const values =
+    permissionRequestKind(request) === "command"
+      ? [...basePatterns, ...request.resources, permissionCommand(request)]
+      : basePatterns
+  const patterns = [
+    ...new Set(
+      values
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ]
   if (patterns.length === 0) {
     return null
   }

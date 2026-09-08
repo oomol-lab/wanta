@@ -34,7 +34,7 @@
 
 “探针通过”表示成功复现本文描述的当前行为，不能理解为这些行为满足理想安全策略。运行结束后，探针源文件保存为 `.test.ts.txt` 审计附件，未加入产品测试集，也未修改产品实现。
 
-证据附件：[策略探针源码](/Users/wushuang/code/wanta/docs/audits/2026-09-08-default-access-audit-probes.test.ts.txt)。源码原运行位置为 `electron/chat/default-access-audit-20260908.test.ts`，相对导入按该位置设计。
+证据附件：[策略探针源码](2026-09-08-default-access-audit-probes.test.ts.txt)。源码原运行位置为 `electron/chat/default-access-audit-20260908.test.ts`，相对导入按该位置设计。
 
 ## 3. 当前机制实际如何工作
 
@@ -56,7 +56,7 @@ OpenCode 把 bash、edit、external_directory 等请求交给 Wanta；部分 OO 
 
 “trustedProjectRoot”因此主要用于若干例外和上下文识别，**并不是默认访问的文件系统围栏**。项目外普通读写本来就可自动允许。这符合宽松定位，本身不应算漏洞。
 
-依据：[本地决策](/Users/wushuang/code/wanta/electron/chat/local-access-policy.ts:193)、[OpenCode 配置](/Users/wushuang/code/wanta/electron/agent/config.ts:61)。
+依据：[本地决策](../../electron/chat/local-access-policy.ts#L193)、[OpenCode 配置](../../electron/agent/config.ts#L61)。
 
 ### 3.2 业务能力与浏览器
 
@@ -92,7 +92,7 @@ Wanta 忽略了这里的 `kind: execute`，把标题复制成 action。它不包
 
 **建议：** 使用原生结构化 kind、可信工具身份、关联的完整 tool-call snapshot 归一化类型；title 只用于展示。保存完整输入与资源清单，移除当前 `locations.slice(0, 3)` 在决策输入上的截断。保留显式 `unknown` 状态：先补取快照，无法识别的执行/写入请求才一次确认，不能静默退化为普通 local。
 
-依据：[ACP 请求转换](/Users/wushuang/code/wanta/electron/agent/acp/adapter.ts:1698)、[类型判定](/Users/wushuang/code/wanta/electron/chat/permission-request.ts:58)、[真实 Claude Bash 描述](/Users/wushuang/code/wanta/node_modules/@agentclientprotocol/claude-agent-acp/dist/tools.js:35)、[真实请求发送](/Users/wushuang/code/wanta/node_modules/@agentclientprotocol/claude-agent-acp/dist/acp-agent.js:4213)。
+依据：[ACP 请求转换](../../electron/agent/acp/adapter.ts#L1698)、[类型判定](../../electron/chat/permission-request.ts#L58)、真实 Claude Bash 描述（安装包源码 `@agentclientprotocol/claude-agent-acp@0.70.0/dist/tools.js:35`；[仓库内验证](../../electron/agent/acp/adapter.test.ts#L987)）、真实请求发送（安装包源码 `@agentclientprotocol/claude-agent-acp@0.70.0/dist/acp-agent.js:4213`；[仓库内验证](../../electron/agent/acp/adapter.test.ts#L987)）。
 
 ### F2 · P1：风险规则识别部分语法，不能稳定识别严重后果
 
@@ -118,7 +118,7 @@ Wanta 忽略了这里的 `kind: execute`，把标题复制成 action。它不包
 
 建议将 shell 识别明确定位为尽力发现高价值事故模式，优先覆盖批量删除、破坏性同步、数据卷清理、数据库清空等常见严重后果；同时在 Wanta 可控的文件和业务执行入口增加结构化操作描述与恢复措施。无法解析的普通脚本仍可自动运行，但产品应承认这层保护有覆盖边界，不能将“没匹配到危险语法”记作“已证明安全”。
 
-依据：[命令风险检查](/Users/wushuang/code/wanta/electron/chat/command-risk.ts:73)、[风险入口](/Users/wushuang/code/wanta/electron/chat/command-risk.ts:399)、[默认兜底](/Users/wushuang/code/wanta/electron/chat/local-access-policy.ts:281)。
+依据：[命令风险检查](../../electron/chat/command-risk.ts#L73)、[风险入口](../../electron/chat/command-risk.ts#L399)、[默认兜底](../../electron/chat/local-access-policy.ts#L281)。
 
 ### F3 · P1：清理例外把名称与位置当成可恢复性证明
 
@@ -140,7 +140,7 @@ Wanta 忽略了这里的 `kind: execute`，把标题复制成 action。它不包
 
 恢复机制不是万能的：普通应用逻辑不能拦截任意脚本的每次系统调用。第一阶段应覆盖 Wanta 控制的写入、删除和已识别命令；需要更强覆盖时再评估快照文件系统或沙箱，避免先搭一个昂贵的全面隔离系统。
 
-依据：[临时路径例外](/Users/wushuang/code/wanta/electron/chat/bounded-cleanup.ts:49)、[生成目录豁免](/Users/wushuang/code/wanta/electron/chat/bounded-cleanup.ts:66)、[Git 路径判断](/Users/wushuang/code/wanta/electron/chat/command-risk.ts:160)。
+依据：[临时路径例外](../../electron/chat/bounded-cleanup.ts#L49)、[生成目录豁免](../../electron/chat/bounded-cleanup.ts#L66)、[Git 路径判断](../../electron/chat/command-risk.ts#L160)。
 
 ### F4 · P1：通道信任与操作后果混在一起，业务侧缺少统一兜底
 
@@ -161,7 +161,7 @@ Wanta 忽略了这里的 `kind: execute`，把标题复制成 action。它不包
 
 已明确授权的常规邮件发送、指定环境部署或发布可以一次完成。只有超出对象/环境/数量/金额范围，或者发生不可恢复的大规模破坏，才追加确认。浏览器同步采用这一意图规则；登录、验证码和支付认证仍可作为独立人工步骤，没必要让所有普通“发布”都只能用户手点。
 
-依据：[OO 放行](/Users/wushuang/code/wanta/electron/chat/local-access-policy.ts:212)、[Link 执行](/Users/wushuang/code/wanta/electron/agent/link-capability.ts:159)、[Kernel](/Users/wushuang/code/wanta/electron/agent/host-capability.ts:100)、[业务合同](/Users/wushuang/code/wanta/electron/agent/external/oo-capability-contract.ts:236)、[浏览器行为提示](/Users/wushuang/code/wanta/electron/chat/context-system.ts:194)、[点击执行](/Users/wushuang/code/wanta/electron/browser/page.ts:191)。
+依据：[OO 放行](../../electron/chat/local-access-policy.ts#L212)、[Link 执行](../../electron/agent/link-capability.ts#L159)、[Kernel](../../electron/agent/host-capability.ts#L100)、[业务合同](../../electron/agent/external/oo-capability-contract.ts#L236)、[浏览器行为提示](../../electron/chat/context-system.ts#L194)、[点击执行](../../electron/browser/page.ts#L191)。
 
 ### F5 · P1：会话授权覆盖范围与界面承诺不够一致
 
@@ -182,7 +182,7 @@ Wanta 忽略了这里的 `kind: execute`，把标题复制成 action。它不包
 
 **建议：** 请求的全部副作用都必须被已有授权覆盖；任一资源敏感则整项检查。会话 grant 由 Wanta 统一持有，包含操作、完整目标范围、工作空间和失效条件；尽可能向原生只回复一次。不能表达一次批准时不能静默升级为永久或更宽授权。授权写入与回复成功需有一致的提交/回滚策略。对于子任务，仅传递其工作所需的授权，并保留来源。
 
-依据：[grant 匹配](/Users/wushuang/code/wanta/electron/chat/permission-request.ts:1114)、[混合 env 写入](/Users/wushuang/code/wanta/electron/chat/permission-request.ts:983)、[授权优先级](/Users/wushuang/code/wanta/electron/chat/local-access-policy.ts:266)、[权限回复](/Users/wushuang/code/wanta/electron/chat/node.ts:3247)、[OpenCode 一次回复](/Users/wushuang/code/wanta/electron/agent/opencode-adapter.ts:93)、[ACP 选项映射](/Users/wushuang/code/wanta/electron/agent/acp/adapter.ts:413)、[Claude 授权规则](/Users/wushuang/code/wanta/node_modules/@agentclientprotocol/claude-agent-acp/dist/acp-agent.js:4244)。
+依据：[grant 匹配](../../electron/chat/permission-request.ts#L1114)、[混合 env 写入](../../electron/chat/permission-request.ts#L983)、[授权优先级](../../electron/chat/local-access-policy.ts#L266)、[权限回复](../../electron/chat/node.ts#L3247)、[OpenCode 一次回复](../../electron/agent/opencode-adapter.ts#L93)、[ACP 选项映射](../../electron/agent/acp/adapter.ts#L413)、Claude 授权规则（安装包源码 `@agentclientprotocol/claude-agent-acp@0.70.0/dist/acp-agent.js:4244`；[仓库内验证](../../electron/agent/acp/adapter.test.ts#L987)）。
 
 ### F6 · P2：普通环境操作被硬拒绝，审批又不理解已授权意图
 
@@ -204,7 +204,7 @@ Wanta 忽略了这里的 `kind: execute`，把标题复制成 action。它不包
 
 依赖规则中，选定项目内普通安装免确认、全局或系统修改单独对待是合理的；但用户已选择的内部 registry、正常 requirements 文件等应支持按项目记忆，而不是持续要求改写成分类器喜欢的单条安装命令。
 
-依据：[硬拒绝匹配](/Users/wushuang/code/wanta/electron/agent/oo-command-permission.ts:27)、[环境操作判断](/Users/wushuang/code/wanta/electron/agent/oo-command-permission.ts:136)、[git push 判定](/Users/wushuang/code/wanta/electron/chat/command-risk.ts:170)、[策略上下文](/Users/wushuang/code/wanta/electron/chat/local-access-policy.ts:66)。
+依据：[硬拒绝匹配](../../electron/agent/oo-command-permission.ts#L27)、[环境操作判断](../../electron/agent/oo-command-permission.ts#L136)、[git push 判定](../../electron/chat/command-risk.ts#L170)、[策略上下文](../../electron/chat/local-access-policy.ts#L66)。
 
 ### F7 · P2：产品描述、提示词与实现存在多套口径
 
@@ -216,7 +216,7 @@ Wanta 忽略了这里的 `kind: execute`，把标题复制成 action。它不包
 
 建议默认模式文案采用：**“自动执行日常操作；涉及不可恢复删除、重要共享变更或受保护数据时确认。”** 同时在说明中写清 shell 保护尽力而为。完全访问应写明扩大哪些本地和浏览器权限，以及宿主身份/凭证边界仍保留。
 
-依据：[UI 文案](/Users/wushuang/code/wanta/src/i18n/app-messages.zh.ts:989)、[基础提示](/Users/wushuang/code/wanta/electron/agent/system-prompt.ts:65)、[动态提示](/Users/wushuang/code/wanta/electron/chat/context-system.ts:186)、[权限卡](/Users/wushuang/code/wanta/src/routes/Chat/PermissionRequiredCard.tsx:39)。
+依据：[UI 文案](../../src/i18n/app-messages.zh.ts#L989)、[基础提示](../../electron/agent/system-prompt.ts#L65)、[动态提示](../../electron/chat/context-system.ts#L186)、[权限卡](../../src/routes/Chat/PermissionRequiredCard.tsx#L39)。
 
 ### F8 · P2：测试主要验证规则，尚未验证产品承诺
 
@@ -234,7 +234,7 @@ Wanta 忽略了这里的 `kind: execute`，把标题复制成 action。它不包
 
 建议扩展匿名/脱敏统计：按适配器和操作类别记录拦截覆盖、用户拒绝/放弃、连续重复确认、unknown 比例、原生未拦截能力声明和恢复成功率。不记录凭证、完整命令参数或私有内容，不为了审计引入新的信息暴露。
 
-依据：[现有诊断](/Users/wushuang/code/wanta/electron/chat/permission-diagnostics.ts:5)、[当前模拟一致性测试](/Users/wushuang/code/wanta/electron/chat/local-access-policy.test.ts:60)。
+依据：[现有诊断](../../electron/chat/permission-diagnostics.ts#L5)、[当前模拟一致性测试](../../electron/chat/local-access-policy.test.ts#L60)。
 
 ## 5. 应保留的设计
 

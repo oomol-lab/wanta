@@ -4,7 +4,7 @@
 
 > 本文第 1—8 节保留第一轮优化后的核对记录。用户随后授权继续完成高价值小项并整理提交；最新收尾变化见第 9 节，特别是临时目录删除豁免与完全访问说明。
 
-对照基线：[原始整体审计报告](/Users/wushuang/code/wanta/docs/audits/2026-09-08-default-access-audit.md)，审计时的 HEAD 为 `8d32e411`。本报告核对同一 HEAD 之上的当前工作区改动。优化代码尚未提交，也没有证据表明已经发布到用户安装版本。
+对照基线：[原始整体审计报告](2026-09-08-default-access-audit.md)，审计时的 HEAD 为 `8d32e411`。本报告核对同一 HEAD 之上的当前工作区改动。优化代码尚未提交，也没有证据表明已经发布到用户安装版本。
 
 用户约束：优化后保持操作流畅，不增加明显卡顿，不做过度设计。
 
@@ -43,7 +43,7 @@
 
 真实 Claude payload 测试覆盖普通 `node process.js` 自动允许、递归删除进入确认、`printenv` 整体转储拒绝；分段请求测试覆盖第四个路径是 `.env` 的情况。
 
-代码：[ACP 请求转换](/Users/wushuang/code/wanta/electron/agent/acp/adapter.ts:1717)、[内存补齐](/Users/wushuang/code/wanta/electron/agent/acp/translator.ts:395)。测试：[真实 Claude payload](/Users/wushuang/code/wanta/electron/agent/acp/adapter.test.ts:987)、[第四个敏感路径](/Users/wushuang/code/wanta/electron/agent/acp/adapter.test.ts:1012)。
+代码：[ACP 请求转换](../../electron/agent/acp/adapter.ts#L1717)、[内存补齐](../../electron/agent/acp/translator.ts#L395)。测试：[真实 Claude payload](../../electron/agent/acp/adapter.test.ts#L987)、[第四个敏感路径](../../electron/agent/acp/adapter.test.ts#L1012)。
 
 **未完成部分：** 输入仍无法识别时，代码保留 title/permission 回退，共享分类器仍可把它归为 local 并允许。本次复核对 `action: permission` 的空资源请求得到 allow。因此，不能把 F1 扩大为“未知请求已安全处理”。
 
@@ -55,7 +55,7 @@
 
 ACP 的 once/always 都选择原生 allow_once，会话 grant 由 Wanta 持有。原生只有 allow_always 时返回 cancelled，不把一次批准升级成宽授权。后端回复成功后才记录新 grant，防止发送失败留下已生效授权。
 
-代码：[授权合并](/Users/wushuang/code/wanta/electron/chat/local-access-policy.ts:153)、[全量匹配](/Users/wushuang/code/wanta/electron/chat/permission-request.ts:1114)、[env 写入检查](/Users/wushuang/code/wanta/electron/chat/permission-request.ts:983)、[原生批准选项](/Users/wushuang/code/wanta/electron/agent/acp/adapter.ts:413)、[成功后记录授权](/Users/wushuang/code/wanta/electron/chat/node.ts:3247)。测试：[授权覆盖](/Users/wushuang/code/wanta/electron/chat/local-access-policy.test.ts:87)、[失败后不保留 grant](/Users/wushuang/code/wanta/electron/chat/node.test.ts:4022)。
+代码：[授权合并](../../electron/chat/local-access-policy.ts#L153)、[全量匹配](../../electron/chat/permission-request.ts#L1114)、[env 写入检查](../../electron/chat/permission-request.ts#L983)、[原生批准选项](../../electron/agent/acp/adapter.ts#L413)、[成功后记录授权](../../electron/chat/node.ts#L3247)。测试：[授权覆盖](../../electron/chat/local-access-policy.test.ts#L87)、[失败后不保留 grant](../../electron/chat/node.test.ts#L4022)。
 
 **未完成部分：** 通用 grant 仍以 action/patterns 为主，未新增统一工作空间标识、过期模型或子任务最小授权模型。对已存在的原生授权规则，也没有迁移或清除流程。只支持原生 always 的请求虽不会被扩大批准，但“为什么取消、用户如何继续”的体验尚未专门完善。
 
@@ -70,7 +70,7 @@ ACP 的 once/always 都选择原生 allow_once，会话 grant 由 Wanta 持有�
 
 真实凭证值引用、整个环境转储、宿主运行时身份/配置修改仍保留保护。这里是若干明确形式的放行，不是“任意环境变量检查都已放开”；例如 `env -S` 仍不属于普通启动器例外。
 
-代码：[环境操作判断](/Users/wushuang/code/wanta/electron/agent/oo-command-permission.ts:136)。测试：[普通操作免确认](/Users/wushuang/code/wanta/electron/chat/local-access-policy.test.ts:22)。
+代码：[环境操作判断](../../electron/agent/oo-command-permission.ts#L136)。测试：[普通操作免确认](../../electron/chat/local-access-policy.test.ts#L22)。
 
 ### 3.4 补充少量高后果命令
 
@@ -78,7 +78,7 @@ ACP 的 once/always 都选择原生 allow_once，会话 grant 由 Wanta 持有�
 
 这些是现有分类器中的有限补充，**仍属于语法规则，不是原报告设想的统一操作后果模型**。并未实现所有删除路径、解释器或业务 API 的覆盖。
 
-代码：[命令风险判断](/Users/wushuang/code/wanta/electron/chat/command-risk.ts)。
+代码：[命令风险判断](../../electron/chat/command-risk.ts)。
 
 ### 3.5 清理 cwd 与轻量性能优化
 
@@ -86,7 +86,7 @@ ACP 的 once/always 都选择原生 allow_once，会话 grant 由 Wanta 持有�
 
 **这项改变解决的是流畅性，不能计作 F3 的安全修复。** `/tmp` 子目录和生成目录名称豁免仍存在，cwd 识别增强还使更多等价写法能够使用原来的豁免。
 
-代码：[清理目标解析](/Users/wushuang/code/wanta/electron/chat/bounded-cleanup.ts:93)、[共享入口](/Users/wushuang/code/wanta/electron/chat/local-access-policy.ts:300)。测试：[cwd 与项目匹配](/Users/wushuang/code/wanta/electron/chat/local-access-policy.test.ts:75)。
+代码：[清理目标解析](../../electron/chat/bounded-cleanup.ts#L93)、[共享入口](../../electron/chat/local-access-policy.ts#L300)。测试：[cwd 与项目匹配](../../electron/chat/local-access-policy.test.ts#L75)。
 
 ### 3.6 文案和验证
 

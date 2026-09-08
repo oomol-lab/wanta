@@ -1,8 +1,14 @@
+import type { TurnPermissionRejection } from "./turn-completion.ts"
+
 export interface SessionGeneration {
   cancellationRequested?: boolean
   cancellationSettled?: boolean
   cancellationFailed?: boolean
   completionObserved?: boolean
+  acknowledged?: boolean
+  completionRevision?: number
+  permissionReplies?: number
+  permissionRejections?: TurnPermissionRejection[]
   controller: AbortController
   id: string
   userMessageId: string

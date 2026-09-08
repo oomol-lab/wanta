@@ -20,6 +20,13 @@ protocol adapter contract. Shipping external agents, including Claude Code,
 are registry-backed ACP agents built on `ExternalAgentAdapter`; Claude uses the
 pinned `@agentclientprotocol/claude-agent-acp` bridge over the official Claude Agent SDK.
 
+Permission responses may carry an advisory `message` explaining a host policy
+rejection. OpenCode forwards it through its native permission reply so the agent
+can handle the tool failure with feedback. ACP permission options have no native
+feedback field; the host still tracks rejection source and reason for completion
+diagnostics. Never replay a whole prompt to recover from a rejected tool: earlier
+operations in the same turn may already have taken effect.
+
 There are deliberately **no per-feature methods** (`prompt()`, `setModel()`, ...).
 A new kind of interaction is a new variant on `AgentInput` or `AgentEvent`.
 

@@ -94,7 +94,11 @@ export class OpencodeAgentAdapter extends BaseAgentAdapter implements ChatAgentB
     // "always" is a Wanta-side session grant, not a kernel rule: the chat
     // service records it and the kernel only needs this one approval.
     const reply = input.reply === "always" ? "once" : input.reply
-    await this.manager.answerPermission(input.sessionId, input.requestId, reply)
+    if (input.message !== undefined) {
+      await this.manager.answerPermission(input.sessionId, input.requestId, reply, input.message)
+    } else {
+      await this.manager.answerPermission(input.sessionId, input.requestId, reply)
+    }
   }
 
   protected override async handleQuestionResponse(input: QuestionResponseAgentInput): Promise<void> {

@@ -1,7 +1,7 @@
-import type { ChatErrorClassification, ChatErrorKind } from "../../../electron/chat/error.ts"
+import type { ChatErrorClassification, ChatErrorKind, ToolPolicyReason } from "../../../electron/chat/error.ts"
 import type { MessageKey } from "@/i18n/i18n"
 
-import { normalizeChatError } from "../../../electron/chat/error.ts"
+import { normalizeChatError, toolPolicyReasonFromCode } from "../../../electron/chat/error.ts"
 
 export type { ChatErrorKind } from "../../../electron/chat/error.ts"
 
@@ -25,6 +25,16 @@ export interface ResolveChatErrorOptions {
   errorCode?: string
 }
 
+const policyDescriptionKeys: Record<ToolPolicyReason, MessageKey> = {
+  credential_reference: "chatError.toolBlocked.credentials",
+  environment_dump: "chatError.toolBlocked.environment",
+  runtime_environment_override: "chatError.toolBlocked.runtimeEnvironment",
+  runtime_auth_mutation: "chatError.toolBlocked.runtimeAuth",
+  runtime_option_override: "chatError.toolBlocked.runtimeOptions",
+  diagnostic_capability: "chatError.toolBlocked.diagnosticCapability",
+  diagnostic_scope: "chatError.toolBlocked.diagnosticScope",
+}
+
 export function chatErrorRecoveryKind(kind: ChatErrorKind): ChatErrorRecoveryKind | null {
   switch (kind) {
     case "payment_required":
@@ -35,6 +45,9 @@ export function chatErrorRecoveryKind(kind: ChatErrorKind): ChatErrorRecoveryKin
     case "permission_denied":
       return "reauthenticate"
     case "model_auth_required":
+    case "tool_blocked":
+    case "response_incomplete":
+    case "history_unavailable":
       return null
     case "timeout":
     case "connection_interrupted":
@@ -50,13 +63,50 @@ function classification(rawMessage: string, options: ResolveChatErrorOptions = {
   return {
     ...normalized,
     ...(options.errorKind ? { kind: options.errorKind } : {}),
-    ...(options.errorCode ? { code: options.errorCode } : {}),
+    ...(options.errorCode
+      ? { code: options.errorCode, policyReason: toolPolicyReasonFromCode(options.errorCode) }
+      : {}),
   }
 }
 
 export function resolveChatError(rawMessage: string, options: ResolveChatErrorOptions = {}): ChatErrorViewModel {
   const normalized = classification(rawMessage, options)
   switch (normalized.kind) {
+    case "tool_blocked":
+      return {
+        kind: normalized.kind,
+        severity: "warning",
+        titleKey:
+          normalized.code === "CHAT_TOOL_USER_DECLINED"
+            ? "chatError.toolDeclined.title"
+            : "chatError.toolBlocked.title",
+        descriptionKey:
+          normalized.code === "CHAT_TOOL_USER_DECLINED"
+            ? "chatError.toolDeclined.description"
+            : normalized.policyReason
+              ? policyDescriptionKeys[normalized.policyReason]
+              : "chatError.toolBlocked.description",
+        secondaryActionKey: "chatError.common.copyDiagnostics",
+        retryable: false,
+        diagnostics: normalized.diagnostics,
+      }
+    case "response_incomplete":
+    case "history_unavailable":
+      return {
+        kind: normalized.kind,
+        severity: "warning",
+        titleKey:
+          normalized.kind === "response_incomplete"
+            ? "chatError.responseIncomplete.title"
+            : "chatError.historyUnavailable.title",
+        descriptionKey:
+          normalized.kind === "response_incomplete"
+            ? "chatError.responseIncomplete.description"
+            : "chatError.historyUnavailable.description",
+        secondaryActionKey: "chatError.common.copyDiagnostics",
+        retryable: false,
+        diagnostics: normalized.diagnostics,
+      }
     case "payment_required":
       return {
         kind: normalized.kind,

@@ -606,6 +606,32 @@ export const zhCNMessages = {
   "chatError.providerUnavailable.description": "上游服务暂时无法响应，请稍后重试。",
   "chatError.providerUnavailable.primaryAction": "重试",
   "chatError.failed.title": "回复失败",
+  "chatError.toolBlocked.title": "操作被阻止，本轮已中断",
+  "chatError.toolDeclined.title": "已按你的拒绝结束本轮",
+  "chatError.toolBlocked.credentials":
+    "这条调用涉及 Wanta 管理的凭据，被权限策略自动阻止，无需等待批准。此前完成的操作没有回滚；请让 Agent 使用已授权的连接方式继续。",
+  "chatError.toolBlocked.environment":
+    "这条调用被识别为输出进程环境变量，已被自动阻止，无需等待批准。此前完成的操作没有回滚；请让 Agent 改用针对具体配置项的检查方式。",
+  "chatError.toolBlocked.runtimeEnvironment":
+    "这条调用试图覆盖 Wanta 管理的连接地址或配置目录，已被自动阻止。此前完成的操作没有回滚；请使用当前提供的运行环境继续。",
+  "chatError.toolBlocked.runtimeAuth":
+    "这条调用试图修改 Wanta 管理的登录或连接配置，已被自动阻止。此前完成的操作没有回滚；如需调整连接，请通过 Wanta 的连接设置操作。",
+  "chatError.toolBlocked.runtimeOptions":
+    "这条调用带有覆盖 Wanta 管理的连接配置的参数，已被自动阻止。此前完成的操作没有回滚；请使用当前连接配置继续。",
+  "chatError.toolBlocked.diagnosticCapability":
+    "这条调用超出了当前诊断任务允许使用的能力，已被自动阻止。此前完成的操作没有回滚；需要执行实际业务操作时，请另行发起普通任务。",
+  "chatError.toolBlocked.diagnosticScope":
+    "这条调用访问了当前诊断任务允许范围以外的文件，已被自动阻止。此前完成的操作没有回滚；请在允许的诊断资料范围内继续。",
+  "chatError.toolBlocked.description":
+    "Wanta 的权限策略自动阻止了工具调用，当前没有待批准请求。此前已完成的操作没有回滚。可复制诊断信息查看具体原因；继续前请先检查已完成的工作。",
+  "chatError.toolDeclined.description":
+    "你拒绝工具调用后，本轮已结束。此前已完成的操作没有回滚，继续前请先检查已完成的工作。",
+  "chatError.responseIncomplete.title": "未生成最终答复",
+  "chatError.responseIncomplete.description":
+    "Agent 已停止，但没有生成最终答复。此前已完成的操作没有回滚，继续前请先检查已完成的工作。",
+  "chatError.historyUnavailable.title": "暂时无法确认对话记录",
+  "chatError.historyUnavailable.description":
+    "未能从已保存的历史中确认本轮状态，部分操作可能已经生效。请检查对话和已完成的工作后再继续。",
   "chatError.failed.description": "本次回复未完成。你可以重试，或复制诊断信息反馈给我们。",
   "chatError.failed.primaryAction": "重试",
   "chatError.failed.retryFailed": "恢复操作没有完成，请稍后重试。",

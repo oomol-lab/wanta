@@ -1238,6 +1238,24 @@ describe("AgentManager", () => {
     expect(reject).toHaveBeenCalledWith({ requestID: "q1" })
   })
 
+  it("forwards policy feedback through the native permission reply instead of a bare rejection", async () => {
+    const reply = vi.fn(async () => ({ data: true }))
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { permission: { reply } } }
+    await manager.answerPermission("session-1", "permission-1", "reject", "Blocked by Wanta policy: environment_dump")
+    expect(reply).toHaveBeenCalledWith({
+      requestID: "permission-1",
+      reply: "reject",
+      message: "Blocked by Wanta policy: environment_dump",
+    })
+  })
+
   it("turns OpenCode SDK error results into rejected operations", async () => {
     const failure = async () => ({ error: { message: "runtime unavailable" } })
     const manager = new AgentManager({

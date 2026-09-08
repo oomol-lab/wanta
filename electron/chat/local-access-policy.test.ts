@@ -19,6 +19,25 @@ function permission(overrides: Partial<ChatPermissionRequest>): ChatPermissionRe
   }
 }
 
+test("skill validation with a managed PATH, quoted paths and output filtering is ordinary execution", () => {
+  const command =
+    'export PATH="/Users/example/Library/Application Support/wanta/agent/bin:$PATH"; cd "/Users/example/Library/Application Support/wanta/agent/workspace/.opencode/skills/ecommerce-image-studio" && echo "=== validate ===" && oo skills validate "/Users/example/Library/Application Support/wanta/agent/workspace/.opencode/skills/ecommerce-image-studio" 2>&1 | tail -20; echo; echo "=== line count ==="; wc -l SKILL.md'
+  for (const permissionMode of ["default", "full_access"] as const) {
+    expectAllowed(command, permissionMode)
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command: `${command}; printenv` } }), { permissionMode })
+        .type,
+      "deny",
+    )
+  }
+  function expectAllowed(command: string, permissionMode: "default" | "full_access") {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode, linkRuntime: "oomol" }).type,
+      "allow",
+    )
+  }
+})
+
 test("local access policy allows ordinary commands and Link business CLI in default mode", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "npm test" } }), { permissionMode: "default" }),

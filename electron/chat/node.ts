@@ -67,6 +67,7 @@ import type {
 import type { SessionGeneration } from "./generation-registry.ts"
 import type { CreateArtifactResourceUrl } from "./previews.ts"
 import type { StoppedGenerationStore } from "./stopped-generations.ts"
+import type { TurnCompletionEvidence, TurnPermissionRejection } from "./turn-completion.ts"
 import type { StoredTurnOutputRecord, TurnOutputRecords, TurnOutputStore } from "./turn-outputs.ts"
 import type { UserAttachmentStore } from "./user-attachments.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -128,6 +129,7 @@ import { ChatStreamEventBuffer } from "./stream-event-buffer.ts"
 import { SubagentSessions } from "./subagent-sessions.ts"
 import { ToolStartDiagnostics } from "./tool-start-diagnostics.ts"
 import { TrustedLocalAccess } from "./trusted-local-access.ts"
+import { completionFailureMessage, inspectTurnCompletion, permissionRejectionMessage } from "./turn-completion.ts"
 import { resolveChatTurnExecution } from "./turn-execution.ts"
 import {
   generationNoticeKindForInactivity,
@@ -868,10 +870,33 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         return
     }
     const activitySessionId = generationSessionId ?? sourceSessionId
-    if (activitySessionId) this.generations.clearAcknowledgementWatchdog(activitySessionId)
+    if (activitySessionId) {
+      this.generations.clearAcknowledgementWatchdog(activitySessionId)
+      const generation = this.generations.get(activitySessionId)
+      if (generation) generation.acknowledged = true
+    }
     if (translated.event === "messageStarted") {
       if (!this.rememberMessageStarted(translated)) return
       if (translated.data.role === "assistant") this.compactingSessions.delete(translated.data.sessionId)
+    }
+    // New progress invalidates an earlier idle signal, including a history read
+    // already in flight. Ownership was checked above before touching this turn.
+    if (
+      progressGeneration &&
+      generationSessionId &&
+      (translated.event === "messageDelta" ||
+        translated.event === "messageReasoningDelta" ||
+        translated.event === "toolCallStarted" ||
+        translated.event === "permissionAsked" ||
+        translated.event === "questionAsked" ||
+        (translated.event === "messageStarted" &&
+          translated.data.role === "assistant" &&
+          translated.data.completedAt === undefined) ||
+        (translated.event === "assistantActivity" && translated.data.phase !== "finalizing"))
+    ) {
+      progressGeneration.completionObserved = false
+      progressGeneration.completionRevision = (progressGeneration.completionRevision ?? 0) + 1
+      this.clearCompletionRetry(`${generationSessionId}\0${progressGeneration.id}`)
     }
     if (translated.event === "assistantActivity" && translated.data.phase === "compacting") {
       this.compactingSessions.add(translated.data.sessionId)
@@ -892,6 +917,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.rememberPendingPermissionRequest(translated.data.request)
     }
     this.activeRuns.applyEvent(displayed)
+    if (
+      displayedSessionId &&
+      (translated.event === "permissionReplied" ||
+        translated.event === "questionReplied" ||
+        translated.event === "questionRejected")
+    ) {
+      this.scheduleGenerationInactivityWatchdogAfterReply(displayedSessionId)
+    }
     if (translated.event === "messageStarted" && translated.data.role === "assistant") {
       this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
       this.activeToolParts.set(translated.data.sessionId, new Set())
@@ -986,6 +1019,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           console.warn("[wanta] failed to record authorization overlay", error)
         })
       }
+      const generation = this.generations.get(translated.data.sessionId)
+      if (generation?.completionObserved) {
+        void this.completeSessionGeneration(emit, translated.data.sessionId, generation)
+      }
     }
     if (translated.event === "agentError" && translated.data.sessionId) {
       const sessionId = translated.data.sessionId
@@ -1001,7 +1038,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.clearInternalMessages(sessionId)
       this.compactingSessions.delete(sessionId)
       const generation = this.generations.get(sessionId)
-      if (generation) void this.completeSessionGeneration(emit, sessionId, generation)
+      if (generation) {
+        generation.completionObserved = true
+        void this.completeSessionGeneration(emit, sessionId, generation)
+      }
       return
     }
     if (sourceSessionId) {
@@ -1309,7 +1349,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         )
       }
     }
-    void this.answerAutomaticPermission(request, decision.type === "deny" ? "reject" : "once")
+    const rejection: TurnPermissionRejection | undefined =
+      decision.type === "deny" ? { source: "policy", reason: decision.reason, ...request.tool } : undefined
+    void this.trackPermissionReply(request, rejection, () =>
+      this.answerAutomaticPermission(
+        request,
+        decision.type === "deny" ? "reject" : "once",
+        rejection && permissionRejectionMessage(rejection),
+      ),
+    )
       .then(() => {
         if (decision.type === "allow") this.rememberTrustedPermissionResources(request.sessionId, request)
         logDiagnostic(
@@ -1375,7 +1423,34 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return true
   }
 
-  private async answerAutomaticPermission(request: ChatPermissionRequest, reply: "once" | "reject"): Promise<void> {
+  private async trackPermissionReply(
+    request: ChatPermissionRequest,
+    rejection: TurnPermissionRejection | undefined,
+    send: () => Promise<void>,
+  ): Promise<void> {
+    const sessionId = this.subagentSessions.displaySessionId(request.sessionId)
+    const generation = this.generations.get(sessionId)
+    if (generation) {
+      generation.permissionReplies = (generation.permissionReplies ?? 0) + 1
+      if (rejection) (generation.permissionRejections ??= []).push(rejection)
+    }
+    try {
+      await send()
+    } catch (error) {
+      if (generation && rejection) {
+        generation.permissionRejections = generation.permissionRejections?.filter((item) => item !== rejection)
+      }
+      throw error
+    } finally {
+      if (generation) generation.permissionReplies = Math.max(0, (generation.permissionReplies ?? 1) - 1)
+    }
+  }
+
+  private async answerAutomaticPermission(
+    request: ChatPermissionRequest,
+    reply: "once" | "reject",
+    message?: string,
+  ): Promise<void> {
     const backend = this.chatBackendFor(request.sessionId)
     if (!backend) throw new Error("Agent not configured")
     let lastError: unknown
@@ -1386,6 +1461,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           sessionId: request.sessionId,
           requestId: request.id,
           reply,
+          ...(message !== undefined ? { message } : {}),
         })
         this.permissionDiagnostics.recordAutomaticReply(attempt === 1 ? "first_attempt" : "retry_succeeded")
         return
@@ -1604,28 +1680,41 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     sessionId: string,
     generation: SessionGeneration,
   ): Promise<void> {
-    generation.completionObserved = true
-    if (!this.canCompleteGeneration(sessionId, generation)) return
+    if (!generation.completionObserved || !this.canCompleteGeneration(sessionId, generation)) return
+    if (this.activeRuns.blockingPhase(sessionId) || generation.permissionReplies) return
     const completionKey = `${sessionId}\0${generation.id}`
     if (this.completionChecks.has(completionKey)) return
     this.clearCompletionRetry(completionKey, false)
     this.completionChecks.add(completionKey)
+    const revision = generation.completionRevision ?? 0
+    const stillIdle = () =>
+      this.canCompleteGeneration(sessionId, generation) &&
+      generation.completionObserved &&
+      (generation.completionRevision ?? 0) === revision &&
+      !this.activeRuns.blockingPhase(sessionId) &&
+      !generation.permissionReplies
     try {
-      const completedAssistant = await this.completedTurnAssistant(sessionId, generation)
-      if (!completedAssistant) {
-        this.scheduleCompletionRetry(emit, sessionId, generation)
+      const evidence = await this.completedTurnAssistant(sessionId, generation)
+      if (!stillIdle()) return
+      if (evidence.kind !== "completed") {
+        // An old idle must not time out a long-running tool with no deltas.
+        // Its result (or a new idle) resumes verification; the tool watchdog
+        // continues to provide non-terminal inactivity notices in the meantime.
+        if (this.activeToolParts.get(sessionId)?.size) return
+        this.scheduleCompletionRetry(emit, sessionId, generation, evidence)
         return
       }
-      if (!this.canCompleteGeneration(sessionId, generation)) return
       this.clearCompletionRetry(completionKey)
+      const completedAssistant = evidence.assistant
       const messageId = completedAssistant.id
       const completedRun = this.activeRuns.get(sessionId)
       this.generations.clearInactivityWatchdog(sessionId)
       await this.finalizeTurnOutput(sessionId, messageId).catch((error: unknown) => {
         console.warn("[wanta] failed to finalize turn output", error)
       })
-      if (!this.canCompleteGeneration(sessionId, generation)) return
+      if (!stillIdle()) return
       this.clearSessionGeneration(sessionId, generation.id)
+      this.turnOutputs.clearPending(sessionId)
       this.activeAssistantMessages.delete(sessionId)
       this.activeToolParts.delete(sessionId)
       this.activeRuns.delete(sessionId, generation.id)
@@ -1645,6 +1734,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     } finally {
       this.completionChecks.delete(completionKey)
+      // A newer idle can arrive while an invalidated check is awaiting history.
+      if (
+        generation.completionObserved &&
+        (generation.completionRevision ?? 0) !== revision &&
+        this.canCompleteGeneration(sessionId, generation)
+      ) {
+        void this.completeSessionGeneration(emit, sessionId, generation)
+      }
     }
   }
 
@@ -1661,53 +1758,54 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private async completedTurnAssistant(
     sessionId: string,
     generation: SessionGeneration,
-  ): Promise<ChatMessage | undefined> {
+  ): Promise<TurnCompletionEvidence> {
     const backend = this.chatBackendFor(sessionId)
-    if (!backend) return undefined
+    if (!backend) return { kind: "history_unavailable" }
     const messages = await withTimeout(backend.getMessages(sessionId), 1_000, "idle history verification").catch(
       () => null,
     )
-    if (!messages || messages.length === 0) return undefined
-    const userIndex = messages.findIndex(
-      (message) => message.id === generation.userMessageId && message.role === "user",
-    )
-    if (userIndex < 0 || !this.canCompleteGeneration(sessionId, generation)) return undefined
-    // Only messages after this turn's user message can prove its completion.
-    // A delayed tool event may still point activeAssistantMessages at an old turn.
-    const turnMessages = messages.slice(userIndex + 1)
-    const assistant = turnMessages.findLast((message) => message.role === "assistant")
-    if (!assistant) return undefined
-    const finishReason = assistant.finishReason?.trim().toLowerCase().replaceAll("_", "-")
-    // A completed tool-call message is only one step in the agent loop. Some
-    // runtimes briefly emit session.idle after a rejected or failed tool; do
-    // not turn that transient boundary into a completed user turn before the
-    // agent produces a terminal response.
-    if (["tool-calls", "tool-use"].includes(finishReason ?? "")) return undefined
-    return finishReason || assistant.completedAt !== undefined ? assistant : undefined
+    if (!messages) return { kind: "history_unavailable" }
+    return inspectTurnCompletion(messages, generation.userMessageId, generation.permissionRejections)
   }
 
   private scheduleCompletionRetry(
     emit: (event: string, data: unknown) => Promise<void>,
     sessionId: string,
     generation: SessionGeneration,
+    evidence: Exclude<TurnCompletionEvidence, { kind: "completed" }>,
   ): void {
     if (!this.canCompleteGeneration(sessionId, generation)) return
     const completionKey = `${sessionId}\0${generation.id}`
     if (this.completionRetryTimers.has(completionKey)) return
     const attempt = this.completionRetryAttempts.get(completionKey) ?? 0
-    if (attempt >= completionRetryMaxAttempts) {
+    if (evidence.kind !== "tools_running" && attempt >= completionRetryMaxAttempts) {
       this.clearCompletionRetry(completionKey)
-      void this.interruptSessionGeneration(
-        emit,
-        sessionId,
-        "runtime_error",
-        "Unable to verify that the completed response was saved. Please retry the request.",
-        { abortAgent: false },
+      logDiagnostic(
+        "chat-turn",
+        "completion verification failed",
+        {
+          sessionId,
+          generationId: generation.id,
+          evidence: evidence.kind,
+          attempts: attempt,
+          ...(evidence.kind === "permission_blocked"
+            ? { rejectionSource: evidence.rejection.source, rejectionReason: evidence.rejection.reason }
+            : {}),
+        },
+        "warn",
       )
+      void this.interruptSessionGeneration(emit, sessionId, "runtime_error", completionFailureMessage(evidence), {
+        abortAgent: false,
+      })
       return
     }
-    const delay = Math.min(completionRetryInitialDelayMs * 2 ** Math.min(attempt, 6), completionRetryMaxDelayMs)
-    this.completionRetryAttempts.set(completionKey, attempt + 1)
+    // History can expose a running tool whose start event was missed. Poll
+    // for recovery without spending the failure budget.
+    const delay =
+      evidence.kind === "tools_running"
+        ? completionRetryMaxDelayMs
+        : Math.min(completionRetryInitialDelayMs * 2 ** Math.min(attempt, 6), completionRetryMaxDelayMs)
+    this.completionRetryAttempts.set(completionKey, evidence.kind === "tools_running" ? 0 : attempt + 1)
     const timer = setTimeout(() => {
       this.completionRetryTimers.delete(completionKey)
       if (this.isCurrentGeneration(sessionId, generation.id)) {
@@ -1908,6 +2006,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private scheduleGenerationInactivityWatchdogAfterReply(sessionId: string): void {
     const generationSessionId = this.generationWatchdogSessionId(sessionId)
     if (generationSessionId) {
+      const generation = this.generations.get(generationSessionId)
+      if (generation?.completionObserved) {
+        void this.completeSessionGeneration(
+          this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+          generationSessionId,
+          generation,
+        )
+      }
       this.scheduleGenerationInactivityWatchdog(generationSessionId)
     }
   }
@@ -2260,6 +2366,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           if (
             this.isCurrentGeneration(req.sessionId, promptGeneration.id) &&
             !promptGeneration.controller.signal.aborted &&
+            !promptGeneration.acknowledged &&
             !this.activeAssistantMessages.has(req.sessionId)
           ) {
             this.scheduleGenerationStartWatchdog(req.sessionId, promptGeneration.id)
@@ -3147,12 +3254,17 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     // approval semantics is each adapter's business (the kernel adapter
     // downgrades it because the grant lives Wanta-side, external agents
     // persist it in their native rule system).
-    await backend.send({
-      type: "permission-response",
-      sessionId: sourceSessionId,
-      requestId: req.requestId,
-      reply: req.reply,
-    })
+    await this.trackPermissionReply(
+      request,
+      req.reply === "reject" ? { source: "user", ...request.tool } : undefined,
+      () =>
+        backend.send({
+          type: "permission-response",
+          sessionId: sourceSessionId,
+          requestId: req.requestId,
+          reply: req.reply,
+        }),
+    )
     if (req.reply !== "reject" && request) {
       this.rememberTrustedPermissionResources(req.sessionId, request)
     }

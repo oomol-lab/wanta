@@ -65,6 +65,8 @@ describe("GPT Image 2 runtime compatibility", () => {
 
     expect(patched).toContain("do not pass `--team`")
     expect(patched).toContain("`OO_TEAM_ID` or `OO_TEAM_NAME`")
+    expect(patched).toContain("Reuse the inherited PATH and WANTA_OO_BIN")
+    expect(patched).toContain("runner's `--oo` option")
     expect(patched).not.toContain("Wanta local image delivery")
     expect(patched).not.toContain("Duplicate local image delivery guidance")
     expect(patchGptImage2RuntimeInstructions(patched)).toBe(patched)

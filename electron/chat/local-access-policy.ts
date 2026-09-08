@@ -1,8 +1,9 @@
+import type { OoCommandDenyReason } from "../agent/oo-command-permission.ts"
 import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
 import type { AgentPermissionMode, ChatPermissionRequest, LocalPermissionPromptReason } from "./common.ts"
 import type { PermissionRequestKind, SessionPermissionGrant } from "./permission-request.ts"
 
-import { openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
+import { ooCommandDenyReason } from "../agent/oo-command-permission.ts"
 import { isLowConsequenceCleanupCommand } from "./bounded-cleanup.ts"
 import {
   createSessionPermissionGrant,
@@ -57,6 +58,7 @@ export type LocalAccessDecision =
   | {
       highRisk: boolean
       kind: PermissionRequestKind
+      reason: OoCommandDenyReason | "diagnostic_capability" | "diagnostic_scope"
       type: "deny"
     }
 
@@ -181,10 +183,10 @@ function evaluateDiagnosticTurnAccess(
   const kind = permissionRequestKind(request)
   const highRisk = isHighRiskPermissionRequest(request, permissionScope(request, context))
   if (kind === "network" || isWantaHostToolPermissionRequest(request) || isOoCliPermissionRequest(request)) {
-    return { type: "deny", kind, highRisk }
+    return { type: "deny", reason: "diagnostic_capability", kind, highRisk }
   }
   if (!diagnosticRequestInsideRoots(request, roots)) {
-    return { type: "deny", kind, highRisk }
+    return { type: "deny", reason: "diagnostic_scope", kind, highRisk }
   }
   return undefined
 }
@@ -205,9 +207,8 @@ function evaluateBaselineLocalAccessRequest(
   // so switching from OpenCode to Claude/Codex does not add a redundant shell
   // approval. Unknown shell composition, sensitive resources, and high-risk
   // commands continue through the shared Wanta permission flow.
-  const openConnectorPolicy =
-    kind === "command" ? openConnectorCommandPolicy(command ?? request.resources.join(" ")) : null
-  if (openConnectorPolicy === "deny") return { type: "deny", kind, highRisk }
+  const denyReason = kind === "command" ? ooCommandDenyReason(command ?? request.resources.join(" ")) : null
+  if (denyReason) return { type: "deny", reason: denyReason, kind, highRisk }
   // OO is a first-party Wanta capability channel. Once a request is proven to
   // be a pure managed OO invocation, do not add a shell, upload, download, or
   // execution confirmation in any adapter. The managed OO guard remains the

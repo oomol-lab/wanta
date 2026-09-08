@@ -18,6 +18,8 @@ const teamScopeInstructions = [
   "For direct raw `oo` commands used by this GPT Image 2 runner, do not pass `--team`; the bundled oo CLI does not support that global flag.",
   "When authentication uses `OO_API_KEY`, `oo team use` does not persist a default team. Set `OO_TEAM_ID` or `OO_TEAM_NAME` in the environment for that command instead.",
   "This guidance applies to direct `oo` calls only and does not change Wanta-managed connector workspace selection.",
+  "Wanta supplies the CLI environment. Reuse the inherited PATH and WANTA_OO_BIN; do not prepend `export PATH=...` or discover a different oo binary for this runner.",
+  "When invoking the runner with a JavaScript runtime, use that runtime to execute the script and, when WANTA_OO_BIN is set, pass its value through the runner's `--oo` option for child CLI calls. Keep the inherited environment and Wanta-managed workspace scope.",
   teamScopeInstructionsEnd,
 ].join("\n")
 
@@ -45,7 +47,7 @@ export function patchWindowsGptImage2Runner(source: string): string {
     )
 }
 
-/** Keeps only Wanta-specific team guidance; image delivery is native in gpt-image-2 1.1.2+. */
+/** Keeps Wanta's CLI environment/team guidance; image delivery is native in gpt-image-2 1.1.2+. */
 export function patchGptImage2RuntimeInstructions(source: string): string {
   const lineEnding = source.includes("\r\n") ? "\r\n" : "\n"
   const withoutLegacyImageInstructions = removeRuntimeInstructions(

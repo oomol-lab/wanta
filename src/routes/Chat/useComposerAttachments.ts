@@ -1,5 +1,6 @@
 import type { AttachmentPickerKind } from "../../../electron/attachment-picker.ts"
 import type { ChatAttachment } from "../../../electron/chat/common.ts"
+import type { ComposerDraftBinding } from "./composer-draft-store.ts"
 import type { ComposerAction, DraftAttachment } from "./composer-state.ts"
 
 import * as React from "react"
@@ -26,6 +27,7 @@ export interface ComposerAttachmentInput {
 }
 
 interface UseComposerAttachmentsOptions {
+  beginImport?: ComposerDraftBinding["beginImport"]
   attachments: DraftAttachment[]
   clearInputError: () => void
   disabled: boolean
@@ -135,6 +137,7 @@ export function agentAttachmentMetadata(
 
 export function useComposerAttachments({
   attachments,
+  beginImport,
   clearInputError,
   disabled,
   dispatch,
@@ -188,80 +191,101 @@ export function useComposerAttachments({
   const addFiles = React.useCallback(
     async (files: FileList | File[]) => {
       clearInputError()
+      const finish = beginImport?.()
       const next: ComposerAttachmentInput[] = []
-      for (const file of Array.from(files)) {
-        const selectedPathForFile = globalThis.wanta?.selectedAttachmentPathForFile
-        const selected = selectedPathForFile ? await selectedPathForFile(file) : null
-        const saver = globalThis.wanta?.saveClipboardAttachment
-        let optimized: {
-          name: string
-          mime: string
-          size: number
-          path: string
-          kind: "file" | "directory"
-        } | null = null
-        if (saver) {
-          try {
-            const optimizedFile = await optimizeImageFileForAgent(file)
-            if (optimizedFile) {
-              optimized = await saver(optimizedFile)
+      let importError: string | undefined
+      try {
+        for (const file of Array.from(files)) {
+          const selectedPathForFile = globalThis.wanta?.selectedAttachmentPathForFile
+          const selected = selectedPathForFile ? await selectedPathForFile(file) : null
+          const saver = globalThis.wanta?.saveClipboardAttachment
+          let optimized: {
+            name: string
+            mime: string
+            size: number
+            path: string
+            kind: "file" | "directory"
+          } | null = null
+          if (saver) {
+            try {
+              const optimizedFile = await optimizeImageFileForAgent(file)
+              if (optimizedFile) {
+                optimized = await saver(optimizedFile)
+              }
+            } catch {
+              optimized = null
             }
-          } catch {
-            optimized = null
           }
-        }
-        if (!selected) {
-          if (!saver) {
-            showTrustedInputError(t("chat.attachmentPathUnavailable"))
+          if (!selected) {
+            if (!saver) {
+              importError = t("chat.attachmentPathUnavailable")
+              if (mountedRef.current) showTrustedInputError(importError)
+              continue
+            }
+            try {
+              const saved =
+                optimized ??
+                (await saver({
+                  name: file.name,
+                  mime: file.type || "application/octet-stream",
+                  bytes: await file.arrayBuffer(),
+                }))
+              next.push({
+                ...agentAttachmentMetadata(saved),
+                name: saved.name,
+                mime: saved.mime,
+                size: saved.size,
+                path: saved.path,
+                kind: saved.kind,
+                file,
+              })
+            } catch {
+              importError = t("chat.attachmentSaveFailed")
+              if (mountedRef.current) showTrustedInputError(importError)
+            }
             continue
           }
-          try {
-            const saved =
-              optimized ??
-              (await saver({
-                name: file.name,
-                mime: file.type || "application/octet-stream",
-                bytes: await file.arrayBuffer(),
-              }))
-            next.push({
-              ...agentAttachmentMetadata(saved),
-              name: saved.name,
-              mime: saved.mime,
-              size: saved.size,
-              path: saved.path,
-              kind: saved.kind,
-              file,
-            })
-          } catch {
-            showTrustedInputError(t("chat.attachmentSaveFailed"))
-          }
-          continue
+          next.push({
+            name: selected.name,
+            mime: selected.mime,
+            size: selected.size,
+            path: selected.path,
+            kind: selected.kind,
+            ...agentAttachmentMetadata(selected),
+            ...(optimized
+              ? {
+                  agentMime: optimized.mime,
+                  agentName: optimized.name,
+                  agentPath: optimized.path,
+                  agentSize: optimized.size,
+                }
+              : {}),
+            file,
+          })
         }
-        next.push({
-          name: selected.name,
-          mime: selected.mime,
-          size: selected.size,
-          path: selected.path,
-          kind: selected.kind,
-          ...agentAttachmentMetadata(selected),
-          ...(optimized
-            ? {
-                agentMime: optimized.mime,
-                agentName: optimized.name,
-                agentPath: optimized.path,
-                agentSize: optimized.size,
-              }
-            : {}),
-          file,
-        })
-      }
-      if (mountedRef.current) {
-        addAttachments(next)
-      } else {
-        releaseAttachmentSnapshots(next)
+        if (finish) {
+          finish(
+            next.map((item) => toDraftAttachment({ ...item, file: undefined })),
+            importError,
+          )
+        } else if (mountedRef.current) {
+          addAttachments(next)
+        } else {
+          releaseAttachmentSnapshots(next)
+        }
+      } catch (error) {
+        if (finish)
+          finish(
+            next.map((item) => toDraftAttachment({ ...item, file: undefined })),
+            t("chat.attachmentSaveFailed"),
+          )
+        else {
+          releaseAttachmentSnapshots(next)
+          if (mountedRef.current) showUnexpectedInputError(error)
+        }
       }
     },
-    [addAttachments, clearInputError, showTrustedInputError, t],
+    [addAttachments, beginImport, clearInputError, showTrustedInputError, showUnexpectedInputError, t],
   )
 
   const selectAttachments = React.useCallback(
@@ -276,31 +300,35 @@ export function useComposerAttachments({
         }
         return
       }
+      const finish = beginImport?.()
       try {
         const selected = await picker(kind)
-        if (mountedRef.current) {
+        if (finish) {
+          finish(selected.map(toDraftAttachment))
+        } else if (mountedRef.current) {
           addAttachments(selected)
         } else {
           releaseAttachmentSnapshots(selected)
         }
       } catch (error) {
+        finish?.([], t("chat.attachmentSaveFailed"))
         if (mountedRef.current) {
           showUnexpectedInputError(error)
         }
       }
     },
-    [addAttachments, clearInputError, showTrustedInputError, showUnexpectedInputError, t],
+    [addAttachments, beginImport, clearInputError, showTrustedInputError, showUnexpectedInputError, t],
   )
 
   const removeAttachment = React.useCallback(
     (id: string) => {
       const removed = attachmentsRef.current.filter((attachment) => attachment.id === id)
       revokeAttachmentPreviewUrls(removed)
-      releaseAttachmentSnapshots(removed)
+      if (!beginImport) releaseAttachmentSnapshots(removed)
       attachmentsRef.current = attachmentsRef.current.filter((attachment) => attachment.id !== id)
       dispatch({ type: "remove-attachment", id })
     },
-    [dispatch],
+    [beginImport, dispatch],
   )
 
   const revokeCurrentPreviews = React.useCallback(() => {

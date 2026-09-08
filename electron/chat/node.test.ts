@@ -5228,3 +5228,125 @@ test("current compaction continuation parents still advance the active run", asy
   })
   await service.stopGeneration("session-1")
 })
+
+test("previews persisted original attachments before history is opened without trusting internal files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-persisted-preview-"))
+  try {
+    const original = path.join(root, "original.png")
+    const internal = path.join(root, "optimized.png")
+    const unrelated = path.join(root, "unrelated.png")
+    await Promise.all([original, internal, unrelated].map((file) => writeFile(file, Buffer.from([1, 2, 3]))))
+    const store = new UserAttachmentStore(root)
+    await store.record("session", "message", [
+      { id: "image", name: "original.png", mime: "image/png", size: 3, path: original, agentPath: internal },
+    ])
+    const service = new ChatServiceImpl(null, { userAttachmentStore: store })
+    assert.match(
+      (await service.getAttachmentPreview({ path: original, mime: "image/png" })).dataUrl ?? "",
+      /^data:image\/png/,
+    )
+    await assert.rejects(() => service.getAttachmentPreview({ path: internal, mime: "image/png" }))
+    await assert.rejects(() => service.getAttachmentPreview({ path: unrelated, mime: "image/png" }))
+    await store.removeMessage("session", "message")
+    await service.forgetSession("session")
+    await assert.rejects(() => service.getAttachmentPreview({ path: original, mime: "image/png" }))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("durable drafts restore attachment access without granting arbitrary or other-account paths", async () => {
+  const { ComposerDraftStore } = await import("./composer-drafts.ts")
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-draft-access-"))
+  try {
+    const image = path.join(root, "image.png")
+    const untrusted = path.join(root, "private.png")
+    await Promise.all([writeFile(image, "image"), writeFile(untrusted, "private")])
+    const draftStore = new ComposerDraftStore(root)
+    const service = new ChatServiceImpl(null, {
+      composerDraftStore: draftStore,
+      composerDraftOwner: () => "owner",
+      trustedAttachmentPaths: new Set([image]),
+    })
+    const value = {
+      draft: "notes",
+      attachments: [{ id: "image", name: "image.png", path: image, mime: "image/png", size: 5 }],
+      contextMentions: [],
+      command: null,
+      draftSelection: { start: 5, end: 5 },
+      dismissedTriggerKey: null,
+    } as const
+    const request = {
+      owner: "owner",
+      key: "new",
+      value: { ...value, attachments: [...value.attachments], contextMentions: [] },
+    }
+    await service.saveComposerDraft(request)
+    const agentPath = path.join(root, "prepared-agent.png")
+    await writeFile(agentPath, "internal")
+    await draftStore.save({
+      ...request,
+      value: {
+        ...request.value,
+        attachments: [{ ...request.value.attachments[0]!, agentPath }],
+      },
+    })
+    const bridge = createBridgeAgent()
+    const restarted = new ChatServiceImpl(bridge.agent, {
+      composerDraftStore: new ComposerDraftStore(root),
+      composerDraftOwner: () => "owner",
+    })
+    assert.ok((await restarted.getAttachmentPreview({ path: image, mime: "image/png" })).dataUrl)
+    await assert.rejects(() => restarted.getAttachmentPreview({ path: agentPath, mime: "image/png" }))
+    await assert.rejects(() => restarted.openLocalPath({ path: agentPath }))
+    assert.ok((await new ComposerDraftStore(root).retentionState()).paths.includes(agentPath))
+    const restored = (await restarted.getComposerDrafts("owner")).new!
+    assert.equal(restored.attachments[0]!.agentPath, undefined)
+    await restarted.sendMessage({
+      scope: testTeamScope,
+      sessionId: "restored-draft",
+      text: "inspect",
+      attachments: restored.attachments,
+    })
+    assert.equal(bridge.promptStreaming.mock.calls.length, 1)
+    await restarted.saveComposerDraft({ ...request, key: "constructor" })
+    await restarted.saveComposerDraft({ ...request, key: "toString", value: null })
+    await assert.rejects(() =>
+      restarted.saveComposerDraft({
+        ...request,
+        value: { ...request.value, attachments: [{ ...request.value.attachments[0]!, path: untrusted }] },
+      }),
+    )
+    await assert.rejects(() => restarted.getComposerDrafts("other"))
+    await assert.rejects(() => restarted.saveComposerDraft({ ...request, owner: "other" }))
+    const other = new ChatServiceImpl(null, { composerDraftStore: draftStore, composerDraftOwner: () => "other" })
+    await assert.rejects(() => other.getAttachmentPreview({ path: image, mime: "image/png" }))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("draft save rejects a stale owner after persistence completes", async () => {
+  const { ComposerDraftStore } = await import("./composer-drafts.ts")
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-draft-owner-"))
+  try {
+    const store = new ComposerDraftStore(root)
+    let owner = "first"
+    let finish!: () => void
+    const save = vi.spyOn(store, "save").mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const service = new ChatServiceImpl(null, { composerDraftStore: store, composerDraftOwner: () => owner })
+    const pending = service.saveComposerDraft({ owner, key: "new", value: null })
+    const rejected = assert.rejects(pending, /Draft account changed/)
+    await waitForCondition(() => save.mock.calls.length === 1)
+    owner = "second"
+    finish()
+    await rejected
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

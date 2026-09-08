@@ -1,4 +1,5 @@
 import type { ChatAttachment, ChatContextMention } from "../../../electron/chat/common.ts"
+import type { ComposerDraftPreferences } from "../../../electron/chat/common.ts"
 import type { ComposerTrigger } from "./composer-triggers.ts"
 
 import { BUG_REPORT_COMMAND } from "../../../electron/chat/common.ts"
@@ -9,6 +10,10 @@ export type DraftAttachment = ChatAttachment & {
 }
 
 export interface ComposerState {
+  interruptedImport?: boolean
+  preferences?: ComposerDraftPreferences
+  pendingImports?: number
+  importError?: string
   attachments: DraftAttachment[]
   command: "bug-report" | null
   contextMentions: ChatContextMention[]
@@ -88,6 +93,7 @@ export function insertVoiceTranscriptionIntoDraft(
 
 export function hasComposerDraftContent(state: ComposerState): boolean {
   return (
+    Boolean(state.pendingImports || state.interruptedImport) ||
     state.command !== null ||
     state.draft.trim().length > 0 ||
     state.contextMentions.length > 0 ||
@@ -106,6 +112,9 @@ export function composerSubmissionText(state: Pick<ComposerState, "command" | "d
 export function toCachedComposerState(state: ComposerState): ComposerState {
   return {
     ...state,
+    interruptedImport: Boolean(state.pendingImports) || state.interruptedImport || undefined,
+    pendingImports: undefined,
+    importError: undefined,
     // blob URL 只属于当前 renderer 生命周期；文件快照元数据可以安全跨页面恢复。
     attachments: state.attachments.map(({ previewUrl: _previewUrl, ...attachment }) => attachment),
     dismissedTriggerKey: null,

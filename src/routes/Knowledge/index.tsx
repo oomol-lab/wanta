@@ -39,6 +39,7 @@ import {
 } from "./knowledge-route-model.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   ConfirmDialog,
@@ -926,6 +927,30 @@ export function KnowledgeRoute({
           className="motion-reduce:transition-none min-[960px]:transition-[grid-template-columns] min-[960px]:duration-200 min-[960px]:ease-out"
         >
           <SplitViewListPane narrowPane={narrowPane} className="pt-3">
+            {knowledge.recoveryIssues.length > 0 ? (
+              <Alert className="mb-3">
+                <AlertTitle>{t("knowledge.recoveryTitle")}</AlertTitle>
+                <AlertDescription>
+                  <p>{t("knowledge.recoveryDescription")}</p>
+                  <ul className="grid w-full gap-2">
+                    {knowledge.recoveryIssues.map((issue) => (
+                      <li key={issue.id} className="grid gap-1">
+                        <span className="font-medium break-all">{issue.relativePath}</span>
+                        <span className="break-words">{issue.message}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="justify-self-start"
+                          onClick={() => void knowledge.revealRecovery(issue.id)}
+                        >
+                          {t("knowledge.recoveryReveal")}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            ) : null}
             <KnowledgeLibraryContent
               activeLabel={activeLabel}
               busy={knowledge.busy}

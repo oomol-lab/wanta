@@ -9,6 +9,7 @@ import type {
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { ChatTurnState } from "./chat-turn-state.ts"
+import type { ComposerDraftBinding } from "./composer-draft-store.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
@@ -16,8 +17,9 @@ import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { ArrowRight, BrainCircuit, Bug, Copy, Loader2, LogIn, RefreshCw, Server, X } from "lucide-react"
+import { ArrowRight, BrainCircuit, Bug, Copy, Loader2, LogIn, RefreshCw, Server, Trash2, X } from "lucide-react"
 import * as React from "react"
+import { toast } from "sonner"
 import { AGENT_PROFILES, isExternalAgentKind } from "../../../electron/agent/contract/profile.ts"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
 import { agentRuntimeReadyForSubmission } from "./agent-control-options.ts"
@@ -95,6 +97,7 @@ interface ChatComposerProps {
   generatedArtifacts?: ArtifactSelection | null
   hasMessages: boolean
   historyScope: string
+  draftBinding?: ComposerDraftBinding
   initialComposerState?: ComposerState
   messages: ChatMessage[]
   knowledgeBaseIds: string[]
@@ -209,6 +212,7 @@ export function ChatComposer({
   generatedArtifacts = null,
   hasMessages,
   historyScope,
+  draftBinding,
   initialComposerState: initialComposerStateProp,
   messages,
   knowledgeBaseIds,
@@ -265,10 +269,20 @@ export function ChatComposer({
         reportRendererHandledError("agent", `warm external agent failed: ${agentKind}`, cause)
       })
   }, [agentKind, chatService, refreshExternalAgents])
-  const [composer, dispatchComposer] = React.useReducer(
+  const [localComposer, localDispatch] = React.useReducer(
     composerReducer,
     initialComposerStateProp ?? initialComposerState(),
   )
+  React.useSyncExternalStore(
+    draftBinding?.subscribe ?? (() => () => {}),
+    () => `${draftBinding?.isReady()}:${draftBinding?.saveError()}`,
+  )
+  const savedComposer = React.useSyncExternalStore(
+    draftBinding?.subscribe ?? (() => () => {}),
+    draftBinding?.getSnapshot ?? (() => null),
+  )
+  const composer = savedComposer ?? localComposer
+  const dispatchComposer = draftBinding?.dispatch ?? localDispatch
   const [inputError, setInputError] = React.useState<UserFacingError | null>(null)
   const clearInputError = React.useCallback(() => setInputError(null), [])
   const showTrustedInputError = React.useCallback(
@@ -330,8 +344,9 @@ export function ChatComposer({
     if (displayedExternalAgent?.login.status === "logged_in") setAuthenticatingAgent(null)
   }, [agentKind, displayedExternalAgent?.login.status])
   const agentRuntimeReady = agentRuntimeReadyForSubmission(agentKind, displayedExternalAgent)
-  const submitBlocked = submitDisabled || !agentRuntimeReady || initialSendPending
+  const submitBlocked = submitDisabled || !agentRuntimeReady || initialSendPending || Boolean(composer.pendingImports)
   const composerDisabled =
+    Boolean(draftBinding && !draftBinding.isReady()) ||
     submitDisabled ||
     !agentRuntimeReady ||
     (voiceEnabled && voiceInput.busy) ||
@@ -355,6 +370,7 @@ export function ChatComposer({
   const customModelConfigured = Boolean(modelCatalogState.catalog?.customModels.length)
   const composerAttachments = useComposerAttachments({
     attachments,
+    beginImport: draftBinding?.beginImport,
     clearInputError,
     disabled: composerDisabled || composerAttachmentsDisabled,
     dispatch: dispatchComposer,
@@ -454,8 +470,8 @@ export function ChatComposer({
   }, [focusRequest])
 
   React.useEffect(() => {
-    onComposerStateChange?.(composer)
-  }, [composer, onComposerStateChange])
+    if (!draftBinding) onComposerStateChange?.(composer)
+  }, [composer, draftBinding, onComposerStateChange])
 
   React.useLayoutEffect(() => {
     const textarea = textareaRef.current
@@ -631,9 +647,9 @@ export function ChatComposer({
         return
       }
       clearedAfterSubmit = true
-      composerAttachments.revokeCurrentPreviews()
+      if (!draftBinding) composerAttachments.revokeCurrentPreviews()
       resetHistoryNavigation()
-      dispatchComposer({ type: "reset-after-submit" })
+      if (!draftBinding) dispatchComposer({ type: "reset-after-submit" })
       clearInputError()
     }
     let result: ChatSendResult
@@ -826,6 +842,29 @@ export function ChatComposer({
       onDragOver={composerAttachments.handleDragOver}
       onDrop={composerAttachments.handleDrop}
     >
+      {composer.pendingImports ? (
+        <p role="status" className="px-3 text-xs text-muted-foreground">
+          {t("chat.draftImporting")}
+        </p>
+      ) : null}
+      {composer.interruptedImport ? (
+        <p role="alert" className="px-3 text-sm text-destructive">
+          {t("chat.draftImportInterrupted")}
+        </p>
+      ) : null}
+      {composer.importError ? (
+        <p role="alert" className="px-3 text-sm text-destructive">
+          {composer.importError}
+        </p>
+      ) : null}
+      {draftBinding?.saveError() ? (
+        <p role="alert" className="px-3 text-sm text-destructive">
+          {t("chat.draftSaveFailed")}{" "}
+          <Button type="button" variant="ghost" size="sm" onClick={draftBinding.retrySave}>
+            {t("artifacts.retry")}
+          </Button>
+        </p>
+      ) : null}
       {hasInputAddons ? (
         <PromptInputAttachments>
           <div className="flex max-h-[min(42vh,20rem)] w-full flex-col gap-2 overflow-y-auto pr-1">
@@ -911,6 +950,21 @@ export function ChatComposer({
           onSelectDirectory={() => composerAttachments.selectAttachments("directory")}
           onSelectFile={() => composerAttachments.selectAttachments("file")}
         />
+        {draftBinding && hasComposerDraftContent(composer) ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            title={t("chat.draftClear")}
+            aria-label={t("chat.draftClear")}
+            onClick={() => {
+              const undo = draftBinding.clear()
+              toast(t("chat.draftCleared"), { duration: 8_000, action: { label: t("chat.draftUndo"), onClick: undo } })
+            }}
+          >
+            <Trash2 />
+          </Button>
+        ) : null}
         <ComposerTrailingControls
           agentConfigurationDisabled={agentConfigurationDisabled}
           canSubmit={canSubmit}

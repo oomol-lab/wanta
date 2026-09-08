@@ -1,9 +1,10 @@
 import type { BookMeta, File, ReadonlyDocument, WikiGraphLibraryArchiveRecord } from "wiki-graph-core"
 
-import { mkdir, readdir, rmdir, stat } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { constants } from "node:fs"
+import { copyFile, link, mkdir, readdir, rm, rmdir, stat } from "node:fs/promises"
 import path from "node:path"
 import {
-  addWikiGraphLibraryArchive as addWikiGraphLibraryArchiveWithSDK,
   getWikiGraphLibraryArchive,
   isArchiveSearchIndexCurrent,
   listChapters,
@@ -11,16 +12,24 @@ import {
   parseWikiGraphLibraryUri,
   readSearchIndexCapabilityStatus,
   rebindWikiGraphLibrary,
+  scanWikiGraphLibrary,
   removeWikiGraphLibraryArchive as removeWikiGraphLibraryArchiveWithSDK,
   moveWikiGraphLibraryArchive as moveWikiGraphLibraryArchiveWithSDK,
   WikiGraphArchiveFile,
 } from "wiki-graph-core"
+import {
+  ArchivePreparationError,
+  prepareManagedArchives,
+  readKnowledgeRecoveryIssues,
+  withPreparedArchiveCopy,
+} from "./archive-maintenance.ts"
 import { NodeFile, NodeDirectory, getNodeResourcePath } from "./node-platform.ts"
 import { withWikiGraphRuntime } from "./runtime.ts"
 
 const defaultLibraryUri = "wikg://lib"
 const defaultLibraryPreparationByStateDir = new Map<string, Promise<void>>()
 const archivePreparationByStateAndPath = new Map<string, Promise<void>>()
+const importQueues = new Map<string, Promise<unknown>>()
 const unreadableImportMessage =
   "WANTA_KNOWLEDGE_IMPORT_UNREADABLE: The selected WikiGraph file could not be imported because Wanta cannot make the managed copy readable with the current WikiGraph SDK. The original file was not modified."
 
@@ -98,6 +107,7 @@ function redactWikiGraphRuntimePaths(runtime: WikiGraphRuntime, value: string): 
     if (pathValue) message = message.replaceAll(pathValue, "[WikiGraph managed storage]")
   }
   return message
+    .replace(/node-(?:file|directory):[A-Za-z0-9_-]+/gu, "[managed knowledge resource]")
     .replace(/\/[^\s"']+\.wikg/giu, "[managed knowledge archive]")
     .replace(/wikg:\/\/[^\s"']+/giu, "[managed knowledge archive]")
 }
@@ -311,6 +321,11 @@ export async function prepareWikiGraphDefaultLibrary(runtime: WikiGraphRuntime):
   const preparation = withRuntime(runtime, "Failed to prepare WikiGraph library", async () => {
     await mkdir(runtime.stateDir, { recursive: true })
     await mkdir(runtime.managedLibraryDir, { recursive: true })
+    await prepareManagedArchives(
+      runtime,
+      validateArchive,
+      (error) => wikiGraphError(runtime, "Knowledge archive could not be prepared", error).message,
+    )
     await rebindWikiGraphLibrary({
       folder: new NodeDirectory(runtime.managedLibraryDir),
       target: requireLibraryTarget(defaultLibraryUri),
@@ -339,6 +354,11 @@ export async function listWikiGraphLibraryFolders(runtime: WikiGraphRuntime): Pr
   })
 }
 
+export async function listKnowledgeRecoveryIssues(runtime: WikiGraphRuntime) {
+  await prepareWikiGraphDefaultLibrary(runtime)
+  return await readKnowledgeRecoveryIssues(runtime.stateDir)
+}
+
 export async function addWikiGraphLibraryArchive(
   runtime: WikiGraphRuntime,
   sourcePath: string,
@@ -352,40 +372,63 @@ export async function addWikiGraphLibraryArchive(
     throw new Error("Knowledge base file is unavailable", { cause: error })
   }
   if (!source.isFile()) throw new Error("Knowledge base must be a regular file")
-  return await withRuntime(runtime, "Failed to import WikiGraph archive", async () => {
-    const targetPath = await importRelativePath(runtime, sourcePath, targetDirectory)
-    const imported = await importWikiGraphArchive(sourcePath, targetPath)
-    return archiveFromRecord(imported)
-  })
+  const previous = importQueues.get(runtime.stateDir) ?? Promise.resolve()
+  const pending = previous
+    .catch(() => undefined)
+    .then(() =>
+      withRuntime(runtime, "Failed to import WikiGraph archive", async () => {
+        const targetPath = await importRelativePath(runtime, sourcePath, targetDirectory)
+        try {
+          return await withPreparedArchiveCopy(runtime, sourcePath, validateArchive, async (stagedPath) => {
+            return archiveFromRecord(await importWikiGraphArchive(runtime, stagedPath, targetPath))
+          })
+        } catch (error) {
+          if (!(error instanceof ArchivePreparationError)) throw error
+          throw new Error(unreadableImportMessage, { cause: error })
+        }
+      }),
+    )
+  importQueues.set(runtime.stateDir, pending)
+  try {
+    return await pending
+  } finally {
+    if (importQueues.get(runtime.stateDir) === pending) importQueues.delete(runtime.stateDir)
+  }
 }
 
-async function importWikiGraphArchive(inputPath: string, targetPath: string): Promise<WikiGraphLibraryArchiveRecord> {
-  const imported = await addWikiGraphLibraryArchiveWithSDK({
-    inputFile: new NodeFile(inputPath),
-    target: requireLibraryTarget(`${defaultLibraryUri}/arc`),
-    to: targetPath,
-  })
+async function importWikiGraphArchive(
+  runtime: WikiGraphRuntime,
+  inputPath: string,
+  targetPath: string,
+): Promise<WikiGraphLibraryArchiveRecord> {
+  const destination = path.join(runtime.managedLibraryDir, targetPath)
+  await mkdir(path.dirname(destination), { recursive: true })
+  // Publish a complete file atomically and exclusively. A concurrent scanner must never see a partial ZIP.
+  const pendingPath = path.join(path.dirname(destination), `.wanta-import-${randomUUID()}.pending`)
   try {
-    await validateArchive(requireArchiveFile(imported))
-  } catch (error) {
-    await removeUnreadableImportedArchive(imported)
-    throw new Error(unreadableImportMessage, { cause: error })
+    await copyFile(inputPath, pendingPath, constants.COPYFILE_EXCL)
+    await link(pendingPath, destination)
+  } finally {
+    await rm(pendingPath, { force: true })
   }
-  return imported
+  try {
+    const result = await scanWikiGraphLibrary(requireLibraryTarget(defaultLibraryUri))
+    const imported = result.archives.find((archive) => archive.relativePath === targetPath)
+    if (!imported) throw new Error("Imported knowledge archive was not registered")
+    return imported
+  } catch (error) {
+    await rm(destination, { force: true })
+    await scanWikiGraphLibrary(requireLibraryTarget(defaultLibraryUri)).catch((cleanupError: unknown) => {
+      console.warn("[wanta] failed to reconcile rolled back knowledge import:", cleanupError)
+    })
+    throw error
+  }
 }
 
 function requireArchiveFile(record: WikiGraphLibraryArchiveRecord): File {
   if (!record.file || !record.exists || record.status === "missing")
     throw new Error("Knowledge base file is unavailable")
   return record.file
-}
-
-async function removeUnreadableImportedArchive(imported: WikiGraphLibraryArchiveRecord): Promise<void> {
-  await removeWikiGraphLibraryArchiveWithSDK({ target: requireLibraryTarget(imported.uri) }).catch(
-    (cleanupError: unknown) => {
-      console.warn("[wanta] failed to clean unreadable WikiGraph import:", cleanupError)
-    },
-  )
 }
 
 async function validateArchive(source: File): Promise<void> {

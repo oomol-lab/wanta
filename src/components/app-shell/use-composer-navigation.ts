@@ -1,10 +1,10 @@
-import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
+import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
 import type { AppShellRoute } from "./app-shell-types.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
 
 import * as React from "react"
 import { toast } from "sonner"
-import { newSessionComposerDraftKey, NO_DRAFT_PROJECT_ID, resolveNewSessionTarget } from "./app-shell-model.ts"
+import { NO_DRAFT_PROJECT_ID, resolveNewSessionTarget } from "./app-shell-model.ts"
 import { useT } from "@/i18n/i18n"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 
@@ -25,15 +25,13 @@ export function useComposerNavigation({
   activeChatSessionId,
   activeSession,
   assignSessionProject,
-  clearComposerDraft,
+  prepareDraftProjectChange,
   createProject,
   draftProjectId,
   isDraftSession,
   lastProjectId,
   releaseTransientFocus,
   route,
-  sessionScope,
-  applyDraftComposerDefaults,
   setComposerFocusRequest,
   setDraftProjectId,
   setIsDraftSession,
@@ -47,16 +45,13 @@ export function useComposerNavigation({
   activeChatSessionId: string | null
   activeSession?: SessionInfo
   assignSessionProject: (sessionId: string, projectId: string | undefined) => Promise<void>
-  clearComposerDraft: (draftKey: string) => void
+  prepareDraftProjectChange?: (projectId: string | undefined) => boolean
   createProject: (input: { name: string; path: string }) => Promise<SessionProject>
   draftProjectId: string | null
   isDraftSession: boolean
   lastProjectId: () => string | null
   releaseTransientFocus: () => void
   route: AppShellRoute
-  sessionScope: SessionScope | null
-  /** Reset to the last explicitly selected agent with its sticky preferences. */
-  applyDraftComposerDefaults: () => void
   setComposerFocusRequest: React.Dispatch<React.SetStateAction<number>>
   setDraftProjectId: React.Dispatch<React.SetStateAction<string | null>>
   setIsDraftSession: React.Dispatch<React.SetStateAction<boolean>>
@@ -71,13 +66,9 @@ export function useComposerNavigation({
 }): ComposerNavigationController {
   const t = useT()
   const startNewSessionDraft = React.useCallback(
-    (target: ReturnType<typeof resolveNewSessionTarget>, clearTargetDraft = true): void => {
-      if (clearTargetDraft) {
-        clearComposerDraft(newSessionComposerDraftKey(sessionScope, target.projectId))
-      }
+    (target: ReturnType<typeof resolveNewSessionTarget>): void => {
       setSelectedSessionId(null)
       setIsDraftSession(true)
-      applyDraftComposerDefaults()
       setDraftProjectId(target.projectId ?? NO_DRAFT_PROJECT_ID)
       setPendingChatTransition(null)
       setRoute("chat")
@@ -86,9 +77,6 @@ export function useComposerNavigation({
       setComposerFocusRequest((request) => request + 1)
     },
     [
-      applyDraftComposerDefaults,
-      clearComposerDraft,
-      sessionScope,
       setComposerFocusRequest,
       setDraftProjectId,
       setIsDraftSession,
@@ -115,8 +103,8 @@ export function useComposerNavigation({
   }, [startNewSessionDraft])
   const handleOpenProjectDraft = React.useCallback(
     (project: SessionProject): void => {
-      // 项目入口用于切换当前草稿；仅“新建会话”操作才会显式清空该项目已有草稿。
-      startNewSessionDraft(resolveNewSessionTarget({ draftProjectId, explicitProjectId: project.id }), false)
+      // Navigation restores a draft. Discarding content is an explicit composer action.
+      startNewSessionDraft(resolveNewSessionTarget({ draftProjectId, explicitProjectId: project.id }))
     },
     [draftProjectId, startNewSessionDraft],
   )
@@ -131,6 +119,7 @@ export function useComposerNavigation({
         }
         return
       }
+      if (prepareDraftProjectChange && !prepareDraftProjectChange(projectId)) return
       setDraftProjectId(projectId ?? NO_DRAFT_PROJECT_ID)
       setIsDraftSession(true)
       setRoute("chat")
@@ -139,6 +128,7 @@ export function useComposerNavigation({
     [
       activeChatSessionId,
       assignSessionProject,
+      prepareDraftProjectChange,
       isDraftSession,
       setDraftProjectId,
       setIsDraftSession,

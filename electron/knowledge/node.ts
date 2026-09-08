@@ -21,6 +21,7 @@ import {
   inspectWikiGraph,
   listWikiGraphLibraryArchives,
   listWikiGraphLibraryFolders,
+  listKnowledgeRecoveryIssues,
   moveWikiGraphLibraryArchive,
   prepareWikiGraphArchive,
   readWikiGraphCover,
@@ -123,6 +124,16 @@ export class KnowledgeServiceImpl
 
   public async listFolders(): Promise<string[]> {
     return await listWikiGraphLibraryFolders(this.deps.runtime)
+  }
+
+  public async listRecoveryIssues() {
+    return await listKnowledgeRecoveryIssues(this.deps.runtime)
+  }
+
+  public async revealRecovery(id: string): Promise<void> {
+    const issues = await this.listRecoveryIssues()
+    if (!issues.some((issue) => issue.id === id)) throw new Error("Knowledge recovery file not found")
+    shell.showItemInFolder(path.join(this.deps.runtime.stateDir, "wanta-recovery", id, "archive.wikg"))
   }
 
   public async readChapters(id: string): Promise<KnowledgeChapterNode[]> {

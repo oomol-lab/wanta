@@ -111,7 +111,6 @@ import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { composerCapabilitiesForProfile } from "@/routes/Chat/agent-control-options"
-import { releaseAttachmentSnapshots } from "@/routes/Chat/chat-attachment-utils"
 import {
   chatTurnAllowsDirectSend,
   chatTurnAllowsStop,
@@ -119,7 +118,8 @@ import {
   resolveChatTurnState,
 } from "@/routes/Chat/chat-turn-state"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
-import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
+import { ComposerDrafts } from "@/routes/Chat/composer-draft-store"
+import { hasComposerDraftContent } from "@/routes/Chat/composer-state"
 import { summarizeEmptyStateConnections } from "@/routes/Chat/empty-state-connections"
 import { normalizeConnectionCatalogFilter } from "@/routes/Connections/connection-route-model.ts"
 import { knowledgeBreadcrumbs, normalizeKnowledgePath } from "@/routes/Knowledge/knowledge-route-model.ts"
@@ -642,7 +642,26 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
   )
-  const composerDraftsByKey = React.useRef<Map<string, ComposerState>>(new Map())
+  const draftOwner = auth.state?.account?.id ?? "local"
+  const drafts = React.useMemo(
+    () =>
+      new ComposerDrafts(
+        () => chatService.invoke("getComposerDrafts", draftOwner),
+        (key, value) => chatService.invoke("saveComposerDraft", { owner: draftOwner, key, value }),
+      ),
+    [chatService, draftOwner],
+  )
+  React.useEffect(() => {
+    void drafts.initialize()
+    const flush = () => {
+      void drafts.flush()
+    }
+    window.addEventListener("pagehide", flush)
+    return () => {
+      flush()
+      window.removeEventListener("pagehide", flush)
+    }
+  }, [drafts])
   const lastChatProjectId = React.useRef<string | null>(null)
   const workspaceResetKeyRef = React.useRef(activeWorkspaceKey)
   const previousActiveChatSessionIdRef = React.useRef<string | null>(null)
@@ -834,7 +853,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeComposerDraftKey = activeChatSessionId
     ? existingSessionComposerDraftKey(currentScopeKey, activeChatSessionId)
     : newSessionComposerDraftKeyForScopeKey(newSessionDraftScopeKey, activeProjectId)
-  const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
+  const activeDraftBinding = drafts.binding(activeComposerDraftKey)
+  const draftReady = React.useSyncExternalStore(activeDraftBinding.subscribe, activeDraftBinding.isReady)
   const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
   const chatConnectionAuthIntent = activeChatConnectionDrawer?.authIntent ?? null
   const chatConnectionSelectedService = activeChatConnectionDrawer?.selectedService ?? null
@@ -1020,34 +1040,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     }
   }, [activePendingChatTransition, status])
 
-  const handleComposerStateChange = React.useCallback(
-    (state: ComposerState): void => {
-      const cached = toCachedComposerState(state)
-      if (hasComposerDraftContent(cached)) {
-        composerDraftsByKey.current.set(activeComposerDraftKey, cached)
-      } else {
-        composerDraftsByKey.current.delete(activeComposerDraftKey)
-      }
+  const clearComposerDraft = React.useCallback(
+    (draftKey: string): void => {
+      drafts.clear(draftKey)
     },
-    [activeComposerDraftKey],
+    [drafts],
   )
-
-  const clearComposerDraft = React.useCallback((draftKey: string): void => {
-    const draft = composerDraftsByKey.current.get(draftKey)
-    if (draft) {
-      releaseAttachmentSnapshots(draft.attachments)
-    }
-    composerDraftsByKey.current.delete(draftKey)
-  }, [])
-  const commitComposerDraft = React.useCallback((draftKey: string): void => {
-    composerDraftsByKey.current.delete(draftKey)
-  }, [])
-  const clearAllComposerDrafts = React.useCallback((): void => {
-    for (const draft of composerDraftsByKey.current.values()) {
-      releaseAttachmentSnapshots(draft.attachments)
-    }
-    composerDraftsByKey.current.clear()
-  }, [])
+  const commitComposerDraft = React.useCallback(
+    (draftKey: string, submitted?: ComposerState): void => {
+      drafts.consume(draftKey, submitted)
+    },
+    [drafts],
+  )
   const readLastProjectId = React.useCallback((): string | null => lastChatProjectId.current, [])
   // A fresh draft inherits the last explicitly selected agent. Passing a kind
   // means the user changed the default; opening historical sessions never does.
@@ -1080,15 +1084,29 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     activeChatSessionId,
     activeSession,
     assignSessionProject,
-    clearComposerDraft,
+    prepareDraftProjectChange: (projectId) => {
+      const targetKey = newSessionComposerDraftKeyForScopeKey(newSessionDraftScopeKey, projectId)
+      if (targetKey === activeComposerDraftKey || !hasComposerDraftContent(activeDraftBinding.getSnapshot()))
+        return true
+      if (drafts.move(activeComposerDraftKey, targetKey)) return true
+      toast(t("chat.draftProjectConflict"), {
+        action: {
+          label: t("chat.draftOpenExisting"),
+          onClick: () => {
+            setDraftProjectId(projectId ?? NO_DRAFT_PROJECT_ID)
+            setIsDraftSession(true)
+            setSidebarSegment(projectId ? "projects" : "tasks")
+          },
+        },
+      })
+      return false
+    },
     createProject,
     draftProjectId,
     isDraftSession,
     lastProjectId: readLastProjectId,
     releaseTransientFocus,
     route,
-    sessionScope,
-    applyDraftComposerDefaults,
     setComposerFocusRequest,
     setDraftProjectId,
     setIsDraftSession,
@@ -1109,7 +1127,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [attentionService, navigateToSession],
   )
   const handleNewSessionWithKnowledgeReset = React.useCallback((): void => {
-    setDraftKnowledgeBaseIds([])
     handleNewSession()
   }, [handleNewSession])
   const commitDraftAgentSelection = React.useCallback((sessionId: string): void => {
@@ -1407,14 +1424,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     previousActiveChatSessionIdRef.current = null
     resetChatSessionCache()
     resetComposerSubmissionMemory()
-    clearAllComposerDrafts()
+    void drafts.flush()
     clearRetries()
     setChatConnectionDrawers({})
     setSelectedService(null)
     setSelectedConnectionAppId(null)
     setConnectionCatalogFilter({ kind: "all" })
     setSelectedSessionId(null)
-    setIsDraftSession(false)
     applyDraftComposerDefaults()
     setDraftKnowledgeBaseIds([])
     setDraftProjectId(null)
@@ -1426,7 +1442,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   }, [
     activeWorkspaceKey,
     applyDraftComposerDefaults,
-    clearAllComposerDrafts,
+    drafts,
     clearRetries,
     handleArtifactsReset,
     holdQueuedSessionIfQueued,
@@ -1446,6 +1462,47 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     clearQueuedSession(activeChatSessionId)
   }, [activeChatSessionId, clearQueuedSession, sessionsSettledForCurrentScope, visibleSessions])
 
+  const restoringDraftPreferences = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    if (activeChatSessionId || !draftReady) return
+    const preferences = drafts.entries.get(activeComposerDraftKey)?.preferences
+    if (!preferences) {
+      restoringDraftPreferences.current = null
+      return
+    }
+    const safe = {
+      ...preferences,
+      permissionMode: preferences.permissionMode === "full_access" ? ("default" as const) : preferences.permissionMode,
+    }
+    restoringDraftPreferences.current = JSON.stringify(safe)
+    setDraftAgentKind(safe.agentKind)
+    setDraftPermissionMode(safe.permissionMode)
+    setAgentSelections((current) => ({ ...current, draft: { modelId: safe.modelId, effortId: safe.effortId } }))
+    setDraftKnowledgeBaseIds(safe.knowledgeBaseIds)
+  }, [activeChatSessionId, activeComposerDraftKey, draftReady, drafts])
+  React.useEffect(() => {
+    if (activeChatSessionId || !draftReady) return
+    const preferences = {
+      agentKind: draftAgentKind,
+      permissionMode: draftPermissionMode === "full_access" ? ("default" as const) : draftPermissionMode,
+      modelId: agentSelections.draft?.modelId,
+      effortId: agentSelections.draft?.effortId,
+      knowledgeBaseIds: draftKnowledgeBaseIds,
+    }
+    if (restoringDraftPreferences.current && restoringDraftPreferences.current !== JSON.stringify(preferences)) return
+    restoringDraftPreferences.current = null
+    drafts.preferences(activeComposerDraftKey, preferences)
+  }, [
+    activeChatSessionId,
+    activeComposerDraftKey,
+    draftReady,
+    drafts,
+    draftAgentKind,
+    draftPermissionMode,
+    agentSelections.draft,
+    draftKnowledgeBaseIds,
+  ])
+
   const handleSend = React.useCallback(
     async (request: ChatSendRequest): Promise<ChatSendResult> => {
       const {
@@ -1463,8 +1520,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         ...pinnedKnowledgeMentions,
       ]
       const draftKey = activeComposerDraftKey
+      const submitted = drafts.entries.get(draftKey)
       const clearSubmittedDraft = (): void => {
-        commitComposerDraft(draftKey)
         afterOptimisticSubmit?.()
       }
       if (activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isDraftSendInFlight(draftKey))) {
@@ -1480,6 +1537,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           activeProjectContext,
           sessionScope ?? undefined,
         )
+        commitComposerDraft(draftKey, submitted)
         clearSubmittedDraft()
         return { delivery: "queued", status: "accepted" }
       }
@@ -1495,7 +1553,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       })
       if (chatSendAccepted(result)) {
         releaseActiveQueue()
-        commitComposerDraft(draftKey)
+        commitComposerDraft(draftKey, submitted)
       }
       return result
     },
@@ -1505,6 +1563,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       activeChatTurnState,
       activeProjectContext,
       commitComposerDraft,
+      drafts,
       teamSkills.chatContextSkills,
       pinnedKnowledgeMentions,
       queueActiveMessage,
@@ -2283,7 +2342,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       willQueueMessage={Boolean(
                         activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isSendInFlight()),
                       )}
-                      initialComposerState={initialComposerState}
+                      draftBinding={activeDraftBinding}
                       initialSendPending={initialSendPending}
                       composerFocusRequest={composerFocusRequest}
                       cloudModelsEnabled={runtimeCapabilities?.oomolCloudModels === true}
@@ -2325,7 +2384,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                               ? t(linksEnabled ? "chat.inputPlaceholder" : "chat.inputPlaceholderLocal")
                               : t("chat.agentStarting")
                       }
-                      onComposerStateChange={handleComposerStateChange}
                       onSend={handleSend}
                       onAnswerQuestion={handleAnswerQuestion}
                       onAnswerPermission={handleAnswerPermission}

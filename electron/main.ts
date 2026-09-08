@@ -93,6 +93,7 @@ import { BrowserControlServer } from "./browser/control-server.ts"
 import { BrowserManager, BrowserServiceImpl } from "./browser/node.ts"
 import { ArtifactBundleStore } from "./chat/artifact-bundles.ts"
 import { AuthorizationOverlayStore } from "./chat/authorization.ts"
+import { ComposerDraftStore } from "./chat/composer-drafts.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
 import { removeSessionOutputDirectories } from "./chat/output-directory-cleanup.ts"
 import { SpreadsheetPreviewWorkerClient } from "./chat/spreadsheet-preview-worker-client.ts"
@@ -314,7 +315,10 @@ const artifactBundleStore = new ArtifactBundleStore(app.getPath("userData"))
 const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("userData"))
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
 const turnOutputStore = new TurnOutputStore(app.getPath("userData"), artifactBundleStore)
-const userAttachmentStore = new UserAttachmentStore(app.getPath("userData"))
+const composerDraftStore = new ComposerDraftStore(app.getPath("userData"))
+const userAttachmentStore = new UserAttachmentStore(app.getPath("userData"), {
+  retentionState: () => composerDraftStore.retentionState(),
+})
 const trustedAttachmentPaths = new ExpiringTrustedPathRegistry()
 const trustedProjectPaths = new ExpiringTrustedPathRegistry()
 const artifactResourceLeaseStore = new ArtifactResourceLeaseStore()
@@ -521,6 +525,8 @@ const chatService = new ChatServiceImpl(null, {
   trustedAttachmentPaths,
   turnOutputStore,
   userAttachmentStore,
+  composerDraftStore,
+  composerDraftOwner: () => authManager.activeAccount()?.id ?? "local",
   onPermissionModeChanged: (sessionId, permissionMode) =>
     sessionService.setPermissionMode({ id: sessionId, permissionMode }),
   onExternalSessionSelectionChanged: (sessionId, patch) =>

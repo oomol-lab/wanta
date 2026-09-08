@@ -14,6 +14,12 @@ export interface KnowledgeChapterNode {
   title: string
 }
 
+export interface KnowledgeRecoveryIssue {
+  id: string
+  relativePath: string
+  message: string
+}
+
 export interface KnowledgeBaseSummary {
   id: string
   title: string
@@ -79,6 +85,8 @@ export const KnowledgeService = serviceName("knowledge-service") as ServiceName<
   ClientInvokes: {
     list(): Promise<KnowledgeBaseSummary[]>
     listFolders(): Promise<string[]>
+    listRecoveryIssues(): Promise<KnowledgeRecoveryIssue[]>
+    revealRecovery(id: string): Promise<void>
     importKnowledgeBase(request?: ImportKnowledgeBaseRequest | string): Promise<KnowledgeBaseSummary | null>
     readChapters(id: string): Promise<KnowledgeChapterNode[]>
     move(request: MoveKnowledgeBaseRequest): Promise<KnowledgeBaseSummary>

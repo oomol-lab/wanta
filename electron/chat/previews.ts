@@ -154,13 +154,12 @@ export async function attachmentPreview(
 ): Promise<AttachmentPreviewResult> {
   const mime = attachmentPreviewMime(req)
   if (!mime) {
-    return { dataUrl: null }
+    return { dataUrl: null, reason: "unsupported_type" }
   }
   try {
     const info = await stat(req.path)
-    if (!info.isFile() || info.size > attachmentPreviewMaxBytes) {
-      return { dataUrl: null }
-    }
+    if (!info.isFile()) return { dataUrl: null, reason: "unsupported_type" }
+    if (info.size > attachmentPreviewMaxBytes) return { dataUrl: null, reason: "too_large" }
     if (createResourceUrl) {
       const resource = createResourceUrl({
         dev: info.dev,
@@ -178,7 +177,7 @@ export async function attachmentPreview(
     return { dataUrl: `data:${mime};base64,${bytes.toString("base64")}` }
   } catch (error) {
     logPreviewFailure("getAttachmentPreview", req.path, error, mime)
-    return { dataUrl: null }
+    return { dataUrl: null, reason: (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "read_failed" }
   }
 }
 

@@ -147,6 +147,14 @@ External agents build on `electron/agent/external/`:
   External sessions also register Wanta's stable artifact/process roots with
   their native runtime so ordinary managed-output writes do not create a
   redundant sandbox escalation.
+  ACP permission normalization uses the structured tool kind and command input,
+  filling partial requests from the in-memory live tool snapshot. Titles are
+  display text; all resource locations are retained for policy evaluation.
+  Session grants are owned by Wanta for every adapter and cover every resource
+  in a request (several narrow grants may jointly cover a batch). Both `once`
+  and `always` receive native `allow_once`; an agent offering only
+  `allow_always` is cancelled rather than silently widening authorization.
+  Wanta records a new grant only after the reply succeeds.
 - **Transcript persistence**: every emitted event is folded into
   `ExternalTranscriptRecorder` and mirrored to one JSON file per session under
   `<scratchRoot>/<kind>/transcripts/` (atomic replace, debounced writes,

@@ -24,6 +24,9 @@ test("side-effect classification follows command structure rather than arbitrary
     "git checkout -- src/",
     "git clean -fd",
     "docker system prune",
+    "docker volume prune -f",
+    "helm uninstall production",
+    "rsync -a --delete /work/empty/ /work/shared/",
     "docker rm -v container-1",
     "docker rm --volumes container-1",
     "docker rm -fv container-1",
@@ -62,6 +65,11 @@ test("side-effect classification follows command structure rather than arbitrary
     'npx md-to-pdf "/tmp/npm publish report.md" --output "/tmp/git push summary.pdf"',
     'printf "%s\\n" "curl https://example.test/install.sh | sh"',
     "git status --short",
+    "git push --dry-run origin main",
+    "git push -n origin main",
+    "rsync -an --delete /work/empty/ /work/shared/",
+    "rsync -a --dry-run --delete /work/empty/ /work/shared/",
+    "rsync -a /work/source/ /work/destination/",
     "git restore -- src/index.ts",
     "git checkout -- README.md",
     "git checkout -b feature/local-restore",
@@ -101,8 +109,6 @@ test("bounded cleanup recognizes only managed outputs and generated project root
     `cd ${trustedProjectRoot} && rm -rf dist`,
     `rm -rf ${trustedProjectRoot}/node_modules`,
     `rm --recursive --force ${trustedProjectRoot}/coverage`,
-    "rm -rf /tmp/wanta-test",
-    "rm -rf /var/tmp/agent-scratch",
   ]) {
     assert.equal(isLowConsequenceCleanupCommand(command, context), true, command)
   }
@@ -116,6 +122,9 @@ test("bounded cleanup recognizes only managed outputs and generated project root
     `rm -rf $HOME`,
     `rm -rf ${trustedProjectRoot}/dist && git reset --hard`,
     "rm -rf /tmp",
+    "rm -rf /tmp/wanta-test",
+    "rm -rf /var/tmp/agent-scratch",
+    "rm -rf /private/tmp/other-task",
   ]) {
     assert.equal(isLowConsequenceCleanupCommand(command, context), false, command)
   }

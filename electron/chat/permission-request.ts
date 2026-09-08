@@ -990,7 +990,7 @@ export function permissionRequestIsSelectedProjectEnvWrite(
   const kind = permissionRequestKind(request)
   if (kind === "edit") {
     const resources = [...request.resources, ...(request.save ?? [])].filter((value) => value.trim())
-    return resources.length > 0 && resources.every((resource) => isSelectedProjectEnvResource(resource, scope))
+    return resources.some((resource) => isSelectedProjectEnvResource(resource, scope))
   }
   if (kind === "command") {
     return commandWritesSelectedProjectEnv(commandText(request), scope)
@@ -1121,7 +1121,7 @@ export function requestMatchesSessionGrant(request: ChatPermissionRequest, grant
   const values = [permissionCommand(request), ...request.resources].filter(
     (value): value is string => typeof value === "string" && value.trim().length > 0,
   )
-  return values.some((value) => grant.patterns.some((pattern) => patternMatches(pattern, value)))
+  return values.length > 0 && values.every((value) => grant.patterns.some((pattern) => patternMatches(pattern, value)))
 }
 
 export function requestMatchesManagedPythonDependencyInstallGrant(

@@ -4019,6 +4019,28 @@ test("always permission reply stores a main-process session grant", async () => 
   assert.equal(bridge.getPendingPermissions.mock.calls.length, 0)
 })
 
+test("failed always reply does not leave a session grant behind", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  const ask = (id: string) =>
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: { id, sessionID: "session-1", action: "edit", resources: ["/Users/example"] },
+    })
+  ask("permission-1")
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+  bridge.answerPermission.mockRejectedValueOnce(new Error("transport unavailable"))
+  await assert.rejects(
+    service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "always" }),
+    /transport unavailable/u,
+  )
+  ask("permission-2")
+  await waitForCondition(() => events.filter((event) => event.event === "permissionAsked").length === 2)
+  assert.equal(bridge.answerPermission.mock.calls.length, 1)
+})
+
 test("always permission replies propagate grants to active task subagents", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

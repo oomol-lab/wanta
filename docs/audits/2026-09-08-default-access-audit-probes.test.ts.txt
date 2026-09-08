@@ -1,0 +1,76 @@
+// Audit-only characterization: commands below are data; none are executed.
+import { test, expect } from "vitest"
+import { evaluateLocalAccessRequest } from "./local-access-policy.ts"
+import { permissionRequestKind, requestMatchesSessionGrant } from "./permission-request.ts"
+import { toolInfoFromToolUse } from "../../node_modules/@agentclientprotocol/claude-agent-acp/dist/tools.js"
+
+const context = { permissionMode: "default" as const, trustedProjectRoot: "/work/project", taskProcessRoot: "/work/process" }
+const request = (command: string) => ({ id: "audit", sessionId: "audit", action: "bash", resources: [], metadata: { command } })
+const cases: [string, string, string][] = [
+  ["ordinary read", "cat /work/project/README.md", "allow"],
+  ["project check", "cd /work/project && pnpm test", "allow"],
+  ["ordinary script", "python3 /work/project/process.py", "allow"],
+  ["scoped install", "cd /work/project && npm install", "allow"],
+  ["global install", "npm install -g typescript", "prompt"],
+  ["recursive user delete", "rm -rf /work/shared/client-data", "prompt"],
+  ["foreign tmp directory", "rm -rf /tmp/another-users-work", "allow"],
+  ["generated name only", "rm -rf /work/project/build", "allow"],
+  ["single irreplaceable file", "rm /work/shared/only-backup.sqlite", "allow"],
+  ["wildcard nonrecursive delete", "rm -f /work/shared/*.sqlite", "allow"],
+  ["overwrite existing data", "cp /work/project/empty.csv /work/shared/ledger.csv", "allow"],
+  ["sync delete", "rsync -a --delete /work/project/empty/ /work/shared/", "allow"],
+  ["python recursive delete", "python3 -c 'import shutil; shutil.rmtree(\"/work/shared/client-data\")'", "allow"],
+  ["node recursive delete", "node -e 'require(\"fs\").rmSync(\"/work/shared/client-data\", {recursive:true})'", "allow"],
+  ["powershell recursive delete", "powershell -Command 'Remove-Item -Recurse -Force C:\\Shared\\client-data'", "allow"],
+  ["git irreversible named restore", "git restore -- only-uncommitted-file.txt", "allow"],
+  ["git broad restore", "git restore .", "prompt"],
+  ["git restore directory without slash", "git restore src", "allow"],
+  ["git push dry run", "git push --dry-run", "prompt"],
+  ["git ordinary push", "git push origin feature", "prompt"],
+  ["git hard reset", "git reset --hard", "prompt"],
+  ["remote repo delete CLI", "gh repo delete example/audit-only --yes", "prompt"],
+  ["remote repo delete API", "gh api -X DELETE repos/example/audit-only", "allow"],
+  ["remote database drop", "psql -d audit_only -c 'DROP SCHEMA public CASCADE'", "allow"],
+  ["docker volume prune", "docker volume prune -f", "allow"],
+  ["cluster deletion", "kubectl delete namespace audit-only", "prompt"],
+  ["helm uninstall", "helm uninstall audit-only", "allow"],
+  ["irrelevant credential word", "rg OO_API_KEY docs", "deny"],
+  ["single benign env lookup", "printenv LANG", "deny"],
+  ["env process launcher", "env NODE_ENV=test node script.js", "deny"],
+  ["project env read", "cd /work/project && cat .env", "allow"],
+  ["project env write", "cd /work/project && echo DEBUG=1 > .env", "prompt"],
+  ["flow publish transport", "oo flow publish audit-only --project project-a --json", "allow"],
+]
+
+test.each(cases)("audit: %s", (_name, command, expected) => {
+  expect(evaluateLocalAccessRequest(request(command), context).type).toBe(expected)
+})
+
+test("real installed Claude ACP Bash payload loses command kind in Wanta", () => {
+  const command = "rm -rf /work/shared/client-data"
+  const input = { command }
+  const info = toolInfoFromToolUse({ name: "Bash", id: "audit", input })
+  expect(info.kind).toBe("execute")
+  expect(info.title).toBe(command)
+  const normalized = { id: "audit", sessionId: "audit", action: info.title, resources: [], metadata: { rawInput: input } }
+  expect(permissionRequestKind(normalized)).toBe("local")
+  expect(evaluateLocalAccessRequest(normalized, { ...context, isExternalSession: true }).type).toBe("allow")
+})
+
+test("matching one resource authorizes unmatched broad edit scope", () => {
+  const mixed = { id: "audit", sessionId: "audit", action: "edit", resources: ["/work/project/a.txt", "/Users/example"] }
+  const grant = { action: "edit", kind: "request" as const, patterns: ["/work/project/a.txt"] }
+  expect(requestMatchesSessionGrant(mixed, grant)).toBe(true)
+  expect(evaluateLocalAccessRequest(mixed, context).type).toBe("prompt")
+  expect(evaluateLocalAccessRequest(mixed, { ...context, sessionGrants: [grant] }).type).toBe("allow")
+})
+
+test("mixed env and ordinary edit skips selected env write prompt", () => {
+  const mixed = { id: "audit", sessionId: "audit", action: "edit", resources: ["/work/project/.env", "/work/project/a.txt"] }
+  expect(evaluateLocalAccessRequest(mixed, context).type).toBe("allow")
+})
+
+test("unclassified operation is automatically local", () => {
+  const unknown = { id: "audit", sessionId: "audit", action: "permission", resources: [], metadata: { rawInput: { command: "rm -rf /work/shared/client-data" } } }
+  expect(evaluateLocalAccessRequest(unknown, context).type).toBe("allow")
+})

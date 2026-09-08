@@ -45,8 +45,10 @@ test("team management copy separates context switching from current-team setting
 test("full access permission mode is localized without implementation labels", () => {
   assert.equal(translate("zh-CN", "chat.permissionModeFullAccess"), "完全访问")
   assert.equal(translate("en", "chat.permissionModeFullAccess"), "Full access")
-  assert.match(translate("zh-CN", "chat.permissionModeDefaultDescription"), /智能体的默认审批策略/)
+  assert.match(translate("zh-CN", "chat.permissionModeDefaultDescription"), /自动执行日常操作/)
   assert.match(translate("en", "chat.permissionModeFullAccessDescription"), /high-risk commands/)
+  assert.match(translate("zh-CN", "chat.fullAccessDialogBody"), /内置浏览器/)
+  assert.match(translate("en", "chat.fullAccessDialogBody"), /managed-credential protections remain/)
   assert.equal(translate("zh-CN", "chat.permissionModeAuto"), "自动审批")
   assert.match(translate("en", "chat.permissionModeAutoDescription"), /auto-approves routine actions/)
   assert.doesNotMatch(translate("zh-CN", "chat.fullAccessDialogTitle"), /YOLO/)

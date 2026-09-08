@@ -166,10 +166,12 @@ function mutatesGitRemoteOrWorkingTree(words: readonly string[]): boolean {
     return false
   }
   const verb = command.value.toLowerCase()
-  if (verb === "push") {
-    return true
-  }
   const args = words.slice(command.index + 1)
+  if (verb === "push") {
+    const optionEnd = args.indexOf("--")
+    const options = optionEnd < 0 ? args : args.slice(0, optionEnd)
+    return !options.some((word) => word === "--dry-run" || word === "-n")
+  }
   if (verb === "reset") {
     return args.includes("--hard")
   }
@@ -206,7 +208,9 @@ function mutatesCluster(words: readonly string[]): boolean {
     return false
   }
   const command = nextOperand(words, 1, clusterOptionsWithValue)?.value.toLowerCase()
-  return Boolean(command && ["apply", "delete", "patch", "replace", "rollback", "upgrade"].includes(command))
+  return Boolean(
+    command && ["apply", "delete", "patch", "replace", "rollback", "upgrade", "uninstall"].includes(command),
+  )
 }
 
 function dockerRmRemovesAnonymousVolumes(words: readonly string[], startIndex: number): boolean {
@@ -235,7 +239,10 @@ function mutatesDocker(words: readonly string[]): boolean {
   const verb = command.value.toLowerCase()
   const nested = nextOperand(words, command.index + 1)
   const nestedVerb = nested?.value.toLowerCase()
-  if ((verb === "system" && nestedVerb === "prune") || (verb === "volume" && nestedVerb === "rm")) {
+  if (
+    (verb === "system" && nestedVerb === "prune") ||
+    (verb === "volume" && ["rm", "prune"].includes(nestedVerb ?? ""))
+  ) {
     return true
   }
   if (verb === "rm") {
@@ -295,6 +302,14 @@ function destructivelyOverwritesStorage(words: readonly string[]): boolean {
     return words.slice(1).some((word) => /^of=/iu.test(word))
   }
   return Boolean(name && (/^mkfs(?:\.|$)/u.test(name) || /^newfs(?:_|$)/u.test(name)))
+}
+
+function deletesSyncDestination(words: readonly string[]): boolean {
+  if (shellCommandName(words[0]) !== "rsync") return false
+  const separator = words.indexOf("--")
+  const options = words.slice(1, separator < 0 ? undefined : separator)
+  if (options.some((word) => word === "--dry-run" || optionHasLetter(word, "n"))) return false
+  return options.some((word) => /^--delete(?:$|-(?:before|during|delay|after|excluded)$)/u.test(word))
 }
 
 function deploysService(words: readonly string[]): boolean {
@@ -361,6 +376,7 @@ function riskySimpleCommand(words: readonly string[], depth: number): boolean {
     deletesRemoteRepository(command) ||
     recursivelyDeletesCloudStorage(command) ||
     destructivelyOverwritesStorage(command) ||
+    deletesSyncDestination(command) ||
     deploysService(command) ||
     readsSystemPassword(command) ||
     mutatesSystemService(command)

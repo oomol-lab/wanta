@@ -1027,13 +1027,13 @@ export const enMessages = {
   "chat.permissionModePicker": "Access mode",
   "chat.permissionModeDefault": "Default access",
   "chat.permissionModeDefaultDescription":
-    "Follows the agent's default approval policy; asks when confirmation is needed",
+    "Automatically runs everyday operations; asks for sensitive data or recognized high-risk actions",
   "chat.permissionModeFullAccess": "Full access",
   "chat.permissionModeFullAccessDescription":
-    "Skips local confirmations, including for high-risk commands and paths outside the project",
+    "Skips confirmations for local high-risk commands, paths outside the project, and browser actions within the task",
   "chat.fullAccessDialogTitle": "Confirm full access?",
   "chat.fullAccessDialogBody":
-    "After this is enabled, Wanta will automatically approve local access requests in this chat, including local commands, file reads/writes/deletes, and paths outside the selected project.\nWanta will not ask again for local operation approval in this chat.\nUse it only when you trust the current task.",
+    "After this is enabled, Wanta will automatically approve local access requests in this chat, including local commands, file reads/writes/deletes, and paths outside the selected project.\nWanta will not ask again for local operation approval in this chat; the integrated browser will also act automatically within the task. Login and verification challenges remain manual, and account and managed-credential protections remain in place.\nUse it only when you trust the current task.",
   "chat.fullAccessDialogAcknowledge": "I understand the risk and want to continue",
   "chat.fullAccessDialogConfirm": "Enable",
   "chat.permissionRequiredTitle": "Permission needed to continue",

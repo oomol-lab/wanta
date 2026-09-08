@@ -154,7 +154,16 @@ function hasMatchingGenericSessionGrant(
   request: ChatPermissionRequest,
   grants: readonly SessionPermissionGrant[] | undefined,
 ): boolean {
-  return Boolean(grants?.some((grant) => requestMatchesSessionGrant(request, grant)))
+  const matching = grants?.filter(
+    (grant) => (!grant.kind || grant.kind === "request") && grant.action === request.action.trim().toLowerCase(),
+  )
+  if (!matching?.length) return false
+  // A batch can reuse several narrow approvals without widening any of them.
+  return requestMatchesSessionGrant(request, {
+    action: matching[0]!.action,
+    kind: "request",
+    patterns: matching.flatMap((grant) => grant.patterns),
+  })
 }
 
 function diagnosticRequestInsideRoots(
@@ -229,6 +238,7 @@ function evaluateBaselineLocalAccessRequest(
     highRisk &&
     command &&
     isLowConsequenceCleanupCommand(command, {
+      commandCwd,
       taskProcessRoot: context.taskProcessRoot,
       trustedProjectRoot: context.trustedProjectRoot,
     })
@@ -291,8 +301,6 @@ export function evaluateLocalAccessRequest(
   request: ChatPermissionRequest,
   context: LocalAccessPolicyContext,
 ): LocalAccessDecision {
-  const kind = permissionRequestKind(request)
-  const highRisk = isHighRiskPermissionRequest(request, permissionScope(request, context))
   const diagnostic = evaluateDiagnosticTurnAccess(request, context)
   if (diagnostic) {
     return diagnostic
@@ -307,9 +315,9 @@ export function evaluateLocalAccessRequest(
     context.isExternalSession &&
     isWantaHostToolPermissionRequest(request) &&
     !permissionRequestHasSensitiveResource(request, permissionScope(request, context)) &&
-    !highRisk
+    !isHighRiskPermissionRequest(request, permissionScope(request, context))
   ) {
-    return { type: "allow", reason: "wanta_host_tool", kind, highRisk }
+    return { type: "allow", reason: "wanta_host_tool", kind: permissionRequestKind(request), highRisk: false }
   }
   return evaluateBaselineLocalAccessRequest(request, context)
 }

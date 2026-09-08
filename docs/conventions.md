@@ -164,10 +164,9 @@
   command does not need a redundant `cd`. Inert log redirects, descriptor duplication, and `echo ok`
   markers do not eject an in-scope install. Node.js and Python package runners are ordinary local execution rather than a package-specific
   risk class. Package names, package size, browser tooling, and unfamiliar ordinary flags are not
-  confirmation boundaries. Recursive cleanup is also auto-approved for direct children of `/tmp`
-  and `/var/tmp`, direct children of Wanta's
-  per-turn process directory, and exact well-known generated project roots such as `dist`,
-  `coverage`, and `node_modules`; project roots, source directories, variables, wildcards, and
+  confirmation boundaries. Recursive cleanup is also auto-approved for descendants of Wanta's
+  per-turn process directory and exact well-known generated project roots such as `dist`,
+  `coverage`, and `node_modules`; unrelated temporary directories, project roots, source directories, variables, wildcards, and
   composed destructive commands remain protected. A `.env` file inside the selected project is
   readable automatically through recognized read-only commands; deletion, writing, and unknown
   executable semantics still prompt and may be granted for the session. Home credentials, browser

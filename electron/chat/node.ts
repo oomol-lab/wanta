@@ -3244,16 +3244,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         throw error
       }
     }
-    if (req.reply === "always") {
-      for (const sessionId of sessionIds) {
-        this.addSessionPermissionGrant(sessionId, request)
-      }
-    }
     const sourceSessionId = request.sessionId
-    // The reply is forwarded verbatim; how "always" maps onto the agent's own
-    // approval semantics is each adapter's business (the kernel adapter
-    // downgrades it because the grant lives Wanta-side, external agents
-    // persist it in their native rule system).
+    // Both adapters answer once natively; Wanta retains the bounded session grant.
     await this.trackPermissionReply(
       request,
       req.reply === "reject" ? { source: "user", ...request.tool } : undefined,
@@ -3265,6 +3257,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           reply: req.reply,
         }),
     )
+    if (req.reply === "always") {
+      for (const sessionId of sessionIds) {
+        this.addSessionPermissionGrant(sessionId, request)
+      }
+    }
     if (req.reply !== "reject" && request) {
       this.rememberTrustedPermissionResources(req.sessionId, request)
     }

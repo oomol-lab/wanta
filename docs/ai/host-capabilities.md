@@ -100,6 +100,21 @@ Image 2 runtime-copy guidance documents its `--oo` option for this purpose.
 Automatic local-access decisions record a stable reason in diagnostics;
 denial reasons contain no command arguments or credential values.
 
+Default Access distinguishes `env NAME=value command` launchers from environment
+dumps and still inspects the launched command. Explicit `printenv` reads of known
+non-sensitive runtime variables (such as `LANG`, `PATH`, and `NODE_ENV`) and literal
+`rg`/`grep` searches for credential variable names are ordinary operations; reading
+the actual managed credential values remains denied. Proven command cwd also
+qualifies relative generated-output cleanup without requiring a redundant `cd`.
+Git push and rsync dry runs remain ordinary. Deletion-enabled rsync, Docker volume
+pruning, and Helm uninstall join the existing consequential-operation boundaries.
+Recursive deletion of an unrelated `/tmp`, `/var/tmp`, or `/private/tmp` child
+requires confirmation; a temporary path alone does not establish task ownership.
+The active task process directory's descendants and the existing recognized
+project output roots remain eligible for automatic cleanup, including proven cwd
+forms. Agents should put disposable intermediates in the supplied task process
+directory. This policy does not add filesystem scans or automatic backups.
+
 ## Kernel contract
 
 `HostCapabilityKernel` is the single registry and execution boundary for

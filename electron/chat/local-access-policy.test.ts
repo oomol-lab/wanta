@@ -19,6 +19,129 @@ function permission(overrides: Partial<ChatPermissionRequest>): ChatPermissionRe
   }
 }
 
+test("ordinary launcher, inspection, and dry-run commands do not introduce approval prompts", () => {
+  for (const command of [
+    "env NODE_ENV=test node script.js",
+    "env -u DEBUG LANG=en_US.UTF-8 python3 process.py",
+    "printenv LANG",
+    "printenv PATH HOME",
+    "rg OO_API_KEY docs",
+    "cd /work/project && rg OO_API_KEY docs",
+    "bash -lc 'rg OO_API_KEY docs'",
+    "grep -R OO_CONNECTOR_TOKEN docs",
+    "git push --dry-run origin main",
+    "git push -n origin main",
+    "cd /work/project && npm install",
+    "node process.js",
+  ]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+        trustedProjectRoot: "/work/project",
+      }).type,
+      "allow",
+      command,
+    )
+  }
+})
+
+test("ordinary env launchers still inspect nested protected operations", () => {
+  for (const command of [
+    "env NODE_ENV=test printenv",
+    "env NODE_ENV=test bash -c 'printenv'",
+    "env NODE_ENV=test oo auth logout",
+    "env NODE_ENV=test oo --debug config set endpoint https://other.test",
+    "env NODE_ENV=test env LANG=C printenv",
+    "printenv OO_API_KEY",
+    "printenv AWS_SECRET_ACCESS_KEY",
+    "env NODE_ENV=test",
+    'rg "$OO_API_KEY" docs',
+    "rg OO_API_KEY docs; printenv",
+  ]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "default" }).type,
+      "deny",
+      command,
+    )
+  }
+  assert.equal(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "env NODE_ENV=test rm -rf /work/shared/data" } }), {
+      permissionMode: "default",
+    }).type,
+    "prompt",
+  )
+})
+
+test("cleanup uses proven cwd without adding prompts or trusting an unrelated project", () => {
+  const request = permission({ metadata: { command: "rm -rf dist", cwd: "/work/project" } })
+  assert.equal(
+    evaluateLocalAccessRequest(request, { permissionMode: "default", trustedProjectRoot: "/work/project" }).type,
+    "allow",
+  )
+  assert.equal(
+    evaluateLocalAccessRequest(request, { permissionMode: "default", trustedProjectRoot: "/work/other" }).type,
+    "prompt",
+  )
+})
+
+test("temporary cleanup is automatic only within the active task or a recognized project output", () => {
+  const context = {
+    permissionMode: "default" as const,
+    taskProcessRoot: "/tmp/task-a",
+    trustedProjectRoot: "/tmp/project",
+  }
+  for (const command of ["rm -rf /tmp/task-a/scratch", "rm -rf /tmp/project/dist"]) {
+    assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "allow", command)
+  }
+  for (const command of [
+    "rm -rf /tmp/task-b",
+    "rm -rf /tmp/task-ab/scratch",
+    "rm -rf /tmp/task-a/../task-b",
+    "rm -rf /tmp/task-a",
+  ]) {
+    assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "prompt", command)
+  }
+})
+
+test("session grants must cover every requested resource", () => {
+  const grant = { action: "edit", kind: "request" as const, patterns: ["/work/project/a"] }
+  const request = permission({ action: "edit", resources: ["/work/project/a", "/Users/example"] })
+  assert.equal(
+    evaluateLocalAccessRequest(request, { permissionMode: "default", sessionGrants: [grant] }).type,
+    "prompt",
+  )
+  const completeGrant = { ...grant, patterns: [...grant.patterns, "/Users/example"] }
+  assert.equal(
+    evaluateLocalAccessRequest(request, { permissionMode: "default", sessionGrants: [completeGrant] }).type,
+    "allow",
+  )
+  assert.equal(
+    evaluateLocalAccessRequest(request, {
+      permissionMode: "default",
+      sessionGrants: [grant, { ...grant, patterns: ["/Users/example"] }],
+    }).type,
+    "allow",
+  )
+})
+
+test("mixed project edits do not hide an env write", () => {
+  const context = { permissionMode: "default" as const, trustedProjectRoot: "/work/project" }
+  assert.equal(
+    evaluateLocalAccessRequest(
+      permission({ action: "edit", resources: ["/work/project/a", "/work/project/.env"] }),
+      context,
+    ).type,
+    "prompt",
+  )
+  assert.equal(
+    evaluateLocalAccessRequest(
+      permission({ action: "edit", resources: ["/work/project/a", "/work/project/b"] }),
+      context,
+    ).type,
+    "allow",
+  )
+})
+
 test("skill validation with a managed PATH, quoted paths and output filtering is ordinary execution", () => {
   const command =
     'export PATH="/Users/example/Library/Application Support/wanta/agent/bin:$PATH"; cd "/Users/example/Library/Application Support/wanta/agent/workspace/.opencode/skills/ecommerce-image-studio" && echo "=== validate ===" && oo skills validate "/Users/example/Library/Application Support/wanta/agent/workspace/.opencode/skills/ecommerce-image-studio" 2>&1 | tail -20; echo; echo "=== line count ==="; wc -l SKILL.md'
@@ -937,22 +1060,21 @@ test("bug-report turns only auto-allow work inside the evidence pack and report 
   )
 })
 
-test("default access auto-approves local git restore, named docker rm, and /tmp cleanup", () => {
+test("default access keeps ordinary git and docker work automatic but protects unrelated temporary cleanup", () => {
   for (const command of [
     "git restore -- src/index.ts",
     "git checkout -- README.md",
     "git checkout -b feature/local-restore",
     "docker rm build-container",
     "docker rmi stale-image",
-    "rm -rf /tmp/wanta-test",
   ]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "default" }),
       {
         type: "allow",
-        reason: command.startsWith("rm") ? "bounded_cleanup" : "default_command",
+        reason: "default_command",
         kind: "command",
-        highRisk: command.startsWith("rm"),
+        highRisk: false,
       },
       command,
     )
@@ -973,6 +1095,9 @@ test("default access auto-approves local git restore, named docker rm, and /tmp 
     "docker rm -v build-container",
     "docker rm --volumes build-container",
     "rm -rf /tmp",
+    "rm -rf /tmp/wanta-test",
+    "rm -rf /var/tmp/other-task",
+    "rm -rf /private/tmp/other-task",
     "rm -rf /tmp/wanta/process/turn-1",
   ]) {
     assert.equal(

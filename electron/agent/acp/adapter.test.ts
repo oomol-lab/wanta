@@ -17,6 +17,7 @@ import type {
   ToolCallUpdate,
 } from "@agentclientprotocol/sdk"
 
+import { toolInfoFromToolUse } from "@agentclientprotocol/claude-agent-acp/dist/tools.js"
 import { agent, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk"
 import { execFile } from "node:child_process"
 import { mkdtemp, writeFile } from "node:fs/promises"
@@ -24,6 +25,7 @@ import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, test, vi } from "vitest"
+import { evaluateLocalAccessRequest } from "../../chat/local-access-policy.ts"
 import { AGENT_PROFILES } from "../contract/profile.ts"
 import { ExternalOoGuardServer } from "../external/oo-guard-server.ts"
 import { AcpAgentAdapter } from "./adapter.ts"
@@ -938,7 +940,7 @@ describe("AcpAgentAdapter", () => {
 
   test.each([
     ["once", "opt-allow-once"],
-    ["always", "opt-allow-always"],
+    ["always", "opt-allow-once"],
     ["reject", "opt-reject-once"],
   ] as const)("permission round trip: reply %s selects %s", async (reply, expectedOptionId) => {
     const harness = await createHarness({
@@ -976,6 +978,93 @@ describe("AcpAgentAdapter", () => {
     await harness.waitFor((event) => event.event === "permissionReplied")
     await harness.waitFor((event) => event.event === "messageCompleted")
     expect(harness.fake.permissionResponses).toEqual([{ outcome: { outcome: "selected", optionId: expectedOptionId } }])
+  })
+
+  test.each([
+    ["node process.js", "allow"],
+    ["rm -rf /work/shared/customer-data", "prompt"],
+    ["printenv", "deny"],
+  ] as const)("real Claude Bash permission payload: %s", async (command, decision) => {
+    const input = { command }
+    const info = toolInfoFromToolUse({ name: "Bash", input, id: "real-bash" })
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        await turn.requestPermission({ ...info, toolCallId: "real-bash", rawInput: input }, permissionOptions)
+        return { stopReason: "end_turn" }
+      },
+    })
+    await harness.adapter.send(promptInput())
+    const asked = await harness.waitFor((event) => event.event === "permissionAsked")
+    const request = eventData(asked, "permissionAsked").request
+    expect(request.action).toBe("bash")
+    expect(evaluateLocalAccessRequest(request, { permissionMode: "default", isExternalSession: true }).type).toBe(
+      decision,
+    )
+    await harness.adapter.send({
+      type: "permission-response",
+      sessionId: WANTA_SESSION_ID,
+      requestId: request.id,
+      reply: "reject",
+    })
+    await harness.waitFor((event) => event.event === "messageCompleted")
+  })
+
+  test("partial permission payload retains all live locations including a sensitive fourth file", async () => {
+    const locations = ["/work/project/a", "/work/project/b", "/work/project/c", "/work/project/.env"].map((path) => ({
+      path,
+    }))
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        await turn.sendUpdate({
+          sessionUpdate: "tool_call",
+          toolCallId: "edit-many",
+          title: "Update project",
+          kind: "edit",
+          locations,
+          rawInput: { path: "/work/project/a" },
+        })
+        await turn.requestPermission({ toolCallId: "edit-many" }, permissionOptions)
+        await turn.sendUpdate({ sessionUpdate: "tool_call_update", toolCallId: "edit-many", status: "completed" })
+        return { stopReason: "end_turn" }
+      },
+    })
+    await harness.adapter.send(promptInput())
+    const asked = await harness.waitFor((event) => event.event === "permissionAsked")
+    const request = eventData(asked, "permissionAsked").request
+    expect(request.action).toBe("edit")
+    expect(request.resources).toEqual(locations.map(({ path }) => path))
+    expect(
+      evaluateLocalAccessRequest(request, { permissionMode: "default", trustedProjectRoot: "/work/project" }).type,
+    ).toBe("prompt")
+    await harness.adapter.send({
+      type: "permission-response",
+      sessionId: WANTA_SESSION_ID,
+      requestId: request.id,
+      reply: "reject",
+    })
+    await harness.waitFor((event) => event.event === "messageCompleted")
+  })
+
+  test("an allow-once reply cannot silently select a native always rule", async () => {
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        await turn.requestPermission(
+          { toolCallId: "only-always", title: "Write file" },
+          permissionOptions.filter((option) => option.kind !== "allow_once"),
+        )
+        return { stopReason: "end_turn" }
+      },
+    })
+    await harness.adapter.send(promptInput())
+    const asked = await harness.waitFor((event) => event.event === "permissionAsked")
+    await harness.adapter.send({
+      type: "permission-response",
+      sessionId: WANTA_SESSION_ID,
+      requestId: eventData(asked, "permissionAsked").request.id,
+      reply: "once",
+    })
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    expect(harness.fake.permissionResponses).toEqual([{ outcome: { outcome: "cancelled" } }])
   })
 
   test("correlates a generic codex permission request with its live Wanta MCP tool call", async () => {

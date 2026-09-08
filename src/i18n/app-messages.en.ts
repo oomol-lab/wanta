@@ -633,6 +633,32 @@ export const enMessages = {
   "chatError.providerUnavailable.description": "The upstream service is not responding right now. Try again later.",
   "chatError.providerUnavailable.primaryAction": "Retry",
   "chatError.failed.title": "Response failed",
+  "chatError.toolBlocked.title": "Turn interrupted by a blocked operation",
+  "chatError.toolDeclined.title": "Turn ended after your rejection",
+  "chatError.toolBlocked.credentials":
+    "Wanta automatically blocked a call involving managed credentials. No approval is pending. Earlier operations were not rolled back. Ask the agent to continue through an authorized connection.",
+  "chatError.toolBlocked.environment":
+    "Wanta classified this call as printing process environment variables and automatically blocked it. No approval is pending. Earlier operations were not rolled back. Ask the agent to inspect specific configuration values instead.",
+  "chatError.toolBlocked.runtimeEnvironment":
+    "Wanta blocked a call that overrides managed connection endpoints or configuration directories. Earlier operations were not rolled back. Continue with the supplied runtime environment.",
+  "chatError.toolBlocked.runtimeAuth":
+    "Wanta blocked a call that changes managed authentication or connection settings. Earlier operations were not rolled back. Use Wanta's connection settings if a change is needed.",
+  "chatError.toolBlocked.runtimeOptions":
+    "Wanta blocked a call with options that override managed connection settings. Earlier operations were not rolled back. Continue with the current connection configuration.",
+  "chatError.toolBlocked.diagnosticCapability":
+    "This call exceeded the capabilities allowed for the diagnostic task and was blocked. Earlier operations were not rolled back. Start a regular task for business operations.",
+  "chatError.toolBlocked.diagnosticScope":
+    "This call accessed files outside the diagnostic task's allowed scope and was blocked. Earlier operations were not rolled back. Continue within the permitted diagnostic evidence.",
+  "chatError.toolBlocked.description":
+    "Wanta automatically blocked a tool call under its permission policy. No approval is pending. Previously completed operations were not rolled back. Copy diagnostics for the policy reason; check completed work before continuing.",
+  "chatError.toolDeclined.description":
+    "This turn ended after you declined a tool call. Previously completed operations were not rolled back. Check completed work before continuing.",
+  "chatError.responseIncomplete.title": "Final response missing",
+  "chatError.responseIncomplete.description":
+    "The agent stopped without a final response. Previously completed operations were not rolled back. Check completed work before continuing.",
+  "chatError.historyUnavailable.title": "Unable to verify conversation history",
+  "chatError.historyUnavailable.description":
+    "Wanta could not verify this turn in the saved history. Operations may already have taken effect. Check the conversation and completed work before continuing.",
   "chatError.failed.description": "This response was not completed. You can retry or copy diagnostics for support.",
   "chatError.failed.primaryAction": "Retry",
   "chatError.failed.retryFailed": "The recovery action was not completed. Try again later.",
@@ -1001,13 +1027,13 @@ export const enMessages = {
   "chat.permissionModePicker": "Access mode",
   "chat.permissionModeDefault": "Default access",
   "chat.permissionModeDefaultDescription":
-    "Follows the agent's default approval policy; asks when confirmation is needed",
+    "Automatically runs everyday operations; asks for sensitive data or recognized high-risk actions",
   "chat.permissionModeFullAccess": "Full access",
   "chat.permissionModeFullAccessDescription":
-    "Skips local confirmations, including for high-risk commands and paths outside the project",
+    "Skips confirmations for local high-risk commands, paths outside the project, and browser actions within the task",
   "chat.fullAccessDialogTitle": "Confirm full access?",
   "chat.fullAccessDialogBody":
-    "After this is enabled, Wanta will automatically approve local access requests in this chat, including local commands, file reads/writes/deletes, and paths outside the selected project.\nWanta will not ask again for local operation approval in this chat.\nUse it only when you trust the current task.",
+    "After this is enabled, Wanta will automatically approve local access requests in this chat, including local commands, file reads/writes/deletes, and paths outside the selected project.\nWanta will not ask again for local operation approval in this chat; the integrated browser will also act automatically within the task. Login and verification challenges remain manual, and account and managed-credential protections remain in place.\nUse it only when you trust the current task.",
   "chat.fullAccessDialogAcknowledge": "I understand the risk and want to continue",
   "chat.fullAccessDialogConfirm": "Enable",
   "chat.permissionRequiredTitle": "Permission needed to continue",

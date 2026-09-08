@@ -541,6 +541,8 @@ test("active run snapshots track permission waits and completion", async () => {
   assert.equal((await service.getActiveRun("session-1"))?.phase, "awaiting_permission")
   assert.deepEqual((await service.getActiveRun("session-1"))?.blockingRequestIds, ["permission-1"])
 
+  await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "once" })
+
   bridge.emit({
     type: "message.updated",
     properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -1069,6 +1071,273 @@ test("sendMessage rejects a second active generation for the same session", asyn
     message: "A generation is already active for this session.",
   })
   assert.equal(bridge.promptStreaming.mock.calls.length, 1)
+})
+
+test.each(["policy", "user"] as const)(
+  "idle after a %s rejection reports the blocked tool, not a save failure",
+  async (source) => {
+    vi.useFakeTimers()
+    const bridge = createBridgeAgent()
+    const service = new ChatServiceImpl(bridge.agent)
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+    await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "validate" })
+    const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-tools", sessionID: "session-1", role: "assistant" } },
+    })
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: {
+        id: "permission-1",
+        sessionID: "session-1",
+        action: "bash",
+        resources: [source === "policy" ? "printenv" : "rm -rf /"],
+        tool: { messageID: "assistant-tools", callID: "call-1" },
+      },
+    })
+    if (source === "user")
+      await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "reject" })
+    await vi.advanceTimersByTimeAsync(1)
+    if (source === "policy") {
+      expect(bridge.answerPermission).toHaveBeenCalledWith(
+        "session-1",
+        "permission-1",
+        "reject",
+        expect.stringContaining("environment_dump"),
+      )
+      expect(events.some((event) => event.event === "permissionAsked")).toBe(false)
+    }
+    bridge.getMessages.mockResolvedValue([
+      { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+      {
+        id: "assistant-tools",
+        role: "assistant",
+        createdAt: 2,
+        completedAt: 3,
+        finishReason: "tool-calls",
+        parts: [{ kind: "tool", partId: "part-1", callId: "call-1", status: "error", tool: "bash" }],
+      },
+    ])
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await vi.advanceTimersByTimeAsync(60_000)
+    vi.useRealTimers()
+    await waitForCondition(() => events.some((event) => event.event === "messageError"))
+    const error = events.findLast((event) => event.event === "messageError")
+    expect(error?.data).toMatchObject({
+      errorKind: "tool_blocked",
+      errorCode: source === "policy" ? "CHAT_TOOL_POLICY_BLOCKED_ENVIRONMENT_DUMP" : "CHAT_TOOL_USER_DECLINED",
+    })
+    expect(service.hasActiveGeneration()).toBe(false)
+    expect(bridge.abort).not.toHaveBeenCalled()
+    expect(bridge.promptStreaming).toHaveBeenCalledTimes(1)
+    service.dispose()
+  },
+)
+
+test("a final response after policy feedback completes even when idle preceded the permission acknowledgement", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "validate" })
+  const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  let acknowledge!: () => void
+  bridge.answerPermission.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        acknowledge = resolve
+      }),
+  )
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["printenv"],
+      tool: { messageID: "assistant-1", callID: "call-1" },
+    },
+  })
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await vi.advanceTimersByTimeAsync(90_000)
+  expect(service.hasActiveGeneration()).toBe(true)
+  expect(bridge.getMessages).not.toHaveBeenCalled()
+  bridge.getMessages.mockResolvedValue([
+    { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+    {
+      id: "assistant-1",
+      role: "assistant",
+      createdAt: 2,
+      finishReason: "tool-calls",
+      parts: [{ kind: "tool", partId: "part-1", callId: "call-1", status: "error" }],
+    },
+    { id: "final", role: "assistant", createdAt: 3, completedAt: 4, finishReason: "stop", parts: [] },
+  ])
+  vi.useRealTimers()
+  acknowledge()
+  await waitForCondition(() => !service.hasActiveGeneration())
+  expect(events.some((event) => event.event === "messageError")).toBe(false)
+  expect(events.findLast((event) => event.event === "turnOutcome")?.data).toMatchObject({
+    kind: "completed",
+    messageId: "final",
+  })
+  expect(bridge.promptStreaming).toHaveBeenCalledTimes(1)
+  service.dispose()
+})
+
+test("idle while awaiting approval has no completion deadline and resumes verification after reply", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "hello" })
+  const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
+  expect(userMessageId).toBeTypeOf("string")
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: { id: "permission-1", sessionID: "session-1", action: "bash", resources: ["rm -rf /"] },
+  })
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await vi.advanceTimersByTimeAsync(90_000)
+  expect(service.hasActiveGeneration()).toBe(true)
+  expect(bridge.getMessages).not.toHaveBeenCalled()
+  expect(events.some((event) => event.event === "messageError")).toBe(false)
+  bridge.getMessages.mockResolvedValue([
+    { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+    { id: "final", role: "assistant", createdAt: 2, completedAt: 3, finishReason: "stop", parts: [] },
+  ])
+  vi.useRealTimers()
+  await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "once" })
+  await waitForCondition(() => !service.hasActiveGeneration())
+  expect(service.hasActiveGeneration()).toBe(false)
+  service.dispose()
+})
+
+test.each(["message", "busy"])(
+  "new %s progress invalidates an idle history read and its completion deadline",
+  async (progress) => {
+    vi.useFakeTimers()
+    const bridge = createBridgeAgent()
+    const service = new ChatServiceImpl(bridge.agent)
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+    await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "hello" })
+    const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
+    let release!: (messages: ChatMessage[]) => void
+    bridge.getMessages.mockImplementationOnce(
+      () =>
+        new Promise<ChatMessage[]>((resolve) => {
+          release = resolve
+        }),
+    )
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    if (progress === "busy") {
+      bridge.emit({ type: "session.status", properties: { sessionID: "session-1", status: { type: "busy" } } })
+    } else {
+      bridge.emit({
+        type: "message.updated",
+        properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
+      })
+    }
+    release([
+      { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+      { id: "old-final", role: "assistant", createdAt: 2, completedAt: 3, finishReason: "stop", parts: [] },
+    ])
+    await vi.advanceTimersByTimeAsync(90_000)
+    expect(service.hasActiveGeneration()).toBe(true)
+    expect(events.some((event) => event.event === "messageError" || event.event === "messageCompleted")).toBe(false)
+    service.dispose()
+  },
+)
+
+test("an idle signal cannot time out a running tool and its result resumes verification", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "run" })
+  const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  const part = {
+    id: "part-1",
+    messageID: "assistant-1",
+    sessionID: "session-1",
+    type: "tool",
+    tool: "bash",
+    callID: "call-1",
+  }
+  bridge.emit({
+    type: "message.part.updated",
+    properties: { part: { ...part, state: { status: "running", input: { command: "sleep 90" }, time: { start: 1 } } } },
+  })
+  bridge.getMessages.mockResolvedValue([
+    { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+    { id: "assistant-1", role: "assistant", createdAt: 2, finishReason: "tool-calls", parts: [] },
+  ])
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await vi.advanceTimersByTimeAsync(90_000)
+  expect(service.hasActiveGeneration()).toBe(true)
+  expect(events.some((event) => event.event === "messageError")).toBe(false)
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: { ...part, state: { status: "completed", input: {}, output: "done", time: { start: 1, end: 2 } } },
+    },
+  })
+  await vi.advanceTimersByTimeAsync(60_000)
+  vi.useRealTimers()
+  await waitForCondition(() => events.some((event) => event.event === "messageError"))
+  expect(events.findLast((event) => event.event === "messageError")?.data).toMatchObject({
+    errorCode: "CHAT_RESPONSE_INCOMPLETE",
+  })
+  expect(bridge.abort).not.toHaveBeenCalled()
+  service.dispose()
+})
+
+test("history recovers a missed tool start and completion without a false terminal timeout", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "run" })
+  const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  const user = { id: userMessageId, role: "user", createdAt: 1, parts: [] }
+  const assistant = { id: "assistant-1", role: "assistant", createdAt: 2, completedAt: 3, finishReason: "stop" }
+  bridge.getMessages.mockResolvedValue([
+    user,
+    { ...assistant, parts: [{ kind: "tool", partId: "part", status: "running" }] },
+  ])
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await vi.advanceTimersByTimeAsync(90_000)
+  expect(service.hasActiveGeneration()).toBe(true)
+  expect(events.some((event) => event.event === "messageError" || event.event === "messageCompleted")).toBe(false)
+  bridge.getMessages.mockResolvedValue([
+    user,
+    { ...assistant, parts: [{ kind: "tool", partId: "part", status: "completed" }] },
+  ])
+  await vi.advanceTimersByTimeAsync(2_001)
+  vi.useRealTimers()
+  await waitForCondition(() => !service.hasActiveGeneration())
+  expect(events.some((event) => event.event === "messageError")).toBe(false)
+  expect(bridge.promptStreaming).toHaveBeenCalledTimes(1)
+  service.dispose()
 })
 
 test("event bridge deduplicates message starts and coalesces text updates", async () => {
@@ -3676,7 +3945,12 @@ test("OpenConnector credential commands are rejected even in full-access mode", 
   })
 
   await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
-  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "reject"]])
+  expect(bridge.answerPermission).toHaveBeenCalledWith(
+    "session-1",
+    "permission-1",
+    "reject",
+    expect.stringContaining("credential_reference"),
+  )
   assert.equal(
     events.some((event) => event.event === "permissionAsked"),
     false,
@@ -3743,6 +4017,28 @@ test("always permission reply stores a main-process session grant", async () => 
   ])
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
   assert.equal(bridge.getPendingPermissions.mock.calls.length, 0)
+})
+
+test("failed always reply does not leave a session grant behind", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  const ask = (id: string) =>
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: { id, sessionID: "session-1", action: "edit", resources: ["/Users/example"] },
+    })
+  ask("permission-1")
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+  bridge.answerPermission.mockRejectedValueOnce(new Error("transport unavailable"))
+  await assert.rejects(
+    service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "always" }),
+    /transport unavailable/u,
+  )
+  ask("permission-2")
+  await waitForCondition(() => events.filter((event) => event.event === "permissionAsked").length === 2)
+  assert.equal(bridge.answerPermission.mock.calls.length, 1)
 })
 
 test("always permission replies propagate grants to active task subagents", async () => {

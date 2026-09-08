@@ -606,6 +606,32 @@ export const zhCNMessages = {
   "chatError.providerUnavailable.description": "上游服务暂时无法响应，请稍后重试。",
   "chatError.providerUnavailable.primaryAction": "重试",
   "chatError.failed.title": "回复失败",
+  "chatError.toolBlocked.title": "操作被阻止，本轮已中断",
+  "chatError.toolDeclined.title": "已按你的拒绝结束本轮",
+  "chatError.toolBlocked.credentials":
+    "这条调用涉及 Wanta 管理的凭据，被权限策略自动阻止，无需等待批准。此前完成的操作没有回滚；请让 Agent 使用已授权的连接方式继续。",
+  "chatError.toolBlocked.environment":
+    "这条调用被识别为输出进程环境变量，已被自动阻止，无需等待批准。此前完成的操作没有回滚；请让 Agent 改用针对具体配置项的检查方式。",
+  "chatError.toolBlocked.runtimeEnvironment":
+    "这条调用试图覆盖 Wanta 管理的连接地址或配置目录，已被自动阻止。此前完成的操作没有回滚；请使用当前提供的运行环境继续。",
+  "chatError.toolBlocked.runtimeAuth":
+    "这条调用试图修改 Wanta 管理的登录或连接配置，已被自动阻止。此前完成的操作没有回滚；如需调整连接，请通过 Wanta 的连接设置操作。",
+  "chatError.toolBlocked.runtimeOptions":
+    "这条调用带有覆盖 Wanta 管理的连接配置的参数，已被自动阻止。此前完成的操作没有回滚；请使用当前连接配置继续。",
+  "chatError.toolBlocked.diagnosticCapability":
+    "这条调用超出了当前诊断任务允许使用的能力，已被自动阻止。此前完成的操作没有回滚；需要执行实际业务操作时，请另行发起普通任务。",
+  "chatError.toolBlocked.diagnosticScope":
+    "这条调用访问了当前诊断任务允许范围以外的文件，已被自动阻止。此前完成的操作没有回滚；请在允许的诊断资料范围内继续。",
+  "chatError.toolBlocked.description":
+    "Wanta 的权限策略自动阻止了工具调用，当前没有待批准请求。此前已完成的操作没有回滚。可复制诊断信息查看具体原因；继续前请先检查已完成的工作。",
+  "chatError.toolDeclined.description":
+    "你拒绝工具调用后，本轮已结束。此前已完成的操作没有回滚，继续前请先检查已完成的工作。",
+  "chatError.responseIncomplete.title": "未生成最终答复",
+  "chatError.responseIncomplete.description":
+    "Agent 已停止，但没有生成最终答复。此前已完成的操作没有回滚，继续前请先检查已完成的工作。",
+  "chatError.historyUnavailable.title": "暂时无法确认对话记录",
+  "chatError.historyUnavailable.description":
+    "未能从已保存的历史中确认本轮状态，部分操作可能已经生效。请检查对话和已完成的工作后再继续。",
   "chatError.failed.description": "本次回复未完成。你可以重试，或复制诊断信息反馈给我们。",
   "chatError.failed.primaryAction": "重试",
   "chatError.failed.retryFailed": "恢复操作没有完成，请稍后重试。",
@@ -961,12 +987,12 @@ export const zhCNMessages = {
   "chat.questionFallbackLabel": "问题 {index}",
   "chat.permissionModePicker": "访问模式",
   "chat.permissionModeDefault": "默认访问",
-  "chat.permissionModeDefaultDescription": "按智能体的默认审批策略执行，需要确认时询问",
+  "chat.permissionModeDefaultDescription": "自动执行日常操作，敏感数据或已识别的高风险操作需要确认",
   "chat.permissionModeFullAccess": "完全访问",
-  "chat.permissionModeFullAccessDescription": "跳过本地操作确认，包括高风险命令和项目外路径",
+  "chat.permissionModeFullAccessDescription": "跳过本地高风险命令、项目外路径及任务内浏览器操作的确认",
   "chat.fullAccessDialogTitle": "确认开启完全访问？",
   "chat.fullAccessDialogBody":
-    "开启后，Wanta 会在当前会话中自动批准本地访问请求，包括本地命令、文件读写/删除，以及所选项目之外的路径访问。\n当前会话内不会再逐次询问本地操作权限。\n仅建议在你信任当前任务时使用。",
+    "开启后，Wanta 会在当前会话中自动批准本地访问请求，包括本地命令、文件读写/删除，以及所选项目之外的路径访问。\n当前会话内不会再逐次询问本地操作权限；内置浏览器也会自动执行任务范围内的操作。登录、验证码等仍需你手动完成，账户与托管凭证保护仍保留。\n仅建议在你信任当前任务时使用。",
   "chat.fullAccessDialogAcknowledge": "我已了解风险，并愿意继续",
   "chat.fullAccessDialogConfirm": "确认开启",
   "chat.permissionRequiredTitle": "需要权限才能继续",

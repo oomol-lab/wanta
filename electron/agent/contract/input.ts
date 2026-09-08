@@ -66,6 +66,8 @@ export interface PermissionResponseAgentInput {
   sessionId: string
   requestId: string
   reply: ChatPermissionReply
+  /** Advisory rejection explanation, forwarded by runtimes with native support. */
+  message?: string
 }
 
 export type QuestionResponseOutcome = { kind: "answered"; answers: string[][] } | { kind: "rejected" }
@@ -169,6 +171,7 @@ const permissionResponseInputSchema = z.object({
   sessionId: z.string().min(1),
   requestId: z.string().min(1),
   reply: permissionReplySchema,
+  message: z.string().optional(),
 })
 
 const questionOutcomeSchema: z.ZodType<QuestionResponseOutcome> = z.discriminatedUnion("kind", [

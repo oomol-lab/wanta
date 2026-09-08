@@ -420,9 +420,10 @@ function selectPermissionOptionId(
     options.find((option) => option.kind === kind)?.optionId
   switch (reply) {
     case "once":
-      return byKind("allow_once") ?? byKind("allow_always")
     case "always":
-      return byKind("allow_always") ?? byKind("allow_once")
+      // Wanta owns session grants. Native always rules can cover an entire
+      // tool, so never broaden a host approval to an agent-maintained rule.
+      return byKind("allow_once")
     case "reject":
       return byKind("reject_once") ?? byKind("reject_always")
   }
@@ -1713,6 +1714,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
     this.permissionSeq += 1
     const requestId = `acp-perm-${this.permissionSeq}`
+    const toolCall = session.translator.toolCallForPermission(params.toolCall)
     const metadata: Record<string, unknown> = {
       options: params.options,
       toolCallId: params.toolCall.toolCallId,
@@ -1721,14 +1723,26 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     if (wantaHostTool) {
       metadata["wantaHostTool"] = wantaHostTool
     }
-    if (params.toolCall.rawInput !== undefined) {
-      metadata["rawInput"] = params.toolCall.rawInput
+    if (toolCall.rawInput !== undefined) {
+      metadata["rawInput"] = toolCall.rawInput
     }
+    const input = toolCall.rawInput as { command?: unknown } | null | undefined
+    // ACP titles are display text (Claude uses the command itself). Prefer
+    // protocol kinds, then concrete command input for partial native payloads.
+    const action = wantaHostTool
+      ? wantaHostTool
+      : toolCall.kind === "execute" || typeof input?.command === "string"
+        ? "bash"
+        : toolCall.kind === "edit"
+          ? "edit"
+          : toolCall.kind === "read"
+            ? "file.read"
+            : (toolCall.title ?? "permission")
     const request: ChatPermissionRequest = {
       id: requestId,
       sessionId: wantaSessionId,
-      action: params.toolCall.title ?? "permission",
-      resources: (params.toolCall.locations ?? []).map((location) => location.path).slice(0, 3),
+      action,
+      resources: (toolCall.locations ?? []).map((location) => location.path),
       metadata,
     }
     return new Promise<RequestPermissionResponse>((resolve) => {

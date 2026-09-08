@@ -46,23 +46,6 @@ function strictChild(root: string, target: string): boolean {
   return Boolean(relative && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
 }
 
-function isTemporaryCleanupTarget(target: string): boolean {
-  const temporaryRoots = new Set(["/tmp", "/var/tmp", "/private/tmp"])
-  try {
-    temporaryRoots.add(path.resolve("/tmp"))
-    temporaryRoots.add(path.resolve("/var/tmp"))
-  } catch {
-    // Ignore platforms that cannot resolve these roots.
-  }
-  return [...temporaryRoots].some((root) => {
-    const resolvedRoot = normalizedRoot(root)
-    if (!resolvedRoot || !strictChild(resolvedRoot, target)) {
-      return false
-    }
-    return !path.relative(resolvedRoot, target).includes(path.sep)
-  })
-}
-
 function boundedCleanupTarget(
   target: string,
   cwd: string | undefined,
@@ -74,7 +57,6 @@ function boundedCleanupTarget(
 
   const processRoot = normalizedRoot(context.taskProcessRoot)
   if (processRoot && strictChild(processRoot, absoluteTarget)) return true
-  if (isTemporaryCleanupTarget(absoluteTarget)) return true
 
   const projectRoot = normalizedRoot(context.trustedProjectRoot)
   if (!projectRoot || !strictChild(projectRoot, absoluteTarget)) return false
@@ -86,20 +68,22 @@ function boundedCleanupTarget(
 
 /**
  * Recognizes a deliberately narrow subset of recursive cleanup that is cheap to recover:
- * children of `/tmp` and `/var/tmp` (one path segment), direct children of Wanta's per-turn
- * process directory, and well-known generated project roots. Any composition, wildcard, variable,
+ * descendants of Wanta's per-turn process directory and well-known generated project roots.
+ * An unrelated temporary directory is not proof of task ownership. Any composition, wildcard, variable,
  * home path, broad root, or ordinary project directory stays protected.
  */
 export function isLowConsequenceCleanupCommand(
   command: string,
-  context: { taskProcessRoot?: string; trustedProjectRoot?: string },
+  context: { commandCwd?: string; taskProcessRoot?: string; trustedProjectRoot?: string },
 ): boolean {
   let body = command.trim()
-  let cwd: string | undefined
+  let cwd = context.commandCwd
   const leading = splitLeadingAnd(body)
   if (leading) {
-    cwd = explicitCdDirectory(leading.left)
-    if (!cwd || !leading.right) return false
+    const directory = explicitCdDirectory(leading.left)
+    if (!directory || !leading.right) return false
+    cwd = path.isAbsolute(directory) ? directory : cwd ? path.resolve(cwd, directory) : undefined
+    if (!cwd) return false
     body = leading.right
   }
   const segments = topLevelShellSegments(body)

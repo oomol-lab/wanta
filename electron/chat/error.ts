@@ -7,6 +7,9 @@ export type ChatErrorKind =
   | "auth_required"
   | "model_auth_required"
   | "permission_denied"
+  | "tool_blocked"
+  | "response_incomplete"
+  | "history_unavailable"
   | "provider_unavailable"
   | "unknown"
 
@@ -16,6 +19,29 @@ export interface ChatErrorClassification {
   retryable: boolean
   diagnostics: string
   displayMessage?: string
+  policyReason?: ToolPolicyReason
+}
+
+const toolPolicyReasons = [
+  "credential_reference",
+  "environment_dump",
+  "runtime_environment_override",
+  "runtime_auth_mutation",
+  "runtime_option_override",
+  "diagnostic_capability",
+  "diagnostic_scope",
+] as const
+export type ToolPolicyReason = (typeof toolPolicyReasons)[number]
+
+/** Encode only stable policy categories, never commands, paths, or credentials. */
+export function toolPolicyErrorCode(reason?: string): string {
+  return toolPolicyReasons.some((known) => known === reason)
+    ? `CHAT_TOOL_POLICY_BLOCKED_${reason!.toUpperCase()}`
+    : "CHAT_TOOL_POLICY_BLOCKED"
+}
+
+export function toolPolicyReasonFromCode(code?: string): ToolPolicyReason | undefined {
+  return toolPolicyReasons.find((reason) => toolPolicyErrorCode(reason) === code)
 }
 
 export interface NormalizeChatErrorOptions {
@@ -125,6 +151,27 @@ export function normalizeChatError(
   const effectiveMessage = message || diagnostics
   const effectiveCode = resolvedCode(code, effectiveMessage)
   const effectiveStatus = readJsonMessage(effectiveMessage)?.status
+  const policyReason = toolPolicyReasonFromCode(effectiveCode)
+
+  // Local turn failures are not account/connector authorization failures.
+  if (policyReason || effectiveCode === "CHAT_TOOL_POLICY_BLOCKED" || effectiveCode === "CHAT_TOOL_USER_DECLINED") {
+    return {
+      kind: "tool_blocked",
+      code: effectiveCode,
+      retryable: false,
+      diagnostics,
+      displayMessage: effectiveMessage,
+      ...(policyReason ? { policyReason } : {}),
+    }
+  }
+  if (effectiveCode === "CHAT_RESPONSE_INCOMPLETE" || effectiveCode === "CHAT_HISTORY_UNAVAILABLE") {
+    return {
+      kind: effectiveCode === "CHAT_RESPONSE_INCOMPLETE" ? "response_incomplete" : "history_unavailable",
+      code: effectiveCode,
+      retryable: false,
+      diagnostics,
+    }
+  }
 
   if (resolvePaymentRequired(effectiveMessage, effectiveCode)) {
     return {

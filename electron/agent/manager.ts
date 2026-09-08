@@ -1220,8 +1220,17 @@ export class AgentManager {
       .filter((request) => requestedSessionIds.has(request.sessionId))
   }
 
-  public async answerPermission(_sessionId: string, requestId: string, reply: ChatPermissionReply): Promise<void> {
-    const result = await this.client.permission.reply({ requestID: requestId, reply })
+  public async answerPermission(
+    _sessionId: string,
+    requestId: string,
+    reply: ChatPermissionReply,
+    message?: string,
+  ): Promise<void> {
+    const result = await this.client.permission.reply({
+      requestID: requestId,
+      reply,
+      ...(message !== undefined ? { message } : {}),
+    })
     assertOpencodeSuccess(result, "permission.reply")
   }
 

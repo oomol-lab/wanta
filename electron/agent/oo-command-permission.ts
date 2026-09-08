@@ -1,4 +1,4 @@
-import { topLevelShellSegments } from "../chat/shell-syntax.ts"
+import { effectiveShellCommandWords, topLevelShellSegments } from "../chat/shell-syntax.ts"
 
 export const OO_CLI_BASH_PERMISSION = {
   // 直接 oo 调用走 OpenCode 快速路径；其它 shell 进入 ChatService 默认访问策略，
@@ -133,10 +133,51 @@ function shellWords(command: string): string[] | null {
   return words
 }
 
+const nonSensitiveEnvironmentNames = new Set([
+  "CI",
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "NODE_ENV",
+  "PATH",
+  "PWD",
+  "SHELL",
+  "TEMP",
+  "TERM",
+  "TMP",
+  "TMPDIR",
+])
+
+/** Plain env launchers set up a process; they do not print the environment. */
+function environmentLauncherCommand(command: string): string | undefined {
+  if (!/^(?:env|'env'|"env")(?:\s|$)/u.test(command)) return undefined
+  if (hasUnsafeShellSyntax(command)) return undefined
+  const words = shellWords(command)
+  if (words?.[0] !== "env") return undefined
+  // env -S has its own expansion language; keep it outside this exception.
+  if (words.some((word) => word === "-S" || word.startsWith("-S") || word.startsWith("--split-string")))
+    return undefined
+  const executableWords = effectiveShellCommandWords(words)
+  if (!executableWords.length) return undefined
+  return executableWords
+    .map((word) => (/^[A-Za-z0-9_./-]+$/u.test(word) ? word : `'${word.replace(/'/gu, "'\\''")}'`))
+    .join(" ")
+}
+
 function isEnvironmentDump(command: string): boolean {
   for (const { text } of topLevelShellSegments(command)) {
-    if (!environmentDumpCommand.test(text)) continue
+    if (!environmentDumpCommand.test(text) && text[0] !== "'" && text[0] !== '"') continue
     const words = shellWords(text)
+    if (!words || !environmentDumpCommand.test(words.join(" "))) continue
+    if (environmentLauncherCommand(text)) continue
+    if (
+      words?.[0] === "printenv" &&
+      words.length > 1 &&
+      words.slice(1).every((word) => nonSensitiveEnvironmentNames.has(word)) &&
+      !hasUnsafeShellSyntax(text)
+    )
+      continue
     // `export NAME=value` sets variables without printing the environment.
     // Admit only assignments with no executable shell syntax; all remaining
     // segments still pass through the normal command and credential policies.
@@ -318,8 +359,24 @@ export type OoCommandDenyReason =
   | "runtime_auth_mutation"
   | "runtime_option_override"
 
+function isLiteralCredentialNameSearch(command: string, depth = 0): boolean {
+  if (depth >= maxShellWrapperDepth || /[$`]/u.test(command)) return false
+  const segments = topLevelShellSegments(command)
+  if (segments.length > 1) {
+    return segments.every(
+      ({ text }) => !credentialEnvironmentReference.test(text) || isLiteralCredentialNameSearch(text, depth + 1),
+    )
+  }
+  const wrapper = shellWrapperCommand(command)
+  if (wrapper.kind === "command") return isLiteralCredentialNameSearch(wrapper.command, depth + 1)
+  if (hasUnsafeShellSyntax(command)) return false
+  const words = shellWords(command)
+  return words !== null && ["rg", "grep"].includes(words[0] ?? "")
+}
+
 function directCommandDenyReason(command: string): OoCommandDenyReason | null {
-  if (credentialEnvironmentReference.test(command)) return "credential_reference"
+  if (credentialEnvironmentReference.test(command) && !isLiteralCredentialNameSearch(command))
+    return "credential_reference"
   if (isEnvironmentDump(command)) return "environment_dump"
   if (linkEnvironmentAssignment.test(command)) return "runtime_environment_override"
   if (forbiddenOoMutation.test(command) || isForbiddenOoMutationCommand(command)) return "runtime_auth_mutation"
@@ -346,6 +403,11 @@ function inspectCommandDenyReason(command: string, startDepth: number): OoComman
         const nestedReason = inspectCommandDenyReason(text, depth + 1)
         if (nestedReason) return nestedReason
       }
+    }
+    const launcher = environmentLauncherCommand(current)
+    if (launcher) {
+      current = launcher
+      continue
     }
     const wrapper = shellWrapperCommand(current)
     if (wrapper.kind !== "command") return null

@@ -1,6 +1,6 @@
 import type { AssistantActivityPhase, ChatMessage } from "../../chat/common.ts"
 import type { AgentEvent } from "../contract/event.ts"
-import type { ContentBlock, SessionUpdate, ToolCallContent } from "@agentclientprotocol/sdk"
+import type { ContentBlock, SessionUpdate, ToolCallContent, ToolCallUpdate } from "@agentclientprotocol/sdk"
 
 import { randomUUID } from "node:crypto"
 import { classifyToolFailure } from "../tool-failure.ts"
@@ -25,6 +25,8 @@ export interface AcpSessionTranslator {
   noteTurnStarted(): void
   /** Resolve an ACP call id to its current Wanta host-tool projection. */
   wantaHostToolForCall(toolCallId: string): string | undefined
+  /** Fill partial permission payloads from the live call without another round trip. */
+  toolCallForPermission(update: ToolCallUpdate): ToolCallUpdate
 }
 
 /** Merged view of a tool call across its tool_call/tool_call_update stream. */
@@ -37,6 +39,7 @@ interface ToolCallSnapshot {
   rawInput?: unknown
   rawOutput?: unknown
   content: ToolCallContent[]
+  locations?: ToolCallUpdate["locations"]
 }
 
 interface AcpCompactionStatus {
@@ -363,6 +366,7 @@ export function createAcpSessionTranslator(
       rawInput?: unknown
       rawOutput?: unknown
       content?: ToolCallContent[] | null
+      locations?: ToolCallUpdate["locations"]
     },
   ): void {
     if (update.name != null) {
@@ -384,9 +388,20 @@ export function createAcpSessionTranslator(
       // Per protocol, content on an update replaces the previous list.
       snapshot.content = update.content
     }
+    if (update.locations != null) snapshot.locations = update.locations
   }
 
   return {
+    toolCallForPermission(update): ToolCallUpdate {
+      const snapshot = toolCallsById.get(update.toolCallId)
+      return {
+        ...update,
+        kind: update.kind ?? (snapshot?.kind as ToolCallUpdate["kind"]),
+        title: update.title ?? snapshot?.title,
+        rawInput: update.rawInput ?? snapshot?.rawInput,
+        locations: update.locations ?? snapshot?.locations,
+      }
+    },
     noteTurnStarted(): void {
       currentMessageId = undefined
       // Finished parts can never receive another chunk (message ids rotate per

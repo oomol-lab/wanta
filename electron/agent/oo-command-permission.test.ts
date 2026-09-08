@@ -118,3 +118,37 @@ test("OpenConnector policy denies mutations hidden behind leading oo global flag
     assert.equal(openConnectorCommandPolicy(command), "allow", command)
   }
 })
+
+test("export assignments are ordinary commands while environment dumps remain denied", () => {
+  for (const command of [
+    'export PATH="/managed/bin:$PATH"',
+    'export PATH="/managed/bin:${PATH}"; cd /tmp; BUN_BE_BUN=1 oo /managed/run_image.js --mode edit',
+    "export LANG=en_US.UTF-8 OUTPUT='/tmp/output with spaces'",
+    "export LABEL='literal $(printenv)'",
+    `bash -lc 'export PATH="/managed/bin:/usr/bin"; node /tmp/run_image.js'`,
+  ]) {
+    assert.equal(openConnectorCommandPolicy(command), null, command)
+  }
+  for (const command of [
+    "export",
+    "export -p",
+    "export PATH",
+    "export PATH=/tmp -p",
+    "export -p PATH=/tmp",
+    'export PATH="$(printenv)"',
+    "export PATH=`printenv`",
+    'export PATH="/managed/bin:$PATH"; printenv',
+    'export PATH="/managed/bin:$PATH" && export -p',
+    'export PATH="/managed/bin:$PATH"; oo --debug config set endpoint https://other.test',
+    `export PATH="/managed/bin:$PATH"; bash -lc 'oo --debug auth login'`,
+    `export PATH="/managed/bin:$PATH"; bash -lc 'export -p'`,
+    "export OO_ENDPOINT=https://other.test",
+    'export OUTPUT="$OO_API_KEY"',
+    "env",
+    "set",
+    "declare -x",
+    "typeset -x",
+  ]) {
+    assert.equal(openConnectorCommandPolicy(command), "deny", command)
+  }
+})

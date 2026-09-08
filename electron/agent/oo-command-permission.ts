@@ -1,3 +1,5 @@
+import { topLevelShellSegments } from "../chat/shell-syntax.ts"
+
 export const OO_CLI_BASH_PERMISSION = {
   // 直接 oo 调用走 OpenCode 快速路径；其它 shell 进入 ChatService 默认访问策略，
   // 由主进程自动批准普通 bash，仅在基础安全边界暂停。
@@ -132,7 +134,21 @@ function shellWords(command: string): string[] | null {
 }
 
 function isEnvironmentDump(command: string): boolean {
-  if (environmentDumpCommand.test(command)) return true
+  for (const { text } of topLevelShellSegments(command)) {
+    if (!environmentDumpCommand.test(text)) continue
+    const words = shellWords(text)
+    // `export NAME=value` sets variables without printing the environment.
+    // Admit only assignments with no executable shell syntax; all remaining
+    // segments still pass through the normal command and credential policies.
+    if (
+      words?.[0] === "export" &&
+      words.length > 1 &&
+      words.slice(1).every((word) => /^[A-Za-z_][A-Za-z0-9_]*=/u.test(word)) &&
+      !hasUnsafeShellSyntax(text)
+    )
+      continue
+    return true
+  }
   const words = shellWords(command)
   if (!words || !["bash", "sh", "zsh"].includes(words[0] ?? "")) return false
   return words.slice(1).some((word) => ["env", "printenv", "set", "export"].includes(word))
@@ -295,19 +311,53 @@ export function isOoCliCommand(command: string): boolean {
   return false
 }
 
+export type OoCommandDenyReason =
+  | "credential_reference"
+  | "environment_dump"
+  | "runtime_environment_override"
+  | "runtime_auth_mutation"
+  | "runtime_option_override"
+
+function directCommandDenyReason(command: string): OoCommandDenyReason | null {
+  if (credentialEnvironmentReference.test(command)) return "credential_reference"
+  if (isEnvironmentDump(command)) return "environment_dump"
+  if (linkEnvironmentAssignment.test(command)) return "runtime_environment_override"
+  if (forbiddenOoMutation.test(command) || isForbiddenOoMutationCommand(command)) return "runtime_auth_mutation"
+  if (ooCommandSegment.test(command) && forbiddenOoOption.test(command)) return "runtime_option_override"
+  return null
+}
+
+/** Stable metadata only: never return command text, values, or credentials. */
+export function ooCommandDenyReason(command: string): OoCommandDenyReason | null {
+  return inspectCommandDenyReason(command, 0)
+}
+
+function inspectCommandDenyReason(command: string, startDepth: number): OoCommandDenyReason | null {
+  let current = command.trim()
+  for (let depth = startDepth; depth < maxShellWrapperDepth; depth += 1) {
+    const reason = directCommandDenyReason(current)
+    if (reason) return reason
+    // Inspect each command after an assignment prefix too, including global
+    // flags before protected OO subcommands.
+    for (const { text } of topLevelShellSegments(current)) {
+      const segmentReason = directCommandDenyReason(text)
+      if (segmentReason) return segmentReason
+      if (text !== current) {
+        const nestedReason = inspectCommandDenyReason(text, depth + 1)
+        if (nestedReason) return nestedReason
+      }
+    }
+    const wrapper = shellWrapperCommand(current)
+    if (wrapper.kind !== "command") return null
+    current = wrapper.command
+  }
+  return null
+}
+
 export function openConnectorCommandPolicy(command: string): "allow" | "deny" | null {
+  if (ooCommandDenyReason(command)) return "deny"
   let current = command.trim()
   for (let depth = 0; depth < maxShellWrapperDepth; depth += 1) {
-    if (
-      credentialEnvironmentReference.test(current) ||
-      isEnvironmentDump(current) ||
-      linkEnvironmentAssignment.test(current) ||
-      forbiddenOoMutation.test(current) ||
-      isForbiddenOoMutationCommand(current) ||
-      (ooCommandSegment.test(current) && forbiddenOoOption.test(current))
-    ) {
-      return "deny"
-    }
     if (isPureOoCliCommand(current)) return "allow"
     const wrapper = shellWrapperCommand(current)
     if (wrapper.kind === "unsupported" || wrapper.kind === "not_wrapper") return null

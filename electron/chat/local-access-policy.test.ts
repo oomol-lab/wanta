@@ -319,7 +319,7 @@ test("local access policy rejects OpenConnector credential and configuration com
     "echo $OO_CONNECTOR_TOKEN",
     "echo ${OO_API_KEY}",
   ]) {
-    assert.deepEqual(
+    assert.partialDeepStrictEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), {
         linkRuntime: "openconnector",
         permissionMode: "full_access",
@@ -852,7 +852,7 @@ test("unexpanded env and tilde paths are not treated as in-project .env files", 
   )
 })
 
-test("compound redirects after a dependency install still prompt", () => {
+test("environment dumps after a dependency install remain denied", () => {
   const processRoot = "/tmp/wanta/process/turn-1"
   assert.equal(
     evaluateLocalAccessRequest(permission({ metadata: { command: "npm install marked > /tmp/install.log;env" } }), {
@@ -860,7 +860,7 @@ test("compound redirects after a dependency install still prompt", () => {
       taskProcessRoot: processRoot,
       commandCwd: processRoot,
     }).type,
-    "prompt",
+    "deny",
   )
 })
 
@@ -1562,5 +1562,52 @@ test("BYOA never makes the pre-BYOA OpenCode local-operation floor stricter", ()
       `BYOA decision diverged for ${item.request.action}: ${item.request.metadata?.command ?? item.request.resources.join(" ")}`,
     )
     if (item.ordinary) assert.equal(builtInDecision.type, "allow")
+  }
+})
+
+test("skill launch assignments preserve shared adapter permissions and consequential boundaries", () => {
+  const prefix = 'export PATH="/managed/agent/bin:$PATH"; cd /tmp; '
+  const runner =
+    'BUN_BE_BUN=1 oo "/managed/skills/gpt-image-2/scripts/run_image.js" --mode edit --prompt "Edit the tablecloth" --image /tmp/input.png --out-dir /tmp/result'
+  for (const isExternalSession of [false, true]) {
+    const context = { permissionMode: "default" as const, isExternalSession, linkRuntime: "oomol" as const }
+    assert.deepEqual(evaluateLocalAccessRequest(permission({ metadata: { command: prefix + runner } }), context), {
+      type: "allow",
+      reason: "default_command",
+      kind: "command",
+      highRisk: false,
+    })
+    for (const suffix of ["; git push origin main", "; cat ~/.ssh/id_rsa", "; rm -rf /Users/example/Documents"]) {
+      assert.equal(
+        evaluateLocalAccessRequest(permission({ metadata: { command: prefix + runner + suffix } }), context).type,
+        "prompt",
+      )
+    }
+    assert.deepEqual(evaluateLocalAccessRequest(permission({ metadata: { command: prefix + "printenv" } }), context), {
+      type: "deny",
+      reason: "environment_dump",
+      kind: "command",
+      highRisk: false,
+    })
+  }
+})
+
+test("automatic denials carry specific metadata without command values", () => {
+  for (const [command, reason] of [
+    ["echo $OO_API_KEY", "credential_reference"],
+    ["export -p", "environment_dump"],
+    ["export OO_ENDPOINT=https://other.test", "runtime_environment_override"],
+    ["oo auth login", "runtime_auth_mutation"],
+    ["oo connector apps --connector-token secret-value", "runtime_option_override"],
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "full_access" }),
+      {
+        type: "deny",
+        reason,
+        kind: "command",
+        highRisk: false,
+      },
+    )
   }
 })

@@ -1318,6 +1318,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           {
             adapter: this.agentAdapterForDiagnostic(displaySessionId),
             decision: decision.type,
+            reason: decision.reason,
             generationId: activeGenerationId,
             permissionKind: decision.kind,
             requestId: request.id,
@@ -1343,7 +1344,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           {
             action: request.action,
             error,
-            reason: decision.type === "allow" ? decision.reason : "openconnector_denied",
+            reason: decision.reason,
             sessionId: request.sessionId,
           },
           "warn",

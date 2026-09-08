@@ -85,6 +85,18 @@ Loaded Skill instructions keep Connector work on that managed CLI. The shared
 permission classifier—not an adapter-specific rule—decides whether a command is
 safe to run without a redundant approval card.
 
+Shell setup is classified by its operation: a plain `export NAME=value`
+assignment is ordinary local work, while environment dumps (`export`,
+`export -p`, `env`, `printenv`) remain blocked. Assignment values containing
+executable shell syntax do not qualify for this exception. Every subsequent
+command still receives the credential, runtime-override, and consequential
+operation checks, including commands wrapped in a shell. Managed Skill
+runners should reuse the host-injected PATH and `WANTA_OO_BIN`, passing the
+managed executable to child CLI calls instead of rebuilding PATH. The GPT
+Image 2 runtime-copy guidance documents its `--oo` option for this purpose.
+Automatic local-access decisions record a stable reason in diagnostics;
+denial reasons contain no command arguments or credential values.
+
 ## Kernel contract
 
 `HostCapabilityKernel` is the single registry and execution boundary for

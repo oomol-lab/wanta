@@ -86,10 +86,13 @@ permission classifier—not an adapter-specific rule—decides whether a command
 safe to run without a redundant approval card.
 
 Shell setup is classified by its operation: a plain `export NAME=value`
-assignment is ordinary local work, while environment dumps (`export`,
-`export -p`, `env`, `printenv`) remain blocked. Assignment values containing
-executable shell syntax do not qualify for this exception. Every subsequent
-command still receives the credential, runtime-override, and consequential
+assignment is ordinary local work only when it does not involve protected
+credentials or runtime configuration. Assignments containing `OO_API_KEY` or
+`OO_CONNECTOR_TOKEN` remain denied as `credential_reference`; assignments to
+`OO_ENDPOINT` remain denied as `runtime_environment_override`. Environment
+dumps (`export`, `export -p`, `env`, `printenv`) remain blocked. Assignment
+values containing executable shell syntax do not qualify for this exception.
+Every subsequent command still receives the credential, runtime-override, and consequential
 operation checks, including commands wrapped in a shell. Managed Skill
 runners should reuse the host-injected PATH and `WANTA_OO_BIN`, passing the
 managed executable to child CLI calls instead of rebuilding PATH. The GPT

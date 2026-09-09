@@ -6,10 +6,16 @@ export interface DefaultRegistrySkillSpec {
   skillId: string
 }
 
-export const defaultRegistrySkillSetVersion = 5
+export const defaultRegistrySkillSetVersion = 6
 
 // 默认安装清单：登录后后台补装，必须使用 registry 中稳定的 packageName + skillId。
 export const defaultRegistrySkills: readonly DefaultRegistrySkillSpec[] = [
+  {
+    category: "productivity",
+    enabled: true,
+    packageName: "@alwaysmavs/oo-deploy-single-html",
+    skillId: "oo-deploy-single-html",
+  },
   {
     category: "other",
     enabled: true,

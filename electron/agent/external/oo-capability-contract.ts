@@ -68,6 +68,13 @@ export const EXTERNAL_OO_OPERATIONS = [
     workspace: "optional",
   },
   {
+    id: "website.upload",
+    command: ["website", "upload"],
+    availability: "enabled",
+    effect: "external_action",
+    workspace: "optional",
+  },
+  {
     id: "file.download",
     command: ["file", "download"],
     availability: "enabled",

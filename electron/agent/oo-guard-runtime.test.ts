@@ -65,6 +65,19 @@ async function runGuard(args: string[], env: NodeJS.ProcessEnv): Promise<string>
   return result.stdout
 }
 
+test("routes website uploads through the external managed CLI", async () => {
+  const { env, root } = await fixture({
+    external: true,
+    runtime: "oomol",
+    sessionRuntimes: { "session-a": "oomol" },
+    sessionTeams: { "session-a": "Team A" },
+  })
+  const input = path.join(root, "index.html")
+  await writeFile(input, "<!doctype html><title>Test</title>")
+  const output = await runGuard(["website", "upload", "index.html", "--json"], env)
+  expect(output.trim().split("\n")).toEqual(["website", "upload", input, "--json"])
+})
+
 describe("external OO guard runtime", () => {
   test("preserves a managed shell cwd for relative OOCLI data files", async () => {
     const { env, root } = await fixture(

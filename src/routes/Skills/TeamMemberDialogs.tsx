@@ -3,7 +3,12 @@ import type { MemberSearchState } from "./team-management-model.ts"
 
 import { CheckIcon, LoaderCircleIcon, PencilIcon, PlusIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react"
 import * as React from "react"
-import { maxTeamNameLength, minimumMemberSearchLength, teamNameValidation } from "./team-management-model.ts"
+import {
+  maxTeamNameLength,
+  minimumMemberSearchLength,
+  resolveMemberInput,
+  teamNameValidation,
+} from "./team-management-model.ts"
 import { TeamUserAvatar } from "./TeamUserAvatar.tsx"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { Button } from "@/components/ui/button"
@@ -378,8 +383,7 @@ export function AddMemberDialog({
 }) {
   const { t } = useAppI18n()
   const hasSearchResults = search.items.length > 0
-  const canSubmit =
-    input.trim().length > 0 && !busy && !search.loading && (!hasSearchResults || Boolean(selectedUserId))
+  const canSubmit = !busy && Boolean(resolveMemberInput(input, search, selectedUserId))
 
   const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
     switch (event.key) {

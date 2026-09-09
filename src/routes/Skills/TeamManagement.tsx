@@ -28,6 +28,7 @@ import {
 } from "./TeamManagementPanels.tsx"
 import {
   AddMemberDialog,
+  TeamMemberAdditionNotice,
   CreateTeamDialog,
   ErrorBlock,
   TeamDetailPanel,
@@ -256,7 +257,7 @@ export function TeamManagementRoute({
     canManage,
     memberInput,
     memberSearch,
-    reloadDetails: refreshDetails,
+    reloadDetails: reload,
     resetMemberSearch,
     selectedTeam,
     selectedSearchUserId,
@@ -264,6 +265,14 @@ export function TeamManagementRoute({
     setAddMemberOpen,
     setBusyAction,
   })
+  const additionNotice = (
+    <TeamMemberAdditionNotice
+      userId={memberActions.addedMemberUserId}
+      failed={Boolean(membersError)}
+      onRetry={() => void reload()}
+      onDismiss={memberActions.dismissAddition}
+    />
+  )
   return (
     <>
       <div ref={pageRef} tabIndex={-1} className="h-full min-h-0 overflow-hidden px-3 py-3 outline-none">
@@ -282,22 +291,25 @@ export function TeamManagementRoute({
               <TeamManagementSkeleton />
             ) : (
               <>
-                <TeamSwitcherPanel
-                  canManage={canManage}
-                  getTeamRole={getWorkspaceTeamRole}
-                  members={memberViews}
-                  membersComplete={membersComplete}
-                  membersLoading={membersState.status === "loading"}
-                  teams={teams}
-                  avatarPreviewUrls={avatarPreviewUrls}
-                  selectedTeam={selectedTeam}
-                  selectedTeamId={selectedTeamId}
-                  onCreate={teamForms.create.openDialog}
-                  onAddMember={() => setAddMemberOpen(true)}
-                  onOpenSettings={() => setOverlay({ kind: "settings" })}
-                  onRemoteAvatarLoad={clearTeamAvatarPreview}
-                  onSelect={handleSelectTeamWorkspace}
-                />
+                <div className="grid gap-3">
+                  {additionNotice}
+                  <TeamSwitcherPanel
+                    canManage={canManage}
+                    getTeamRole={getWorkspaceTeamRole}
+                    members={memberViews}
+                    membersComplete={membersComplete}
+                    membersLoading={membersState.status === "loading"}
+                    teams={teams}
+                    avatarPreviewUrls={avatarPreviewUrls}
+                    selectedTeam={selectedTeam}
+                    selectedTeamId={selectedTeamId}
+                    onCreate={teamForms.create.openDialog}
+                    onAddMember={() => setAddMemberOpen(true)}
+                    onOpenSettings={() => setOverlay({ kind: "settings" })}
+                    onRemoteAvatarLoad={clearTeamAvatarPreview}
+                    onSelect={handleSelectTeamWorkspace}
+                  />
+                </div>
                 {selectedTeam ? (
                   <div className="grid min-h-0 min-w-0">
                     {selectedTeamSkills ? (
@@ -353,6 +365,7 @@ export function TeamManagementRoute({
                           onSubmit={teamForms.edit.submit}
                         />
                       ) : null}
+                      {additionNotice}
                       <TeamDetailPanel
                         actorRole={activeWorkspace.role}
                         actorUserId={activeAccountId}

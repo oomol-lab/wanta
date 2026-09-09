@@ -1,6 +1,6 @@
-import { effectiveShellCommandWords, shellCommandName, shellWords, topLevelShellSegments } from "./shell-syntax.ts"
+import { packageRunnerCommandWords } from "./dependency-policy.ts"
+import { shellCommandName, shellWords, topLevelShellSegments, unwrappedShellCommandWords } from "./shell-syntax.ts"
 
-const wrapperCommands = new Set(["builtin", "command", "exec", "nohup", "time"])
 const shellCommands = new Set(["bash", "sh", "zsh"])
 const scriptInterpreterCommands = new Set(["bun", "deno", "lua", "node", "perl", "php", "python", "python3", "ruby"])
 const gitOptionsWithValue = new Set(["-C", "-c", "--config-env", "--git-dir", "--namespace", "--work-tree"])
@@ -50,22 +50,6 @@ function nextOperand(
   return undefined
 }
 
-function unwrappedCommandWords(words: readonly string[]): readonly string[] {
-  let current = effectiveShellCommandWords(words)
-  for (let depth = 0; depth < 4; depth += 1) {
-    const name = shellCommandName(current[0])
-    if (!name || !wrapperCommands.has(name)) {
-      return current
-    }
-    const executable = nextOperand(current, 1)
-    if (!executable) {
-      return []
-    }
-    current = current.slice(executable.index)
-  }
-  return current
-}
-
 function optionHasLetter(word: string, letter: string): boolean {
   return /^-[^-]/u.test(word) && word.slice(1).includes(letter)
 }
@@ -76,7 +60,13 @@ function recursiveDelete(words: readonly string[]): boolean {
   }
   return words
     .slice(1)
-    .some((word) => word === "--recursive" || optionHasLetter(word, "r") || optionHasLetter(word, "R"))
+    .some(
+      (word) =>
+        word === "--recursive" ||
+        optionHasLetter(word, "r") ||
+        optionHasLetter(word, "R") ||
+        (!word.startsWith("-") && /[*?[]/u.test(word)),
+    )
 }
 
 function destructiveFind(words: readonly string[], depth: number): boolean {
@@ -352,7 +342,7 @@ function nestedShellCommand(words: readonly string[]): string | undefined {
 }
 
 function riskySimpleCommand(words: readonly string[], depth: number): boolean {
-  const command = unwrappedCommandWords(words)
+  const command = unwrappedShellCommandWords(words)
   const name = shellCommandName(command[0])
   if (!name) {
     return false
@@ -360,6 +350,8 @@ function riskySimpleCommand(words: readonly string[], depth: number): boolean {
   if (name === "sudo") {
     return true
   }
+  const runner = packageRunnerCommandWords(command)
+  if (runner && depth < 2 && riskySimpleCommand(runner, depth + 1)) return true
   const nested = nestedShellCommand(command)
   if (nested && depth < 2 && commandRequiresConfirmation(nested, depth + 1)) {
     return true
@@ -416,7 +408,7 @@ export function commandRequiresConfirmation(command: string, depth = 0): boolean
   const segments = topLevelShellSegments(command)
   const commands = segments.map(({ text }) => {
     const words = shellWords(text)
-    return words?.length ? unwrappedCommandWords(words) : []
+    return words?.length ? unwrappedShellCommandWords(words) : []
   })
   if (commands.some((words) => riskySimpleCommand(words, depth))) {
     return true

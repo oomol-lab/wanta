@@ -18,6 +18,7 @@ import {
   shellWords,
   splitLeadingAnd,
 } from "./shell-command.ts"
+import { unwrappedShellCommandWords } from "./shell-syntax.ts"
 
 const projectDevCommandGrantPattern = "project_dev_command"
 const packageManagers = new Set(["bun", "npm", "pnpm", "yarn"])
@@ -305,7 +306,8 @@ function parsedProjectDevCommandWords(command: string, projectRoot: string): str
   if (!body || hasUnsafeShellSyntax(body)) {
     return null
   }
-  const words = shellWords(body)
+  const parsed = shellWords(body)
+  const words = parsed ? [...unwrappedShellCommandWords(parsed, false)] : null
   if (!words || words.length === 0 || !commandArgumentsSafeForProject(words, projectRoot)) {
     return null
   }

@@ -28,6 +28,7 @@ import {
   shellWords,
   splitLeadingAnd,
   topLevelShellSegments,
+  unwrappedShellCommandWords,
 } from "./shell-syntax.ts"
 
 export type PermissionRequestKind = "command" | "edit" | "path" | "network" | "local"
@@ -197,8 +198,18 @@ function commandAccessResources(command: string, depth = 0): string[] {
     if (!parsed?.length) {
       return []
     }
-    const words = effectiveShellCommandWords(parsed)
+    const words = unwrappedShellCommandWords(parsed)
     const direct = words.map(pathValue).filter(looksLikeLocalPath)
+    // Relative file operands must retain the same sensitive-path semantics as
+    // absolute paths. Limit this to file operations so quoted search patterns
+    // and script source are not misclassified as resource access.
+    if (
+      ["cat", "head", "tail", "stat", "ls", "cp", "mv", "rm", "tee", "file", "wc"].includes(
+        shellCommandName(words[0]) ?? "",
+      )
+    ) {
+      direct.push(...words.slice(1).filter((word) => !word.startsWith("-") && isSensitiveResource(word)))
+    }
     const nested = depth < 2 ? nestedShellCommand(words) : undefined
     return nested ? [...direct, ...commandAccessResources(nested, depth + 1)] : direct
   })
@@ -522,10 +533,11 @@ function scopedPythonDependencyInstall(
   if (hasUnsafeShellSyntax(body)) {
     return null
   }
-  const words = shellWords(body)
-  if (!words) {
+  const parsedWords = shellWords(body)
+  if (!parsedWords) {
     return null
   }
+  const words = unwrappedShellCommandWords(parsedWords, false)
   const installWords = pythonInstallArguments(words, executableAllowed, pipExecutableAllowed, boundedCommand.directory)
   const packages = installWords ? managedPythonPackageNames(installWords) : null
   return packages ? { packages } : null

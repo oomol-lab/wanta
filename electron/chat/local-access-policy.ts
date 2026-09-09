@@ -5,6 +5,7 @@ import type { PermissionRequestKind, SessionPermissionGrant } from "./permission
 
 import { ooCommandDenyReason } from "../agent/oo-command-permission.ts"
 import { isLowConsequenceCleanupCommand } from "./bounded-cleanup.ts"
+import { scopedCommandSequence } from "./command-sequence.ts"
 import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
@@ -229,6 +230,9 @@ function evaluateBaselineLocalAccessRequest(
   if (context.permissionMode === "full_access") {
     return { type: "allow", reason: "full_access", kind, highRisk }
   }
+  if (kind === "command" && !command) {
+    return { type: "prompt", kind, highRisk }
+  }
   // A generic directory grant cannot cross credential or private application-data boundaries.
   // Only Full Access bypasses this protection. Selected-project `.env` files are not this class.
   if (permissionRequestHasSensitiveResource(request, scope)) {
@@ -280,6 +284,26 @@ function evaluateBaselineLocalAccessRequest(
     return { type: "prompt", kind, highRisk }
   }
   if (permissionRequestNeedsDefaultPrompt(request, scope)) {
+    // The full request has already passed credential, sensitive-resource, and
+    // consequential-operation checks. A dependency chain needs no extra prompt
+    // when every step independently qualifies under the same policy.
+    const steps = command ? scopedCommandSequence(command, commandCwd) : undefined
+    if (
+      steps?.every(
+        (step) =>
+          evaluateBaselineLocalAccessRequest(
+            {
+              ...request,
+              resources: [],
+              save: undefined,
+              metadata: { command: step.command, ...(step.cwd ? { cwd: step.cwd } : {}) },
+            },
+            { ...context, commandCwd: step.cwd, sessionGrants: undefined },
+          ).type === "allow",
+      )
+    ) {
+      return { type: "allow", reason: "trusted_dependency", kind, highRisk }
+    }
     return { type: "prompt", kind, highRisk }
   }
   if (context.trustedProjectRoot && projectPermissionRequestInsideRoot(request, context.trustedProjectRoot)) {

@@ -54,8 +54,9 @@ export interface OpencodeCustomModel {
 }
 
 // Local requests reach ChatService, which automatically approves ordinary operations
-// and bounded dependency/check chains. Only recognized consequential boundaries
-// need confirmation; no project-dependency task grant or command allowlist is needed.
+// and bounded dependency/check lists with ordinary separators/output filters.
+// Only recognized consequential boundaries need confirmation; no project-dependency
+// task grant or command allowlist is needed.
 // Custom connector tools retain their own gates. OOMOL's managed CLI keeps its native fast path.
 function wantaPermission(linkRuntime: LinkRuntime | null): OpencodePermissionConfig {
   return {

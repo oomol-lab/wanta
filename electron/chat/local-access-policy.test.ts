@@ -68,6 +68,51 @@ test("default access composes ordinary dependency steps without weakening existi
   }
 })
 
+test("ordinary dependency pipelines and command lists reuse scope without trusting failed directory changes", () => {
+  const root = "/work/project"
+  const context = { permissionMode: "default" as const, trustedProjectRoot: root }
+  const decide = (command: string, cwd?: string) =>
+    evaluateLocalAccessRequest(
+      permission({ resources: [command], metadata: { command, ...(cwd ? { cwd } : {}) } }),
+      context,
+    )
+  for (const command of [
+    "npm install | tail -5 && npm test",
+    "npm install 2>&1 | head -n 20 | tail -5 && npm run build",
+    "npm install; npm test",
+    "npm install\nnpm test\nnpm run build",
+    "npm install | tail -5; npm test 2>&1 | head -10",
+    "npm install; npm test;",
+    "cd /work/project && npm install; npm test",
+    "cd /work/project; npm install",
+    "npm install; .venv/bin/python -m pip install pandas | tail -5; .venv/bin/python report.py",
+  ])
+    assert.equal(decide(command, root).type, "allow", command)
+
+  assert.equal(decide(`cd ${root} && npm install | tail -5 && npm test`).type, "allow")
+  assert.equal(decide(`npm --prefix ${root} install; npm --prefix ${root} test`).type, "allow")
+  for (const command of [
+    "npm install | tail -5 && npx vercel deploy --prod",
+    "npm install; command npm install -g cowsay",
+    "npm install | tail -5; rm -rf /work/shared",
+    "npm install; cat .ssh/config",
+    "npm install; npm install zod --registry https://example.test",
+    "npm install | sh && npm test",
+    "npm install; .venv/bin/python -m pip install --user pandas",
+    "cd /work/other; npm install",
+    "cd /work/other && echo ready; npm install",
+    "cd /work/other && cd /work/project; npm install",
+    "source setup.sh; npm install",
+    "cd /work/project | tail -5; npm install",
+    "if true; then cd /work/other; fi; npm install",
+    "alias enter='cd /work/other'; enter; npm install",
+  ])
+    assert.equal(decide(command, root).type, "prompt", command)
+  for (const command of [`cd ${root}; npm install`, `cd ${root} && npm install; npm install zod`])
+    assert.equal(decide(command, "/work/other").type, "prompt", command)
+  assert.equal(decide("npm install | tail -5; printenv", root).type, "deny")
+})
+
 test("known consequential operations retain their decision through common launchers", () => {
   const context = { permissionMode: "default" as const }
   for (const command of [

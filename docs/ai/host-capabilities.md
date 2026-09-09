@@ -116,11 +116,14 @@ forms. Agents should put disposable intermediates in the supplied task process
 directory. This policy does not add filesystem scans or automatic backups.
 
 Default Access is a permissive guard against common consequential mistakes, not
-a sandbox for arbitrary scripts. Straight-line `&&` dependency chains reuse the
-same per-step policy and track literal directory changes: installation followed
-by tests, builds, or ordinary local scripts does not add a confirmation. Unknown
-control flow falls back to the existing policy; it does not establish a trusted
-directory. Transparent shell launchers share risk/dependency normalization, and
+a sandbox for arbitrary scripts. Ordinary dependency command lists reuse the
+same per-step policy: `&&`, semicolon/newline separators, and existing bounded
+`head`/`tail` output filters do not add a confirmation when each step qualifies.
+Literal directory changes establish scope only on their success path. An
+unconditional separator after a directory-changing chain discards ambiguous cwd;
+a piped `cd` never establishes parent-shell scope. Shell control flow and
+in-process definitions fall back to the existing policy. Transparent shell
+launchers share risk/dependency normalization, and
 recognized package-runner CLI operations retain their consequential boundaries.
 Relative sensitive file operands and wildcard deletion retain those boundaries
 too. A shell permission with no command cannot be automatically approved in

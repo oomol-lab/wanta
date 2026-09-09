@@ -1,4 +1,4 @@
-import type { ExternalAgentKind } from "../agent/contract/profile.ts"
+import type { AgentKind, ExternalAgentKind } from "../agent/contract/profile.ts"
 import type { ExternalAgentRuntimeStatus } from "../agent/external/status.ts"
 import type { WantaAgentMode } from "../agent/mode.ts"
 import type { WantaReasoningLevel } from "../agent/reasoning.ts"
@@ -10,6 +10,30 @@ import type { ChatErrorKind } from "./error.ts"
 import type { ServiceName } from "@oomol/connection"
 
 import { serviceName } from "../branding.ts"
+
+export interface ComposerDraftPreferences {
+  agentKind: AgentKind
+  permissionMode: AgentPermissionMode
+  modelId?: string
+  effortId?: string
+  knowledgeBaseIds: string[]
+}
+
+export interface ComposerDraftRecord {
+  interruptedImport?: boolean
+  preferences?: ComposerDraftPreferences
+  attachments: ChatAttachment[]
+  contextMentions: ChatContextMention[]
+  command: "bug-report" | null
+  draft: string
+  draftSelection: { start: number; end: number }
+  dismissedTriggerKey: null
+}
+export interface ComposerDraftRequest {
+  owner: string
+  key: string
+  value: ComposerDraftRecord | null
+}
 
 export type ChatRole = "user" | "assistant"
 export type ToolStatus = "pending" | "running" | "completed" | "error"
@@ -537,6 +561,7 @@ export interface AttachmentPreviewRequest {
 
 export interface AttachmentPreviewResult {
   dataUrl: string | null
+  reason?: "unsupported_type" | "too_large" | "missing" | "read_failed"
   resourceExpiresAt?: number
   resourceUrl?: string
 }
@@ -981,6 +1006,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     runtimeCapabilitiesChanged: RuntimeCapabilitiesChangedEvent
   }
   ClientInvokes: {
+    getComposerDrafts(owner: string): Promise<Record<string, ComposerDraftRecord>>
+    saveComposerDraft(req: ComposerDraftRequest): Promise<void>
     sendMessage(req: SendMessageRequest): Promise<void>
     getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult>
     copyLocalImage(req: LocalImageRequest): Promise<void>

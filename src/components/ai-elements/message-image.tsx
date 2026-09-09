@@ -16,6 +16,7 @@ import {
   ExternalLinkIcon,
   FolderOpenIcon,
   ImageOffIcon,
+  LoaderCircle,
   MinusIcon,
   PlusIcon,
   SaveIcon,
@@ -27,6 +28,7 @@ import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { localImagePreviewMarkerPrefix } from "../../../electron/chat/markdown-images.ts"
 import { useChatService } from "@/components/AppContext"
+import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useT } from "@/i18n/i18n"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -411,6 +413,10 @@ interface ImageViewerProps {
   localPath?: string | null
   onClose: () => void
   onError?: MarkdownImageProps["onError"]
+  onLoad?: MarkdownImageProps["onLoad"]
+  onRetry?: () => void
+  previewStatus?: "loading" | "ready" | "failed"
+  previewError?: string
   setImageSize: Dispatch<SetStateAction<ImageViewerSize | null>>
   setStageSize: Dispatch<SetStateAction<ImageViewerSize | null>>
   setViewerState: Dispatch<SetStateAction<ImageViewerState>>
@@ -530,7 +536,7 @@ function ImageViewerActions({ localPath }: { localPath: string }) {
   )
 }
 
-function ImageContextActions({
+export function ImageContextActions({
   children,
   localPath,
 }: {
@@ -587,6 +593,10 @@ export function ImageViewerModal({
   alt,
   onClose,
   onError,
+  onLoad,
+  onRetry,
+  previewStatus,
+  previewError,
   localPath,
   src,
   title,
@@ -594,6 +604,10 @@ export function ImageViewerModal({
   alt: string
   onClose: () => void
   onError?: MarkdownImageProps["onError"]
+  onLoad?: MarkdownImageProps["onLoad"]
+  onRetry?: () => void
+  previewStatus?: "loading" | "ready" | "failed"
+  previewError?: string
   localPath?: string | null
   src: string
   title: string
@@ -626,6 +640,10 @@ export function ImageViewerModal({
       localPath={localPath}
       onClose={onClose}
       onError={handleError}
+      onLoad={onLoad}
+      onRetry={onRetry}
+      previewStatus={previewStatus}
+      previewError={previewError}
       setImageSize={setImageSize}
       setStageSize={setStageSize}
       setViewerState={setViewerState}
@@ -633,7 +651,7 @@ export function ImageViewerModal({
       stageRef={stageRef}
       stageSize={stageSize}
       title={title}
-      unavailableName={unavailable ? title : undefined}
+      unavailableName={(previewStatus ? previewStatus === "failed" : unavailable) ? title : undefined}
       viewerState={viewerState}
       viewerStateRef={viewerStateRef}
       dragRef={dragRef}
@@ -649,6 +667,10 @@ function ImageViewer({
   localPath,
   onClose,
   onError,
+  onLoad,
+  onRetry,
+  previewStatus,
+  previewError,
   setImageSize,
   setStageSize,
   setViewerState,
@@ -812,41 +834,63 @@ function ImageViewer({
           onLostPointerCapture={clearDrag}
           onWheel={handleWheel}
         >
-          {unavailableName ? (
-            <div className="oo-markdown-image-viewer-center">
-              <UnavailableImagePreview name={unavailableName} />
+          {previewStatus === "loading" ? (
+            <div className="oo-markdown-image-viewer-center" role="status">
+              <span className="flex items-center gap-2">
+                <LoaderCircle className="size-5 animate-spin" />
+                {t("artifacts.previewLoading")}
+              </span>
             </div>
           ) : null}
-          <div className={cn("oo-markdown-image-viewer-center", unavailableName && "hidden")}>
-            <div
-              className="oo-markdown-image-viewer-offset"
-              style={{ transform: `translate(${viewerState.offset.x}px, ${viewerState.offset.y}px)` }}
-            >
-              <img
-                src={src}
-                alt={alt}
-                className="oo-markdown-image-viewer-image"
-                draggable={false}
-                decoding="async"
-                onError={onError}
-                onLoad={(event) => {
-                  setImageSize({
-                    height: event.currentTarget.naturalHeight,
-                    width: event.currentTarget.naturalWidth,
-                  })
-                }}
-                style={{
-                  height: imageSize ? `${imageSize.height}px` : undefined,
-                  transform: `scale(${viewerState.scale})`,
-                  width: imageSize ? `${imageSize.width}px` : undefined,
-                }}
-              />
+          {unavailableName ? (
+            <div className="oo-markdown-image-viewer-center">
+              <div className="flex flex-col items-center gap-3">
+                {previewError ? (
+                  <span role="status">{previewError}</span>
+                ) : (
+                  <UnavailableImagePreview name={unavailableName} />
+                )}
+                {onRetry ? (
+                  <Button variant="outline" onPointerDown={(event) => event.stopPropagation()} onClick={onRetry}>
+                    {t("artifacts.retry")}
+                  </Button>
+                ) : null}
+              </div>
             </div>
-          </div>
+          ) : null}
+          {src ? (
+            <div className={cn("oo-markdown-image-viewer-center", unavailableName && "hidden")}>
+              <div
+                className="oo-markdown-image-viewer-offset"
+                style={{ transform: `translate(${viewerState.offset.x}px, ${viewerState.offset.y}px)` }}
+              >
+                <img
+                  src={src}
+                  alt={alt}
+                  className="oo-markdown-image-viewer-image"
+                  draggable={false}
+                  decoding="async"
+                  onError={onError}
+                  onLoad={(event) => {
+                    onLoad?.(event)
+                    setImageSize({
+                      height: event.currentTarget.naturalHeight,
+                      width: event.currentTarget.naturalWidth,
+                    })
+                  }}
+                  style={{
+                    height: imageSize ? `${imageSize.height}px` : undefined,
+                    transform: `scale(${viewerState.scale})`,
+                    width: imageSize ? `${imageSize.width}px` : undefined,
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
       </ImageContextActions>
 
-      {!unavailableName ? (
+      {!unavailableName && previewStatus !== "loading" ? (
         <div className="oo-markdown-image-viewer-zoom" aria-label={viewerPercent(viewerState.scale)}>
           <button
             type="button"

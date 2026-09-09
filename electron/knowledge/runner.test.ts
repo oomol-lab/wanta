@@ -1,6 +1,6 @@
 import type { WikiGraphRuntime } from "./runner.ts"
 
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { describe, expect, it, vi, beforeEach } from "vitest"
@@ -28,7 +28,7 @@ const sdk = vi.hoisted(() => {
     addRecord: undefined as MockArchiveRecord | undefined,
     archives: [] as MockArchiveRecord[],
     calls: {
-      add: [] as unknown[],
+      scan: [] as unknown[],
       archiveFiles: [] as string[],
       getArchive: [] as unknown[],
       list: [] as unknown[],
@@ -43,6 +43,7 @@ const sdk = vi.hoisted(() => {
     failGetArchive: undefined as Error | undefined,
     failListChapters: undefined as Error | undefined,
     failRebindQueue: [] as Error[],
+    failScanQueue: [] as Error[],
     ftsCurrent: false,
     indexSettings: { ftsEmbedded: false },
     meta: undefined as MockBookMeta | undefined,
@@ -129,10 +130,13 @@ vi.mock("wiki-graph-core", () => {
         })
       }
     },
-    addWikiGraphLibraryArchive: async (input: unknown) => {
-      sdk.calls.add.push(input)
-      if (!sdk.addRecord) throw new Error("missing add record")
-      return sdk.addRecord
+    ensureWikiGraphArchiveSchemaCurrent: async () => undefined,
+    ensureLibraryManagedArchiveHasNoSearchIndex: async () => false,
+    scanWikiGraphLibrary: async (target: unknown) => {
+      sdk.calls.scan.push(target)
+      const error = sdk.failScanQueue.shift()
+      if (error) throw error
+      return { archives: sdk.addRecord ? [...sdk.archives, sdk.addRecord] : sdk.archives }
     },
     getWikiGraphLibraryArchive: async (target: { uri?: string }) => {
       sdk.calls.getArchive.push(target)
@@ -249,7 +253,7 @@ beforeEach(() => {
     archiveRecord({ exists: false, publicId: "missing", status: "missing", uri: "wikg://lib/arc/missing" }),
   ]
   sdk.calls = {
-    add: [],
+    scan: [],
     archiveFiles: [],
     getArchive: [],
     list: [],
@@ -264,6 +268,7 @@ beforeEach(() => {
   sdk.failGetArchive = undefined
   sdk.failListChapters = undefined
   sdk.failRebindQueue = []
+  sdk.failScanQueue = []
   sdk.ftsCurrent = false
   sdk.indexSettings = { ftsEmbedded: false }
   sdk.meta = undefined
@@ -293,6 +298,19 @@ describe("WikiGraph SDK adapter", () => {
     await expect(prepareWikiGraphDefaultLibrary(rt)).rejects.toThrow("Library unavailable")
     await prepareWikiGraphDefaultLibrary(rt)
     expect(sdk.calls.rebind).toHaveLength(2)
+  })
+
+  it("does not quarantine an archive when storage is temporarily busy", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const rt = runtime(dir)
+    await mkdir(rt.managedLibraryDir, { recursive: true })
+    const archivePath = path.join(rt.managedLibraryDir, "busy.wikg")
+    await writeFile(archivePath, "archive")
+    sdk.failListChapters = Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+    await expect(prepareWikiGraphDefaultLibrary(rt)).rejects.toThrow("database is locked")
+    expect(await readFile(archivePath, "utf8")).toBe("archive")
+    sdk.failListChapters = undefined
+    await expect(prepareWikiGraphDefaultLibrary(rt)).resolves.toBeUndefined()
   })
 
   it("lists default library archives using SDK publicId as the Wanta-facing id", async () => {
@@ -330,14 +348,8 @@ describe("WikiGraph SDK adapter", () => {
       uri: "wikg://lib/arc/imported-public-id",
     })
     expect(imported.id).not.toBe("99")
-    expect(sdk.calls.archiveFiles).toEqual(["/managed/library/copy.wikg"])
-    expect(sdk.calls.add).toEqual([
-      {
-        inputFile: new NodeFile(source),
-        target: { kind: "mock", uri: "wikg://lib/arc" },
-        to: "research/Original Book.wikg",
-      },
-    ])
+    expect(sdk.calls.archiveFiles[0]).toContain("wanta-imports/archive-")
+    expect(sdk.calls.scan).toEqual([{ kind: "mock", uri: "wikg://lib" }])
   })
 
   it("deduplicates imported archive file names in the target directory", async () => {
@@ -357,13 +369,7 @@ describe("WikiGraph SDK adapter", () => {
     const imported = await addWikiGraphLibraryArchive(runtime(dir), source, "books")
 
     expect(imported.relativePath).toBe("books/三国演义 3.wikg")
-    expect(sdk.calls.add).toEqual([
-      {
-        inputFile: new NodeFile(source),
-        target: { kind: "mock", uri: "wikg://lib/arc" },
-        to: "books/三国演义 3.wikg",
-      },
-    ])
+    expect(sdk.calls.scan).toEqual([{ kind: "mock", uri: "wikg://lib" }])
   })
 
   it("deduplicates imports against unregistered physical archive files", async () => {
@@ -382,16 +388,10 @@ describe("WikiGraph SDK adapter", () => {
     const imported = await addWikiGraphLibraryArchive(rt, source, "books")
 
     expect(imported.relativePath).toBe("books/三国演义 2.wikg")
-    expect(sdk.calls.add).toEqual([
-      {
-        inputFile: new NodeFile(source),
-        target: { kind: "mock", uri: "wikg://lib/arc" },
-        to: "books/三国演义 2.wikg",
-      },
-    ])
+    expect(sdk.calls.scan).toEqual([{ kind: "mock", uri: "wikg://lib" }])
   })
 
-  it("fails and removes the managed copy when validation cannot read chapters", async () => {
+  it("rejects unreadable staged imports before publishing a managed copy", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
     const source = path.join(dir, "Broken Book.wikg")
     await writeFile(source, "archive")
@@ -413,14 +413,11 @@ describe("WikiGraph SDK adapter", () => {
     expect((importError as Error).message).toContain("WANTA_KNOWLEDGE_IMPORT_UNREADABLE")
     expect((importError as Error).message).not.toContain("Missing chapter key in TOC")
 
-    expect(sdk.calls.add).toEqual([
-      expect.objectContaining({
-        inputFile: new NodeFile(source),
-        target: { kind: "mock", uri: "wikg://lib/arc" },
-      }),
-    ])
-    expect(sdk.calls.archiveFiles).toEqual(["/managed/library/broken-copy.wikg"])
-    expect(sdk.calls.remove).toEqual([{ target: { kind: "mock", uri: "wikg://lib/arc/broken-public-id" } }])
+    expect(sdk.calls.scan).toEqual([])
+    expect(sdk.calls.remove).toEqual([])
+    expect(await readFile(source, "utf8")).toBe("archive")
+    expect(await readdir(runtime(dir).managedLibraryDir)).toEqual([])
+    expect(await readdir(path.join(runtime(dir).stateDir, "wanta-imports"))).toEqual([])
   })
 
   it("rejects unsafe import target directories", async () => {
@@ -431,6 +428,34 @@ describe("WikiGraph SDK adapter", () => {
     await expect(addWikiGraphLibraryArchive(runtime(dir), source, "research//deep")).rejects.toThrow("stay inside")
     await expect(addWikiGraphLibraryArchive(runtime(dir), source, "research/../deep")).rejects.toThrow("stay inside")
     await expect(addWikiGraphLibraryArchive(runtime(dir), source, "research\\deep")).rejects.toThrow("/ separators")
+  })
+
+  it("preserves temporary storage failures during staged validation", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const rt = runtime(dir)
+    const source = path.join(dir, "copy.wikg")
+    await writeFile(source, "archive")
+    sdk.failListChapters = Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+    await expect(addWikiGraphLibraryArchive(rt, source)).rejects.toThrow("database is locked")
+    expect(await readFile(source, "utf8")).toBe("archive")
+    expect(await readdir(rt.managedLibraryDir)).toEqual([])
+    expect(await readdir(path.join(rt.stateDir, "wanta-imports"))).toEqual([])
+    expect(sdk.calls.scan).toEqual([])
+  })
+
+  it("rolls back a published file when SDK registration fails and permits retry", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const rt = runtime(dir)
+    const source = path.join(dir, "copy.wikg")
+    await writeFile(source, "archive")
+    sdk.archives = []
+    sdk.failScanQueue = [new Error("registration failed")]
+    await expect(addWikiGraphLibraryArchive(rt, source)).rejects.toThrow("registration failed")
+    expect(await readdir(rt.managedLibraryDir)).toEqual([])
+    expect(await readdir(path.join(rt.stateDir, "wanta-imports"))).toEqual([])
+    expect(await readFile(source, "utf8")).toBe("archive")
+    expect(sdk.calls.scan).toHaveLength(2)
+    await expect(addWikiGraphLibraryArchive(rt, source)).resolves.toMatchObject({ relativePath: "copy.wikg" })
   })
 
   it("removes archives by the public archive URI", async () => {

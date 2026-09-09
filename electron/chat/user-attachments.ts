@@ -22,6 +22,7 @@ interface PersistedUserAttachmentRecords {
 export type UserAttachmentRecords = Map<string, Map<string, StoredUserAttachmentRecord>>
 
 interface UserAttachmentStoreOptions {
+  retentionState?: () => Promise<{ paused: boolean; paths: string[] }>
   removeManagedPath?: (target: string, options: { force: boolean; recursive?: boolean }) => Promise<void>
 }
 
@@ -212,6 +213,7 @@ export class UserAttachmentStore {
   private readonly managedAgentRoot: string
   private readonly managedOriginalRoot: string
   private readonly removeManagedPath: NonNullable<UserAttachmentStoreOptions["removeManagedPath"]>
+  private readonly externalRetentionState: () => Promise<{ paused: boolean; paths: string[] }>
   private records: UserAttachmentRecords | undefined
   private mutationQueue: Promise<void> = Promise.resolve()
 
@@ -220,6 +222,7 @@ export class UserAttachmentStore {
     this.managedAgentRoot = path.resolve(dir, "attachments", "agent")
     this.managedOriginalRoot = path.resolve(dir, "attachments", "originals")
     this.removeManagedPath = options.removeManagedPath ?? rm
+    this.externalRetentionState = options.retentionState ?? (async () => ({ paused: false, paths: [] }))
   }
 
   public async read(): Promise<UserAttachmentRecords> {
@@ -303,8 +306,14 @@ export class UserAttachmentStore {
   }
 
   /** 清理已过保留期且不被任何已发送消息引用的草稿/中间附件。 */
-  public async pruneExpiredUnreferenced(maxAgeMs = 7 * 24 * 60 * 60_000, now = Date.now()): Promise<void> {
+  public async pruneExpiredUnreferenced(
+    maxAgeMs = 7 * 24 * 60 * 60_000,
+    now = Date.now(),
+    additionalPaths: string[] = [],
+  ): Promise<void> {
     await this.enqueueMutation(async () => {
+      const retention = await this.externalRetentionState()
+      if (retention.paused) return
       const records = await this.loadRecords()
       const referenced = new Set(
         [...records.values()]
@@ -314,6 +323,7 @@ export class UserAttachmentStore {
             ...record.internalPaths.map((internalPath) => path.resolve(internalPath)),
           ]),
       )
+      for (const filePath of [...additionalPaths, ...retention.paths]) referenced.add(path.resolve(filePath))
       const referencedDirectories = new Set([...referenced].map((filePath) => path.dirname(filePath)))
       const cutoff = now - maxAgeMs
       const originalEntries = await readdir(this.managedOriginalRoot, { withFileTypes: true }).catch(() => [])
@@ -341,6 +351,10 @@ export class UserAttachmentStore {
     records: StoredUserAttachmentRecord[],
     retainedPaths: ReadonlySet<string>,
   ): Promise<void> {
+    const retention = await this.externalRetentionState()
+    if (retention.paused) return
+    const protectedPaths = new Set([...retainedPaths, ...retention.paths.map((p) => path.resolve(p))])
+    const protectedDirectories = new Set([...protectedPaths].map((p) => path.dirname(p)))
     const files = new Set(
       records.flatMap((record) => [
         ...record.attachments.map((attachment) => attachment.path),
@@ -350,7 +364,7 @@ export class UserAttachmentStore {
     const directories = new Set<string>()
     for (const candidate of files) {
       const resolved = path.resolve(candidate)
-      if (retainedPaths.has(resolved)) continue
+      if (protectedPaths.has(resolved)) continue
       const directory = path.dirname(resolved)
       if (path.dirname(directory) === this.managedOriginalRoot) {
         directories.add(directory)
@@ -359,6 +373,7 @@ export class UserAttachmentStore {
       }
     }
     for (const directory of directories) {
+      if (protectedDirectories.has(directory)) continue
       await chmod(directory, 0o700).catch(() => undefined)
       await this.removeManagedPath(directory, { force: true, recursive: true })
     }

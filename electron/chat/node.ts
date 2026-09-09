@@ -64,6 +64,8 @@ import type {
   TurnOutputRecord,
   TurnOutputsRequest,
 } from "./common.ts"
+import type { ComposerDraftRequest, ComposerDraftRecord } from "./common.ts"
+import type { ComposerDraftStore } from "./composer-drafts.ts"
 import type { SessionGeneration } from "./generation-registry.ts"
 import type { CreateArtifactResourceUrl } from "./previews.ts"
 import type { StoppedGenerationStore } from "./stopped-generations.ts"
@@ -99,6 +101,7 @@ import {
   writeBugReportEvidencePack,
 } from "./bug-report.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
+import { normalizeComposerDraft } from "./composer-drafts.ts"
 import {
   buildContextMentionsSystem as buildContextMentionsSystemPrompt,
   buildExternalPermissionModeSystem,
@@ -300,6 +303,8 @@ interface ChatServiceDeps {
   stoppedGenerationStore?: StoppedGenerationStore
   trustedAttachmentPaths?: Iterable<string> & Pick<Set<string>, "clear" | "delete"> & { readonly revision?: number }
   turnOutputStore?: TurnOutputStore
+  composerDraftStore?: ComposerDraftStore
+  composerDraftOwner?: () => string
   userAttachmentStore?: UserAttachmentStore
   bugReportRuntime?: {
     appCommit: string
@@ -1543,7 +1548,25 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         roots.add(active.outputProjectRoot)
       }
     }
-    const [artifactBundles, turnOutputs] = await Promise.all([this.readArtifactBundles(), this.readTurnOutputs()])
+    const [artifactBundles, turnOutputs, userAttachments] = await Promise.all([
+      this.readArtifactBundles(),
+      this.readTurnOutputs(),
+      this.deps.userAttachmentStore?.read(),
+    ])
+    // Persisted public attachments remain readable before their message history is mounted.
+    // Only the original snapshots are restored; internal agent representations are not roots.
+    for (const draftPath of (await this.deps.composerDraftStore
+      ?.paths(this.deps.composerDraftOwner?.() ?? "local", { includeAgentPaths: false })
+      .catch((error: unknown) => {
+        logDiagnostic("chat-service", "failed to read draft attachment roots", { error }, "warn")
+        return []
+      })) ?? [])
+      roots.add(draftPath)
+    for (const records of userAttachments?.values() ?? []) {
+      for (const record of records.values()) {
+        for (const attachment of record.attachments) roots.add(attachment.path)
+      }
+    }
     for (const records of artifactBundles.values()) {
       for (const bundle of records.values()) {
         roots.add(bundle.rootPath)
@@ -2911,6 +2934,43 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       sessionId,
     })
   }
+  public async getComposerDrafts(owner: string): Promise<Record<string, ComposerDraftRecord>> {
+    if (owner !== (this.deps.composerDraftOwner?.() ?? "local")) throw new Error("Draft account changed")
+    const drafts = (await this.deps.composerDraftStore?.read(owner)) ?? {}
+    if (owner !== (this.deps.composerDraftOwner?.() ?? "local")) throw new Error("Draft account changed")
+    for (const draft of Object.values(drafts)) {
+      for (const attachment of draft.attachments) {
+        // Prepared copies must be regenerated from the original after restoration.
+        delete attachment.agentPath
+        delete attachment.agentMime
+        delete attachment.agentName
+        delete attachment.agentSize
+      }
+    }
+    return drafts
+  }
+
+  public async saveComposerDraft(req: ComposerDraftRequest): Promise<void> {
+    if (req.owner !== (this.deps.composerDraftOwner?.() ?? "local")) throw new Error("Draft account changed")
+    if (!req.key || req.key.length > 1024) throw new Error("Invalid draft key")
+    if (req.value) {
+      req = { ...req, value: normalizeComposerDraft(req.value) }
+      const drafts = await this.deps.composerDraftStore?.read(req.owner)
+      const previous = drafts && Object.hasOwn(drafts, req.key) ? drafts[req.key] : undefined
+      const existing = new Set(previous?.attachments.flatMap((a) => [a.path, a.agentPath]) ?? [])
+      for (const attachment of req.value!.attachments) {
+        for (const filePath of [attachment.path, attachment.agentPath].filter((p): p is string => Boolean(p))) {
+          // Missing files already owned by this draft remain visible for recovery.
+          if (!existing.has(filePath)) await this.assertTrustedLocalPath(filePath)
+        }
+      }
+    }
+    if (req.owner !== (this.deps.composerDraftOwner?.() ?? "local")) throw new Error("Draft account changed")
+    await this.deps.composerDraftStore?.save(req)
+    if (req.owner !== (this.deps.composerDraftOwner?.() ?? "local")) throw new Error("Draft account changed")
+    this.invalidateTrustedLocalPathRoots()
+  }
+
   public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
     await this.assertTrustedLocalPath(req.path)
     return attachmentPreview(req, this.deps.createArtifactResourceUrl)

@@ -1,20 +1,14 @@
 import type { ChatAttachment } from "../../../electron/chat/common.ts"
 import type { DraftAttachment } from "./composer-state.ts"
 
-import { FileImage, X } from "lucide-react"
+import { FileImage, LoaderCircle, X } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import {
-  attachmentExtension,
-  deleteAttachmentPreviewUrl,
-  fileSizeLabel,
-  isImageAttachment,
-  readAttachmentPreviewUrl,
-  setAttachmentPreviewUrl,
-} from "./chat-attachment-utils.ts"
+import { attachmentExtension, fileSizeLabel, isImageAttachment } from "./chat-attachment-utils.ts"
 import { FileKindTile } from "./file-type-icons.tsx"
 import { fileVisualKind } from "./file-type-kind.ts"
-import { ImageViewerModal } from "@/components/ai-elements/message-image"
+import { useAttachmentPreview } from "./use-attachment-preview.ts"
+import { ImageContextActions, ImageViewerModal } from "@/components/ai-elements/message-image"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -55,77 +49,83 @@ function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) 
 
 function AttachmentImageCard({
   attachment,
-  onOpen,
   onRemove,
   removeLabel,
 }: {
   attachment: DraftAttachment
-  onOpen: (attachment: DraftAttachment, previewUrl: string | null) => void
   onRemove?: (id: string) => void
   removeLabel: string
 }) {
-  const chatService = useChatService()
-  const [previewUrl, setPreviewUrl] = React.useState(attachment.previewUrl ?? null)
-  const [previewRetry, setPreviewRetry] = React.useState(0)
-  const attachmentPath = attachment.path
-  const attachmentMime = attachment.mime
-  const initialPreviewUrl = attachment.previewUrl ?? null
-  const imageAttachment = isImageAttachment(attachment)
-
-  React.useEffect(() => {
-    const cached = readAttachmentPreviewUrl(attachmentPath) ?? (previewRetry === 0 ? initialPreviewUrl : null)
-    setPreviewUrl(cached)
-    if (cached || !imageAttachment) {
-      return
-    }
-    let cancelled = false
-    void chatService
-      .invoke("getAttachmentPreview", { path: attachmentPath, mime: attachmentMime })
-      .then((result) => {
-        const source = result.resourceUrl ?? result.dataUrl
-        if (cancelled || !source) {
-          return
-        }
-        setAttachmentPreviewUrl(attachmentPath, source, result.resourceExpiresAt)
-        setPreviewUrl(source)
-      })
-      .catch((error: unknown) => {
-        reportRendererHandledError("chat", "attachment preview load failed", error)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [attachmentMime, attachmentPath, chatService, imageAttachment, initialPreviewUrl, previewRetry])
+  const t = useT()
+  const preview = useAttachmentPreview(attachment)
+  const [viewerOpen, setViewerOpen] = React.useState(false)
+  const previewUrl = preview.src
+  const errorLabel = t(`chat.attachmentPreview.${preview.reason ?? "read_failed"}`)
 
   return (
     <div className="group relative size-20 shrink-0">
-      <button
-        type="button"
-        title={attachment.name}
-        className="size-full overflow-hidden rounded-xl border border-border/60 bg-background text-left shadow-xs hover:border-border hover:bg-accent/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-        onClick={() => onOpen(attachment, previewUrl)}
-      >
-        {previewUrl ? (
-          <img
-            src={previewUrl}
-            alt=""
-            className="size-full object-cover object-center"
-            draggable={false}
-            decoding="async"
-            onError={() => {
-              deleteAttachmentPreviewUrl(attachmentPath)
-              setPreviewUrl(null)
-              if (previewRetry < 1) {
-                setPreviewRetry((value) => value + 1)
-              }
-            }}
-          />
-        ) : (
-          <span className="flex size-full items-center justify-center text-muted-foreground/65">
-            <FileImage className="size-6" />
-          </span>
-        )}
-      </button>
+      <ImageContextActions localPath={attachment.path}>
+        <button
+          type="button"
+          title={preview.status === "failed" ? errorLabel : attachment.name}
+          aria-label={
+            preview.status === "failed"
+              ? `${errorLabel} ${t("artifacts.retry")}`
+              : t("chat.imagePreview.open", { name: attachment.name })
+          }
+          aria-busy={preview.status === "loading"}
+          className="size-full overflow-hidden rounded-xl border border-border/60 bg-background text-left shadow-xs hover:border-border hover:bg-accent/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+          onClick={() => {
+            if (preview.status === "failed") {
+              preview.retry()
+              return
+            }
+            preview.revalidate()
+            setViewerOpen(true)
+          }}
+        >
+          {previewUrl ? (
+            <img
+              src={previewUrl}
+              alt=""
+              className="size-full object-cover object-center"
+              draggable={false}
+              decoding="async"
+              onLoad={() => preview.loaded(previewUrl)}
+              onError={() => preview.failed(previewUrl)}
+            />
+          ) : (
+            <span className="flex size-full items-center justify-center text-muted-foreground/65">
+              {preview.status === "loading" ? (
+                <LoaderCircle className="size-6 animate-spin" />
+              ) : (
+                <span className="flex flex-col items-center gap-1">
+                  <FileImage className="size-6" />
+                  <span className="text-xs">{t("artifacts.retry")}</span>
+                </span>
+              )}
+            </span>
+          )}
+        </button>
+      </ImageContextActions>
+      {viewerOpen ? (
+        <ImageViewerModal
+          alt={attachment.name}
+          localPath={attachment.path}
+          onClose={() => setViewerOpen(false)}
+          src={previewUrl ?? ""}
+          title={attachment.name}
+          previewStatus={preview.status}
+          previewError={errorLabel}
+          onRetry={preview.retry}
+          onLoad={() => {
+            if (previewUrl) preview.loaded(previewUrl)
+          }}
+          onError={() => {
+            if (previewUrl) preview.failed(previewUrl)
+          }}
+        />
+      ) : null}
       {onRemove ? (
         <button
           type="button"
@@ -140,10 +140,6 @@ function AttachmentImageCard({
   )
 }
 
-function imageDownloadName(attachment: DraftAttachment): string {
-  return attachment.name.trim() || attachment.path.split(/[\\/]/).pop() || "image"
-}
-
 export function AttachmentList({
   attachments,
   className,
@@ -155,20 +151,8 @@ export function AttachmentList({
 }) {
   const t = useT()
   const chatService = useChatService()
-  const [imageViewer, setImageViewer] = React.useState<{
-    attachment: DraftAttachment
-    src: string | null
-  } | null>(null)
-
   const openAttachment = React.useCallback(
-    (attachment: DraftAttachment, previewUrl: string | null = null): void => {
-      if (isImageAttachment(attachment)) {
-        setImageViewer({
-          attachment,
-          src: previewUrl ?? attachment.previewUrl ?? readAttachmentPreviewUrl(attachment.path) ?? null,
-        })
-        return
-      }
+    (attachment: DraftAttachment): void => {
       void chatService.invoke("showLocalPathInFolder", { path: attachment.path }).catch((cause: unknown) => {
         reportRendererHandledError("chatAttachments.showInFolder", "Failed to reveal attachment", cause)
         const error = resolveUserFacingError(cause, { area: "artifact" })
@@ -178,45 +162,6 @@ export function AttachmentList({
     [chatService, t],
   )
 
-  React.useEffect(() => {
-    if (!imageViewer || imageViewer.src) {
-      return
-    }
-    let cancelled = false
-    void chatService
-      .invoke("getAttachmentPreview", {
-        path: imageViewer.attachment.path,
-        mime: imageViewer.attachment.mime,
-      })
-      .then((result) => {
-        if (cancelled) {
-          return
-        }
-        const source = result.resourceUrl ?? result.dataUrl
-        if (!source) {
-          toast.error(t("artifacts.previewReadFailed"))
-          setImageViewer(null)
-          return
-        }
-        setAttachmentPreviewUrl(imageViewer.attachment.path, source, result.resourceExpiresAt)
-        setImageViewer((current) =>
-          current?.attachment.path === imageViewer.attachment.path
-            ? { attachment: current.attachment, src: source }
-            : current,
-        )
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          const error = resolveUserFacingError(cause, { area: "artifact" })
-          toast.error(userFacingErrorDescription(error, t))
-          setImageViewer(null)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [chatService, imageViewer, t])
-
   return (
     <>
       <div className={cn("flex w-full flex-wrap justify-start gap-2", className)}>
@@ -225,7 +170,6 @@ export function AttachmentList({
             <AttachmentImageCard
               key={attachment.id}
               attachment={attachment}
-              onOpen={openAttachment}
               onRemove={onRemove}
               removeLabel={t("chat.removeAttachment")}
             />
@@ -262,15 +206,6 @@ export function AttachmentList({
           ),
         )}
       </div>
-      {imageViewer?.src ? (
-        <ImageViewerModal
-          alt={imageViewer.attachment.name}
-          localPath={imageViewer.attachment.path}
-          onClose={() => setImageViewer(null)}
-          src={imageViewer.src}
-          title={imageViewer.attachment.name || imageDownloadName(imageViewer.attachment)}
-        />
-      ) : null}
     </>
   )
 }

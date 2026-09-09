@@ -414,3 +414,25 @@ describe("applyUserAttachmentRecords", () => {
     ])
   })
 })
+
+it("message cleanup preserves a snapshot still owned by a draft", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-draft-retained-"))
+  try {
+    const snapshotDirectory = path.join(directory, "attachments", "originals", "snapshot")
+    await mkdir(snapshotDirectory, { recursive: true })
+    const snapshotPath = path.join(snapshotDirectory, "image.png")
+    await writeFile(snapshotPath, "image", { mode: 0o400 })
+    const store = new UserAttachmentStore(directory, {
+      retentionState: async () => ({ paused: false, paths: [snapshotPath] }),
+    })
+    await store.record("session", "message", [
+      { id: "image", path: snapshotPath, name: "image.png", mime: "image/png", size: 5 },
+    ])
+    await store.removeMessage("session", "message")
+    expect(await readFile(snapshotPath, "utf8")).toBe("image")
+    await store.pruneExpiredUnreferenced(0, Date.now() + 1000)
+    expect(await readFile(snapshotPath, "utf8")).toBe("image")
+  } finally {
+    await rm(directory, { force: true, recursive: true })
+  }
+})

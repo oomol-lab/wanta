@@ -14,6 +14,7 @@ import type { ConnectionProvider } from "../../../electron/connections/common.ts
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { ConnectionCatalogFilter } from "../Connections/connection-route-model.ts"
 import type { ChatTurnRetrySource } from "./chat-turns.ts"
+import type { ComposerDraftBinding } from "./composer-draft-store.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { EmptyStateConnectionSummary } from "./empty-state-connections.ts"
 import type { QuestionDraftStore } from "./question-fields.ts"
@@ -74,6 +75,7 @@ interface ChatAreaProps {
   historyScope: string
   submitDisabled: boolean
   willQueueMessage: boolean
+  draftBinding?: ComposerDraftBinding
   initialComposerState?: ComposerState
   initialSendPending: boolean
   providers: ConnectionProvider[]
@@ -290,6 +292,7 @@ export const ChatArea = React.memo(function ChatArea({
   historyScope,
   submitDisabled,
   willQueueMessage,
+  draftBinding,
   initialComposerState,
   initialSendPending,
   providers,
@@ -378,6 +381,7 @@ export const ChatArea = React.memo(function ChatArea({
       generatedArtifacts={generatedArtifacts}
       hasMessages={hasMessages}
       historyScope={historyScope}
+      draftBinding={draftBinding}
       initialComposerState={initialComposerState}
       messages={messages}
       knowledgeBaseIds={knowledgeBaseIds}

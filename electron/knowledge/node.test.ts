@@ -6,6 +6,7 @@ const runner = vi.hoisted(() => ({
   inspectWikiGraph: vi.fn(),
   listWikiGraphLibraryArchives: vi.fn(),
   listWikiGraphLibraryFolders: vi.fn(),
+  listKnowledgeRecoveryIssues: vi.fn(),
   moveWikiGraphLibraryArchive: vi.fn(),
   prepareWikiGraphArchive: vi.fn(),
   readWikiGraphChapterTree: vi.fn(),
@@ -34,6 +35,7 @@ const { KnowledgeServiceImpl } = await import("./node.ts")
 
 describe("KnowledgeServiceImpl", () => {
   beforeEach(() => {
+    runner.listKnowledgeRecoveryIssues.mockReset()
     runner.addWikiGraphLibraryArchive.mockReset()
     runner.inspectWikiGraph.mockReset()
     runner.listWikiGraphLibraryArchives.mockReset()
@@ -44,6 +46,21 @@ describe("KnowledgeServiceImpl", () => {
     runner.readWikiGraphMetadata.mockReset()
     runner.removeWikiGraphLibraryArchive.mockReset()
     runner.updateWikiGraphMetadata.mockReset()
+  })
+
+  it("reveals only registered recovery files", async () => {
+    const { shell } = await import("electron")
+    vi.mocked(shell.showItemInFolder).mockClear()
+    runner.listKnowledgeRecoveryIssues.mockResolvedValue([
+      { id: "archive-123456", relativePath: "book.wikg", message: "Unsupported schema" },
+    ])
+    const service = new KnowledgeServiceImpl({
+      runtime: { managedLibraryDir: "/tmp/wanta/library", stateDir: "/tmp/wanta/state" },
+    })
+    await expect(service.revealRecovery("../../outside")).rejects.toThrow("not found")
+    expect(shell.showItemInFolder).not.toHaveBeenCalled()
+    await service.revealRecovery("archive-123456")
+    expect(shell.showItemInFolder).toHaveBeenCalledWith("/tmp/wanta/state/wanta-recovery/archive-123456/archive.wikg")
   })
 
   it("downgrades inspect and index SDK failures while preserving metadata summary", async () => {

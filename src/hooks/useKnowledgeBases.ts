@@ -1,4 +1,8 @@
-import type { KnowledgeBaseSummary, KnowledgeChapterNode } from "../../electron/knowledge/common.ts"
+import type {
+  KnowledgeBaseSummary,
+  KnowledgeChapterNode,
+  KnowledgeRecoveryIssue,
+} from "../../electron/knowledge/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
@@ -10,6 +14,8 @@ import { observeKnowledgeBaseList } from "./knowledge-base-list-observer.ts"
 export interface UseKnowledgeBases {
   items: KnowledgeBaseSummary[]
   folders: string[]
+  recoveryIssues: KnowledgeRecoveryIssue[]
+  revealRecovery: (id: string) => Promise<void>
   loading: boolean
   busy: "create-folder" | "import" | "move" | "remove" | "remove-folder" | "rename" | "refresh" | null
   error: UserFacingError | null
@@ -59,6 +65,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
   const itemSignaturesRef = React.useRef(new Map<string, string>())
   const loadingChaptersRef = React.useRef(new Set<string>())
   const [folders, setFolders] = React.useState<string[]>([])
+  const [recoveryIssues, setRecoveryIssues] = React.useState<KnowledgeRecoveryIssue[]>([])
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState<UseKnowledgeBases["busy"]>(null)
   const [error, setError] = React.useState<UserFacingError | null>(null)
@@ -71,6 +78,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
       chapterCacheSignaturesRef.current = new Map()
       itemSignaturesRef.current = new Map()
       setFolders([])
+      setRecoveryIssues([])
       setLoading(false)
       setError(null)
       return
@@ -78,15 +86,20 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
     setLoading(true)
     return observeKnowledgeBaseList({
       load: async () => {
-        const [nextItems, nextFolders] = await Promise.all([service.invoke("list"), service.invoke("listFolders")])
-        return { folders: nextFolders, items: nextItems }
+        const [nextItems, nextFolders, issues] = await Promise.all([
+          service.invoke("list"),
+          service.invoke("listFolders"),
+          service.invoke("listRecoveryIssues"),
+        ])
+        return { folders: nextFolders, items: nextItems, issues }
       },
       onError: (cause) => {
         console.error("[wanta] list knowledge bases failed", cause)
         reportRendererHandledError("knowledge", "list knowledge bases failed", cause)
         setError(knowledgeError(cause, "list"))
       },
-      onItems: ({ folders: nextFolders, items: nextItems }) => {
+      onItems: ({ folders: nextFolders, items: nextItems, issues }) => {
+        setRecoveryIssues(issues)
         setFolders(nextFolders)
         setItems(nextItems)
         setError(null)
@@ -310,6 +323,14 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
   return {
     items: itemsWithChapters,
     folders,
+    recoveryIssues,
+    revealRecovery: async (id) => {
+      try {
+        await service.invoke("revealRecovery", id)
+      } catch (cause) {
+        setError(knowledgeError(cause, "action"))
+      }
+    },
     loading,
     busy,
     error,

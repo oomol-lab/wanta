@@ -1933,3 +1933,17 @@ test("automatic denials carry specific metadata without command values", () => {
     )
   }
 })
+
+test("unbounded dependency pipelines prompt without recursively expanding themselves", () => {
+  for (const command of [
+    "npm install 2>&1 | tail -5",
+    "npm install 2>&1 | tail -5 && npm test",
+    "npm install 2>&1 | head -20 | tail -5; npm test",
+  ]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "default" }).type,
+      "prompt",
+      command,
+    )
+  }
+})

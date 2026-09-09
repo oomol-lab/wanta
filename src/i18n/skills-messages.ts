@@ -101,6 +101,7 @@ export const skillsMessages = {
     "teams.removeMemberConfirmTitle": "移除这个成员？",
     "teams.removeMemberConfirmDescription": "移除后，{{name}} 将不再出现在这个团队中。",
     "teams.emptyMembersDescription": "添加成员后，他们会出现在这里。",
+    "teams.membersForbiddenEmpty": "当前账号无法读取成员列表。请确认团队访问权限后重试。",
     "teams.membersForbiddenPartial": "无法读取完整成员列表，当前仅显示团队创建者和你的账号，人数并非团队总人数。",
     "teams.member": "成员",
     "teams.copyMemberName": "复制用户名称",
@@ -532,6 +533,7 @@ export const skillsMessages = {
     "teams.removeMemberConfirmTitle": "Remove this member?",
     "teams.removeMemberConfirmDescription": "After removal, {{name}} will no longer appear in this team.",
     "teams.emptyMembersDescription": "Members you add will appear here.",
+    "teams.membersForbiddenEmpty": "This account cannot read the member list. Check your team access and retry.",
     "teams.membersForbiddenPartial":
       "The complete member list is unavailable. Only the team creator and your account are shown; this is not the total member count.",
     "teams.member": "Member",

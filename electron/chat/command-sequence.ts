@@ -79,7 +79,8 @@ function commandGroups(command: string): TopLevelShellSegment[] | undefined {
  */
 export function scopedCommandSequence(command: string, initialCwd?: string): ScopedCommandStep[] | undefined {
   const groups = commandGroups(command)
-  if (!groups) return undefined
+  // A lone pipeline is the original request, not a smaller sequence to re-evaluate.
+  if (!groups || groups.length < 2) return undefined
 
   const steps: ScopedCommandStep[] = []
   let cwd = initialCwd
@@ -96,7 +97,7 @@ export function scopedCommandSequence(command: string, initialCwd?: string): Sco
       if (topLevelShellSegments(segment.text).some((part) => part.operatorAfter === "pipe")) return undefined
       const directory = explicitCdDirectory(body)
       if (!directory) return undefined
-      const paths = /^[A-Za-z]:[\\/]/u.test(directory) || /^[A-Za-z]:[\\/]/u.test(cwd ?? "") ? path.win32 : path.posix
+      const paths = isWindowsPath(directory) || isWindowsPath(cwd ?? "") ? path.win32 : path.posix
       const nextCwd = paths.isAbsolute(directory)
         ? paths.normalize(directory)
         : cwd
@@ -117,4 +118,8 @@ export function scopedCommandSequence(command: string, initialCwd?: string): Sco
     }
   }
   return steps.length > 0 ? steps : undefined
+}
+
+function isWindowsPath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith("\\\\")
 }

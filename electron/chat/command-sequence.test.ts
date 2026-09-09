@@ -69,3 +69,24 @@ test.skipIf(process.platform === "win32")(
     }
   },
 )
+
+test("UNC directories retain Windows scope while POSIX backslashes remain literal", () => {
+  const unc = String.raw`\\server\share\project`
+  assert.deepEqual(scopedCommandSequence(`cd '${unc}' && npm install`, "/work/project"), [
+    { command: "npm install", cwd: unc },
+  ])
+  assert.deepEqual(scopedCommandSequence("cd child && npm install", unc), [
+    { command: "npm install", cwd: String.raw`\\server\share\project\child` },
+  ])
+  assert.deepEqual(scopedCommandSequence(String.raw`cd 'folder\name' && npm install`, "/work/project"), [
+    { command: "npm install", cwd: String.raw`/work/project/folder\name` },
+  ])
+})
+
+test("a standalone pipeline cannot be expanded into the same permission request", () => {
+  assert.equal(scopedCommandSequence("npm install 2>&1 | tail -5"), undefined)
+  assert.equal(scopedCommandSequence("npm install 2>&1 | head -20 | tail -5", "/outside"), undefined)
+  assert.deepEqual(scopedCommandSequence("cd /work/project && npm install 2>&1 | tail -5"), [
+    { command: "npm install 2>&1 | tail -5", cwd: "/work/project" },
+  ])
+})

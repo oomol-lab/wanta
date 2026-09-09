@@ -170,6 +170,8 @@ export function TeamDetailPanel({
             <MemberRowsSkeleton canManage={canManage} />
           ) : membersError && !membersForbidden && members.length === 0 ? (
             <MemberLoadError error={membersError} onRetry={onRetryMembers} />
+          ) : membersForbidden && members.length === 0 ? (
+            <MemberAccessWarning hasMembers={false} error={membersError} onRetry={onRetryMembers} />
           ) : members.length === 0 ? (
             <EmptyBlock>{t("teams.emptyMembersDescription")}</EmptyBlock>
           ) : (
@@ -197,11 +199,21 @@ export function TeamDetailPanel({
   )
 }
 
-function MemberAccessWarning({ error, onRetry }: { error: string | null; onRetry: () => void }) {
+function MemberAccessWarning({
+  error,
+  onRetry,
+  hasMembers = true,
+}: {
+  error: string | null
+  onRetry: () => void
+  hasMembers?: boolean
+}) {
   const { t } = useAppI18n()
   return (
     <div className="mx-3 mt-3 flex items-start justify-between gap-3 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
-      <div className="oo-text-caption min-w-0">{t("teams.membersForbiddenPartial")}</div>
+      <div className="oo-text-caption min-w-0">
+        {t(hasMembers ? "teams.membersForbiddenPartial" : "teams.membersForbiddenEmpty")}
+      </div>
       {error ? <CopyMemberDiagnosticsButton error={error} /> : null}
       <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onRetry}>
         <RefreshCwIcon className="size-3.5" />

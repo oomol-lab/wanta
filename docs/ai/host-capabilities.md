@@ -199,6 +199,14 @@ run and publish execute without a separate user confirmation. Project
 switching, Flow deletion or rollback, run cancellation, and browser-opening
 commands remain closed until they receive separate host semantics.
 
+Single-file website deployment uses `oo website upload` with an active OOMOL
+runtime. The managed external-agent boundary accepts one regular `.html` or
+`.htm` file under the active turn's managed roots, capped at 20,000,000 bytes.
+The enabled default Registry Skill `@alwaysmavs/oo-deploy-single-html` is installed
+after login without a version selector, so a new installation fetches the latest
+published version. Existing installations retain the normal Skill update and
+user-removal behavior.
+
 ### Phase 4: Skill registry and task snapshots
 
 Delivered foundation: `SkillRegistry` resolves a deterministic current-turn

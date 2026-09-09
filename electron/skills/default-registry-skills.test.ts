@@ -3,7 +3,13 @@ import { defaultRegistrySkillSetVersion, defaultRegistrySkills } from "./default
 
 describe("default Registry Skills", () => {
   it("includes the enabled Registry skills installed by default", () => {
-    expect(defaultRegistrySkillSetVersion).toBe(5)
+    expect(defaultRegistrySkillSetVersion).toBe(6)
+    expect(defaultRegistrySkills).toContainEqual({
+      category: "productivity",
+      enabled: true,
+      packageName: "@alwaysmavs/oo-deploy-single-html",
+      skillId: "oo-deploy-single-html",
+    })
     expect(defaultRegistrySkills).toContainEqual({
       category: "other",
       enabled: true,

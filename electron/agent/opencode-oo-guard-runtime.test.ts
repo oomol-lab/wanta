@@ -43,6 +43,14 @@ async function runGuard(args: string[], env: NodeJS.ProcessEnv): Promise<string>
 }
 
 describe("built-in OpenCode OO guard runtime", () => {
+  test("passes website deployment to the bundled CLI", async () => {
+    const { env, root } = await fixture()
+    const input = path.join(root, "index.html")
+    await writeFile(input, "<!doctype html><title>Test</title>")
+    const output = await runGuard(["website", "upload", input, "--json"], env)
+    expect(output.trim().split("\n")).toEqual(["website", "upload", input, "--json"])
+  })
+
   test("runs without the external loopback descriptor and binds the active team", async () => {
     const { env } = await fixture()
 

@@ -31,6 +31,12 @@ describe("external OO capability contract", () => {
     })
     expect(resolveExternalOoOperation(["logout"])).toMatchObject({ availability: "denied", id: "logout" })
     expect(resolveExternalOoOperation(["unknown"])).toBeUndefined()
+    expect(resolveExternalOoOperation(["website", "upload", "index.html", "--json"])).toMatchObject({
+      availability: "enabled",
+      effect: "external_action",
+      id: "website.upload",
+    })
+    expect(resolveExternalOoOperation(["website", "delete", "demo"])).toBeUndefined()
   })
 
   it("generates Skill guidance from the same operation table", () => {

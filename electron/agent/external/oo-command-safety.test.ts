@@ -30,6 +30,40 @@ async function fixture(runtime: "none" | "oomol" | "openconnector" = "oomol") {
 }
 
 describe("managed OO command safety", () => {
+  test("allows one managed HTML upload and rejects invalid deployment inputs", async () => {
+    const { binding, cwd, scope } = await fixture()
+    const input = path.join(cwd, "index.html")
+    await writeFile(input, "<!doctype html><title>Test</title>")
+    await expect(
+      prepareManagedExternalOoCommand(
+        ["website", "upload", "index.html", "--team", "Team A", "--json"],
+        binding,
+        scope,
+      ),
+    ).resolves.toEqual(["website", "upload", input, "--team", "Team A", "--json"])
+    await expect(
+      prepareManagedExternalOoCommand(["website", "upload", "index.html", "index.html"], binding, scope),
+    ).rejects.toThrow(/exactly one HTML/u)
+    await writeFile(path.join(cwd, "input.txt"), "text")
+    await expect(prepareManagedExternalOoCommand(["website", "upload", "input.txt"], binding, scope)).rejects.toThrow(
+      /requires an HTML/u,
+    )
+    await writeFile(input, Buffer.alloc(20_000_001))
+    await expect(prepareManagedExternalOoCommand(["website", "upload", input], binding, scope)).rejects.toThrow(
+      /larger than 20 MB/u,
+    )
+    const other = await fixture("openconnector")
+    await expect(
+      prepareManagedExternalOoCommand(["website", "upload", input], other.binding, other.scope),
+    ).rejects.toThrow(/active OOMOL workspace/u)
+    const outside = await fixture()
+    await writeFile(path.join(outside.cwd, "index.html"), "<!doctype html>")
+    await symlink(path.join(outside.cwd, "index.html"), path.join(cwd, "escape.html"))
+    await expect(prepareManagedExternalOoCommand(["website", "upload", "escape.html"], binding, scope)).rejects.toThrow(
+      /outside the active turn/u,
+    )
+  })
+
   test("canonicalizes managed uploads and rejects reads outside the turn", async () => {
     const { binding, cwd, root, scope } = await fixture()
     const input = path.join(cwd, "input.txt")

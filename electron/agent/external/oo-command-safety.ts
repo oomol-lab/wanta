@@ -8,6 +8,7 @@ import path from "node:path"
 import { externalOoRootCommandIndex, resolveExternalOoOperation } from "./oo-capability-contract.ts"
 
 const maxUploadBytes = 500 * 1024 * 1024
+const maxWebsiteUploadBytes = 20_000_000
 const maxFlowRequestBytes = 8 * 1024 * 1024
 const forbiddenRuntimeOptions = new Set([
   "--config-dir",
@@ -285,6 +286,23 @@ async function prepareFileCommand(
   return args
 }
 
+function prepareWebsiteUpload(args: string[], binding: ExternalGuardCwdBinding, scope: WorkspaceTeamScope): string[] {
+  requireOomolRuntime(scope, "website upload")
+  const root = externalOoRootCommandIndex(args)
+  const inputs = positionalIndices(args, root + 2, new Set(["--format", "--team", "--lang"]))
+  if (inputs.length !== 1) throw new Error("Wanta managed website upload requires exactly one HTML file path.")
+  const inputIndex = inputs[0]!
+  const canonical = requireManagedExistingFile(args[inputIndex]!, binding, scope)
+  if (!/\.html?$/iu.test(canonical)) {
+    throw new Error("Wanta managed website upload requires an HTML file.")
+  }
+  if (statSync(canonical).size > maxWebsiteUploadBytes) {
+    throw new Error("Wanta managed website upload rejected a file larger than 20 MB.")
+  }
+  args[inputIndex] = canonical
+  return args
+}
+
 function rewriteManagedFileReferences(
   args: string[],
   binding: ExternalGuardCwdBinding,
@@ -338,6 +356,9 @@ export async function prepareManagedExternalOoCommand(
   const args = [...input]
   rejectRuntimeOverrides(args)
   const operation = resolveExternalOoOperation(args)
+  if (operation?.id === "website.upload") {
+    return prepareWebsiteUpload(args, binding, scope)
+  }
   if (operation?.id === "file.upload" || operation?.id === "file.download") {
     return prepareFileCommand(args, binding, scope)
   }

@@ -965,6 +965,7 @@ describe("AcpAgentAdapter", () => {
     expect(request.action).toBe("Write file")
     expect(request.resources).toEqual(["/tmp/x", "/tmp/y"])
     expect(request.metadata).toEqual({
+      cwd: harness.fake.newSessionRequests[0]?.cwd,
       options: permissionOptions,
       toolCallId: "call-1",
       rawInput: { path: "/tmp/x" },
@@ -978,6 +979,47 @@ describe("AcpAgentAdapter", () => {
     await harness.waitFor((event) => event.event === "permissionReplied")
     await harness.waitFor((event) => event.event === "messageCompleted")
     expect(harness.fake.permissionResponses).toEqual([{ outcome: { outcome: "selected", optionId: expectedOptionId } }])
+  })
+
+  test.each([
+    [undefined, "allow"],
+    ["/work/project", "allow"],
+    ["/work/other", "prompt"],
+  ] as const)("permission scope uses explicit cwd or session cwd: %s", async (cwd, decision) => {
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        await turn.requestPermission(
+          {
+            toolCallId: "install",
+            kind: "execute",
+            rawInput: { command: "npm install && npm test", ...(cwd ? { cwd } : {}) },
+          },
+          permissionOptions,
+        )
+        return { stopReason: "end_turn" }
+      },
+    })
+    await harness.adapter.send({ ...promptInput(), workingDirectory: "/work/project" })
+    const request = eventData(
+      await harness.waitFor((event) => event.event === "permissionAsked"),
+      "permissionAsked",
+    ).request
+    expect(request.metadata?.cwd).toBe(cwd ?? "/work/project")
+    expect(
+      evaluateLocalAccessRequest(request, {
+        permissionMode: "default",
+        trustedProjectRoot: "/work/project",
+        isExternalSession: true,
+      }).type,
+    ).toBe(decision)
+    await harness.adapter.send({
+      type: "permission-response",
+      sessionId: WANTA_SESSION_ID,
+      requestId: request.id,
+      reply: "once",
+    })
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    expect(harness.fake.permissionResponses).toEqual([{ outcome: { outcome: "selected", optionId: "opt-allow-once" } }])
   })
 
   test.each([

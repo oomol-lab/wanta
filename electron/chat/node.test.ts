@@ -3002,6 +3002,58 @@ test("trusted project permissions are approved without showing a permission card
   )
 })
 
+test.each(["npm install && npm test && npm run build", "npm install 2>&1 | tail -5; npm test && npm run build"])(
+  "dependency list auto-replies and consequential suffixes remain pending: %s",
+  async (ordinary) => {
+    const bridge = createBridgeAgent()
+    const projectPath = "/Users/example/code/wanta"
+    const service = new ChatServiceImpl(bridge.agent, {
+      projectStore: projectStore([
+        { id: "project-1", name: "wanta", path: projectPath, createdAt: 1_000, updatedAt: 1_000 },
+      ]),
+    })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+    await service.sendMessage({
+      scope: testTeamScope,
+      projectContext: { id: "project-1", name: "wanta", path: projectPath },
+      sessionId: "session-1",
+      text: "Install dependencies and run project checks",
+    })
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: {
+        id: "chain-1",
+        sessionID: "session-1",
+        action: "bash",
+        resources: [ordinary],
+        metadata: { command: ordinary, cwd: projectPath },
+      },
+    })
+    await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+    assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "chain-1", "once"]])
+    assert.equal(
+      events.some((event) => event.event === "permissionAsked"),
+      false,
+    )
+    const deploy = "npm install && npx vercel deploy --prod"
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: {
+        id: "chain-2",
+        sessionID: "session-1",
+        action: "bash",
+        resources: [deploy],
+        metadata: { command: deploy, cwd: projectPath },
+      },
+    })
+    await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+    assert.equal(bridge.answerPermission.mock.calls.length, 1)
+    await service.answerPermission({ sessionId: "session-1", requestId: "chain-2", reply: "once" })
+    assert.deepEqual(bridge.answerPermission.mock.calls.at(-1), ["session-1", "chain-2", "once"])
+  },
+)
+
 test("trusted project permission approval restarts inactivity monitoring", async () => {
   vi.useFakeTimers()
   const bridge = createBridgeAgent()

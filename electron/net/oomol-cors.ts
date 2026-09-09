@@ -90,6 +90,7 @@ export function applyOomolCors(input: OomolCorsOverrideInput): OomolCorsOverride
   const responseHeaders = withoutCorsHeaders(input.responseHeaders)
   responseHeaders["Access-Control-Allow-Origin"] = [origin]
   responseHeaders["Access-Control-Allow-Credentials"] = ["true"]
+  responseHeaders["Access-Control-Expose-Headers"] = ["etag,x-request-id,request-id"]
   responseHeaders["Vary"] = vary
 
   if (method.toUpperCase() === "OPTIONS") {

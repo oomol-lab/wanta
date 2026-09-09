@@ -313,8 +313,57 @@ test("member selection and DOM survive background refresh and a refresh failure"
     )
     expect(host.querySelector('input[aria-label="teams.selectMember"]')).toBe(checkbox)
     expect(checkbox.checked).toBe(true)
+    await act(async () =>
+      root.render(
+        <TooltipProvider>
+          <TeamDetailPanel {...props} membersError="status=403" membersForbidden membersComplete={false} />
+        </TooltipProvider>,
+      ),
+    )
+    expect(host.textContent).toContain("teams.membersForbiddenPartial")
+    expect(host.textContent).toContain("teams.copyMemberDiagnostics")
+    expect(host.querySelector('input[aria-label="teams.selectMember"]')).toBe(checkbox)
+    expect(checkbox.checked).toBe(true)
   } finally {
     await act(async () => root.unmount())
     host.remove()
+  }
+})
+
+test("403 without loaded members shows diagnostics and retry instead of an empty roster", async () => {
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  const retry = vi.fn()
+  try {
+    await act(async () =>
+      root.render(
+        <TeamDetailPanel
+          actorRole="creator"
+          actorUserId="creator"
+          busyAction={null}
+          canManage
+          members={[]}
+          membersComplete={false}
+          membersError="status=403; requestId=test"
+          membersForbidden
+          membersLoading={false}
+          team={{ id: "t", name: "Team", creator_user_id: "creator", avatar: "" }}
+          onAddMember={vi.fn()}
+          onDisableMembers={vi.fn()}
+          onEnableMembers={vi.fn()}
+          onRemoveMember={vi.fn()}
+          onRetryMembers={retry}
+          onUpdateMemberRole={vi.fn()}
+        />,
+      ),
+    )
+    expect(host.textContent).toContain("teams.membersForbiddenEmpty")
+    expect(host.textContent).toContain("teams.copyMemberDiagnostics")
+    expect(host.textContent).not.toContain("teams.emptyMembersDescription")
+    const button = [...host.querySelectorAll("button")].find((element) => element.textContent === "teams.retry")!
+    await act(async () => button.click())
+    expect(retry).toHaveBeenCalledOnce()
+  } finally {
+    await act(async () => root.unmount())
   }
 })

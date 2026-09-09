@@ -435,6 +435,35 @@ export function effectiveShellCommandWords(words: readonly string[]): readonly s
   return words.slice(index)
 }
 
+/** Shared transparent launchers for risk and dependency classification. */
+export function unwrappedShellCommandWords(words: readonly string[], unwrapEnvironment = true): readonly string[] {
+  const normalize = (value: readonly string[]) => (unwrapEnvironment ? effectiveShellCommandWords(value) : value)
+  let current = normalize(words)
+  for (let depth = 0; depth < 4; depth += 1) {
+    const name = shellCommandName(current[0])
+    if (!name || !["builtin", "command", "exec", "nohup", "time"].includes(name)) return current
+    // command -v/-V inspects a name without executing it.
+    const firstOperand = current.findIndex((word, index) => index > 0 && !word.startsWith("-"))
+    if (
+      name === "command" &&
+      current.slice(1, firstOperand < 0 ? undefined : firstOperand).some((word) => /^-[^-]*[vV]/u.test(word))
+    )
+      return current
+    let index = 1
+    while (current[index]?.startsWith("-")) {
+      const option = current[index++]
+      if (option === "--") break
+      if (
+        (name === "exec" && option === "-a") ||
+        (name === "time" && ["-o", "-f", "--output", "--format"].includes(option ?? ""))
+      )
+        index += 1
+    }
+    current = normalize(current.slice(index))
+  }
+  return current
+}
+
 /**
  * Splits only top-level shell composition. Quoted operators remain ordinary argument text,
  * while redirections such as `2>&1` and `&>` stay attached to their command.

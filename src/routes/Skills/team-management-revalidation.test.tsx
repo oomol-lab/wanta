@@ -41,6 +41,7 @@ vi.mock("./TeamMembersPanel.tsx", () => ({
   CreateTeamDialog: empty,
   ErrorBlock: empty,
   TeamDetailPanel: empty,
+  TeamMemberAdditionNotice: empty,
   Panel: empty,
   TeamProfileSettingsPanel: empty,
 }))

@@ -24,6 +24,7 @@ describe("applyOomolCors", () => {
     expect(result.responseHeaders["Access-Control-Allow-Origin"]).toEqual(["http://localhost:5273"])
     expect(result.responseHeaders["Access-Control-Allow-Credentials"]).toEqual(["true"])
     expect(result.responseHeaders["Vary"]).toEqual(["Origin"])
+    expect(result.responseHeaders["Access-Control-Expose-Headers"]).toEqual(["etag,x-request-id,request-id"])
     expect(result.statusLine).toBeUndefined()
   })
 

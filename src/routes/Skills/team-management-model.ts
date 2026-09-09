@@ -255,3 +255,11 @@ export function buildTeamMemberViews({
 
   return buildMemberViews(nextMembers, fallbackSummaries)
 }
+
+/** Search results may use opaque IDs; unverified direct input must be a complete UUID. */
+export function resolveMemberInput(input: string, search: MemberSearchState, selectedId: string | null): string | null {
+  const query = input.trim()
+  if (search.loading || search.query !== query) return null
+  if (search.items.length) return search.items.find((user) => user.userId === selectedId)?.userId ?? null
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query) ? query : null
+}

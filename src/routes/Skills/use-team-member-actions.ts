@@ -4,7 +4,7 @@ import type { BusyAction, MemberSearchState } from "./team-management-model.ts"
 import * as React from "react"
 import { toast } from "sonner"
 import { teamErrorMessage } from "./team-errors.ts"
-import { errorMessage, uniqueStrings } from "./team-management-model.ts"
+import { errorMessage, resolveMemberInput, uniqueStrings } from "./team-management-model.ts"
 import { useAppI18n } from "@/i18n"
 import { invalidateTeamDetailsResource } from "@/lib/team-details-resource"
 import { canChangeTeamMemberRole } from "@/lib/team-permissions"
@@ -52,6 +52,8 @@ export function useTeamMemberActions({
   setBusyAction,
 }: TeamMemberActionsOptions) {
   const { t } = useAppI18n()
+  const [addition, setAddition] = React.useState<{ context: string; userId: string } | null>(null)
+  const addingRef = React.useRef(false)
   const actionSequenceRef = React.useRef(0)
   const actionContextKey = `${activeAccountId ?? "anonymous"}\u0000${selectedTeam?.id ?? "none"}`
   const actionContextKeyRef = React.useRef(actionContextKey)
@@ -86,18 +88,14 @@ export function useTeamMemberActions({
   const addMember = React.useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault()
-      if (!selectedTeam || !canManage) return
+      if (!selectedTeam || !canManage || addingRef.current) return
 
-      const currentSearchUserId = selectedSearchUserId
-      if (memberSearch.items.length > 0 && !currentSearchUserId) {
+      const userId = resolveMemberInput(memberInput, memberSearch, selectedSearchUserId)
+      if (!userId) {
         setAddMemberError(t("teams.addMemberSelectRequired"))
         return
       }
-      const userId = memberSearch.items.length > 0 ? currentSearchUserId : memberInput.trim()
-      if (!userId) {
-        setAddMemberError(t("teams.userIdRequired"))
-        return
-      }
+      addingRef.current = true
 
       const operation = beginOperation("add")
       setAddMemberError(null)
@@ -105,6 +103,7 @@ export function useTeamMemberActions({
         await addTeamMember({ teamId: selectedTeam.id, userId })
         invalidateTeamDetailsResource(activeAccountId, selectedTeam.id, { preserveUserSummaries: true })
         if (!operationIsCurrent(operation)) return
+        setAddition({ context: actionContextKey, userId })
         toast.success(t("teams.addMemberSuccess"))
         resetMemberSearch()
         setAddMemberOpen(false)
@@ -120,6 +119,7 @@ export function useTeamMemberActions({
               : teamErrorMessage(error, t),
         )
       } finally {
+        addingRef.current = false
         finishOperation(operation)
       }
     },
@@ -129,7 +129,8 @@ export function useTeamMemberActions({
       canManage,
       finishOperation,
       memberInput,
-      memberSearch.items.length,
+      memberSearch,
+      actionContextKey,
       operationIsCurrent,
       reloadDetails,
       resetMemberSearch,
@@ -235,6 +236,8 @@ export function useTeamMemberActions({
 
   return {
     addMember,
+    addedMemberUserId: addition?.context === actionContextKey ? addition.userId : null,
+    dismissAddition: () => setAddition(null),
     disableMembers,
     enableMembers,
     removeMember,

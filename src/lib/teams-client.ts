@@ -19,6 +19,7 @@ import { normalizeApp } from "../../electron/connections/summary.ts"
 import { getConnectionApps } from "@/lib/connections-client"
 import { apiBaseUrl, teamControlBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { sortSystemCreatedTeamFirst } from "@/lib/team-overview"
 
 // 团队面板/管理 UI 的全部网络读写在渲染层直接发起：原先这些是渲染业务驱动、却由主进程
@@ -27,10 +28,6 @@ import { sortSystemCreatedTeamFirst } from "@/lib/team-overview"
 
 interface TeamsEnvelope {
   teams?: unknown
-}
-
-interface TeamMembersEnvelope {
-  members?: unknown
 }
 
 interface RequestOptions extends RequestInit {
@@ -379,8 +376,52 @@ export async function uploadTeamAvatar(teamId: string, file: File): Promise<Uplo
 
 export async function listTeamMembers(teamId: string): Promise<TeamMember[]> {
   const id = requireIdentifier(teamId, "Team id")
-  const result = (await requestTeamControlJson(`/v1/teams/${encodePath(id)}/members`)) as TeamMembersEnvelope
-  return normalizeTeamMembers(result.members)
+  const path = `/v1/teams/${encodePath(id)}/members`
+  const startedAt = Date.now()
+  let status: number | undefined
+  let requestId: string | undefined
+  try {
+    const result = await requestTeamControlJson(path, {
+      onResponse: (response) => {
+        status = response.status
+        const value = response.headers.get("x-request-id") ?? response.headers.get("request-id")
+        if (value && /^[a-zA-Z0-9._:-]{1,128}$/.test(value)) requestId = value
+      },
+    })
+    return normalizeTeamMembers(isPlainObject(result) ? result["members"] : undefined)
+  } catch (cause) {
+    const category =
+      status && status >= 200 && status < 300
+        ? "invalid_response"
+        : status
+          ? "http_error"
+          : cause instanceof Error && (cause.name === "TimeoutError" || cause.name === "AbortError")
+            ? "timeout_or_cancelled"
+            : "network_error"
+    // Never copy raw response bodies, API messages, cookies, or arbitrary error strings into diagnostics.
+    const validation =
+      category === "invalid_response" &&
+      cause instanceof Error &&
+      ["Team members response is invalid.", "Team members response contains an invalid member."].includes(cause.message)
+        ? cause.message
+        : category
+    const error = Object.assign(
+      new Error(
+        [
+          "Team members read failed",
+          validation,
+          `GET ${teamControlBaseUrl}${path}`,
+          `time=${new Date(startedAt).toISOString()}`,
+          `status=${status ?? "unavailable"}; category=${category}; elapsedMs=${Date.now() - startedAt}`,
+          `requestId=${requestId ?? "unavailable"}`,
+          `version=${globalThis.wanta?.version ?? "unknown"}; commit=${globalThis.wanta?.appCommit ?? "unknown"}`,
+        ].join("\n"),
+      ),
+      { status },
+    )
+    reportRendererHandledError("team-members", "Member list request failed", error.message)
+    throw error
+  }
 }
 
 export async function listUserSummaries(userIds: string[]): Promise<Record<string, TeamUserSummary>> {

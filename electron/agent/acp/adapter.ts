@@ -35,6 +35,7 @@ import path from "node:path"
 import { Readable, Writable } from "node:stream"
 import { pathToFileURL } from "node:url"
 import { detectCliExecutable } from "../../agents/catalog.ts"
+import { permissionRequestWorkingDirectory } from "../../chat/permission-request.ts"
 import { resolveUserCommandPath } from "../../command-path.ts"
 import { errorMessage, logDiagnostic } from "../../diagnostics-log.ts"
 import { AGENT_PERMISSION_MODE_ORDER, AGENT_PROFILES } from "../contract/profile.ts"
@@ -151,6 +152,7 @@ interface AcpTurn {
 interface AcpSessionState {
   wantaSessionId: string
   acpSessionId: string
+  workingDirectory: string
   /** Restricted one-purpose session used only for host-owned diagnostics. */
   diagnostic: boolean
   translator: AcpSessionTranslator
@@ -1451,6 +1453,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const session: AcpSessionState = {
       wantaSessionId: input.sessionId,
       acpSessionId: response.sessionId,
+      workingDirectory: cwd,
       diagnostic: Boolean(input.diagnostic),
       translator: createAcpSessionTranslator(input.sessionId, new Set(mcpServers.map((server) => server.name))),
       initialModeId: modes?.currentModeId,
@@ -1745,6 +1748,9 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       resources: (toolCall.locations ?? []).map((location) => location.path),
       metadata,
     }
+    // Keep explicit per-command cwd authoritative; otherwise the session/new
+    // directory is host-proven scope, even when the native tool omits it.
+    metadata["cwd"] = permissionRequestWorkingDirectory(request) ?? session.workingDirectory
     return new Promise<RequestPermissionResponse>((resolve) => {
       this.pendingAcpPermissions.set(requestId, {
         wantaSessionId,

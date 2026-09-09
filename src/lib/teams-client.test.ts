@@ -355,3 +355,24 @@ describe("teams-client", () => {
     expect(JSON.parse(String(enableInit?.body))).toEqual({ user_ids: ["member-2"] })
   })
 })
+
+describe("member read diagnostics", () => {
+  afterEach(() => vi.unstubAllGlobals())
+  it("retains status and request ID without exposing response bodies", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { message: "private-person@example.com secret-token" },
+          { status: 503, headers: { "x-request-id": "member-request-123" } },
+        ),
+      ),
+    )
+    const error = await listTeamMembers("team-1").catch((cause: unknown) => cause)
+    expect(error).toMatchObject({ status: 503 })
+    expect((error as Error).message).toContain("requestId=member-request-123")
+    expect((error as Error).message).toContain("GET https://")
+    expect((error as Error).message).not.toContain("private-person")
+    expect((error as Error).message).not.toContain("secret-token")
+  })
+})

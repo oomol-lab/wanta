@@ -19,6 +19,148 @@ function permission(overrides: Partial<ChatPermissionRequest>): ChatPermissionRe
   }
 }
 
+test("default access composes ordinary dependency steps without weakening existing boundaries", () => {
+  const root = "/work/project"
+  const context = { permissionMode: "default" as const, trustedProjectRoot: root }
+  for (const command of [
+    `cd ${root} && npm install && npm test && npm run build`,
+    "npm install && pnpm add zod && npm test",
+    "command npm install && npm test",
+    "npm install && node -e 'console.log(1)'",
+    "npm install > /tmp/install.log && npm test 2>&1",
+    "python3 -m venv .venv && .venv/bin/python -m pip install pandas && .venv/bin/python report.py",
+    "npm install && cd src && node check.js && cd .. && npm install zod",
+  ]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ resources: [command], metadata: { command, cwd: root } }), context).type,
+      "allow",
+      command,
+    )
+  }
+  for (const command of [
+    "npm install && npm install -g cowsay",
+    "npm install && command npm install -g cowsay",
+    "npm install && npx vercel deploy --prod",
+    "npm install && npm publish",
+    "npm install && rm -rf /work/shared",
+    "npm install && cat ~/.ssh/config",
+    "cd /work/other && npm install && npm test",
+    "npm install && cd /work/other && npm install",
+    "command cd /work/other && npm install",
+    "source setup.sh && npm install",
+    "npm install || npm test",
+    "npm install && env -C /work/other npm install",
+    "npm install && .venv/bin/python -m pip install --user pandas",
+    "npm install && npm install zod --registry https://example.test",
+  ]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ resources: [command], metadata: { command, cwd: root } }), context).type,
+      "prompt",
+      command,
+    )
+  }
+  for (const command of ["npm install && printenv", "npm install && echo $OO_API_KEY"]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command, cwd: root } }), context).type,
+      "deny",
+      command,
+    )
+  }
+})
+
+test("ordinary dependency pipelines and command lists reuse scope without trusting failed directory changes", () => {
+  const root = "/work/project"
+  const context = { permissionMode: "default" as const, trustedProjectRoot: root }
+  const decide = (command: string, cwd?: string) =>
+    evaluateLocalAccessRequest(
+      permission({ resources: [command], metadata: { command, ...(cwd ? { cwd } : {}) } }),
+      context,
+    )
+  for (const command of [
+    "npm install | tail -5 && npm test",
+    "npm install 2>&1 | head -n 20 | tail -5 && npm run build",
+    "npm install; npm test",
+    "npm install\nnpm test\nnpm run build",
+    "npm install | tail -5; npm test 2>&1 | head -10",
+    "npm install; npm test;",
+    "cd /work/project && npm install; npm test",
+    "cd /work/project; npm install",
+    "npm install; .venv/bin/python -m pip install pandas | tail -5; .venv/bin/python report.py",
+  ])
+    assert.equal(decide(command, root).type, "allow", command)
+
+  assert.equal(decide(`cd ${root} && npm install | tail -5 && npm test`).type, "allow")
+  assert.equal(decide(`npm --prefix ${root} install; npm --prefix ${root} test`).type, "allow")
+  for (const command of [
+    "npm install | tail -5 && npx vercel deploy --prod",
+    "npm install; command npm install -g cowsay",
+    "npm install | tail -5; rm -rf /work/shared",
+    "npm install; cat .ssh/config",
+    "npm install; npm install zod --registry https://example.test",
+    "npm install | sh && npm test",
+    "npm install; .venv/bin/python -m pip install --user pandas",
+    "cd /work/other; npm install",
+    "cd /work/other && echo ready; npm install",
+    "cd /work/other && cd /work/project; npm install",
+    "source setup.sh; npm install",
+    "cd /work/project | tail -5; npm install",
+    "if true; then cd /work/other; fi; npm install",
+    "alias enter='cd /work/other'; enter; npm install",
+  ])
+    assert.equal(decide(command, root).type, "prompt", command)
+  for (const command of [`cd ${root}; npm install`, `cd ${root} && npm install; npm install zod`])
+    assert.equal(decide(command, "/work/other").type, "prompt", command)
+  assert.equal(decide("npm install | tail -5; printenv", root).type, "deny")
+})
+
+test("known consequential operations retain their decision through common launchers", () => {
+  const context = { permissionMode: "default" as const }
+  for (const command of [
+    "command npm install -g cowsay",
+    "nohup npm publish",
+    "npx vercel deploy --prod",
+    "npx --yes vercel@latest deploy --prod",
+    "pnpm exec wrangler deploy",
+    "npm exec -- wrangler deploy",
+    "npx --package vercel vercel deploy",
+    "rm -f /work/project/*.ts",
+    "cd /Users/example && cat .ssh/config",
+  ]) {
+    assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "prompt", command)
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "full_access" }).type,
+      "allow",
+      command,
+    )
+  }
+  for (const command of [
+    "npx vercel --help",
+    "npx --yes playwright screenshot https://example.test out.png",
+    "node script.js",
+    "python3 process.py",
+    "bash task.sh",
+    "command -v npm",
+    "rm /work/project/one.tmp",
+    'rg ".ssh/config" docs',
+    'echo "npx vercel deploy"',
+    "npx md-to-pdf 'vercel deploy.md'",
+  ]) {
+    assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "allow", command)
+  }
+})
+
+test("a missing command asks for clarification without restricting an unfamiliar executable", () => {
+  const empty = permission({})
+  assert.equal(evaluateLocalAccessRequest(empty, { permissionMode: "default" }).type, "prompt")
+  assert.equal(localAccessPromptReason(empty), "unclassified_request")
+  assert.equal(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "unfamiliar-tool process input.dat" } }), {
+      permissionMode: "default",
+    }).type,
+    "allow",
+  )
+})
+
 test("ordinary launcher, inspection, and dry-run commands do not introduce approval prompts", () => {
   for (const command of [
     "env NODE_ENV=test node script.js",
@@ -757,11 +899,8 @@ test("bounded Python bootstrap approval preserves the nearest protected boundari
   const environment = `${processRoot}/.wanta-python`
   const context = { permissionMode: "default" as const, taskProcessRoot: processRoot }
   const promptCommands = [
-    `python3 -m venv "${processRoot}/other" && "${environment}/bin/python" -m pip install python-docx`,
     `python3 -m venv "${environment}" && python3 -m pip install python-docx`,
-    `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && echo "$HOME"`,
     `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && echo OK &&`,
-    `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && ./echo OK`,
   ]
   for (const command of promptCommands) {
     assert.deepEqual(
@@ -769,6 +908,16 @@ test("bounded Python bootstrap approval preserves the nearest protected boundari
       { type: "prompt", kind: "command", highRisk: false },
       command,
     )
+  }
+
+  // Creating an ordinary directory/environment or running a local script is
+  // already allowed alone; composition must not invent a new restriction.
+  for (const command of [
+    `python3 -m venv "${processRoot}/other" && "${environment}/bin/python" -m pip install python-docx`,
+    `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && echo "$HOME"`,
+    `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && ./echo OK`,
+  ]) {
+    assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "allow", command)
   }
 
   const alternateSource =
@@ -1781,6 +1930,20 @@ test("automatic denials carry specific metadata without command values", () => {
         kind: "command",
         highRisk: false,
       },
+    )
+  }
+})
+
+test("unbounded dependency pipelines prompt without recursively expanding themselves", () => {
+  for (const command of [
+    "npm install 2>&1 | tail -5",
+    "npm install 2>&1 | tail -5 && npm test",
+    "npm install 2>&1 | head -20 | tail -5; npm test",
+  ]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "default" }).type,
+      "prompt",
+      command,
     )
   }
 })

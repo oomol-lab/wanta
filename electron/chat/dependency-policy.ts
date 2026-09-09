@@ -1,9 +1,9 @@
 import {
-  effectiveShellCommandWords,
   shellCommandName,
   shellWords,
   shellWordsWithoutRedirections,
   topLevelShellSegments,
+  unwrappedShellCommandWords,
 } from "./shell-syntax.ts"
 
 const nodePackageSpecPattern = /^[A-Za-z0-9*+.!<>=~^_-]+$/u
@@ -192,6 +192,35 @@ function packageRunnerStart(words: readonly string[]): number | undefined {
     return command.index + 1
   }
   return undefined
+}
+
+/** Inspect the launched CLI, without treating package-runner arguments as effects. */
+export function packageRunnerCommandWords(words: readonly string[]): readonly string[] | undefined {
+  const manager = shellCommandName(words[0])
+  const managerCommand = nodeManagerCommand(words)
+  const start =
+    packageRunnerStart(words) ??
+    (managerCommand?.value === "exec" && (manager === "pnpm" || manager === "yarn")
+      ? managerCommand.index + 1
+      : undefined)
+  if (start === undefined) return undefined
+  let index = start
+  for (; index < words.length; index += 1) {
+    const word = words[index] ?? ""
+    if (word === "--") {
+      index += 1
+      break
+    }
+    if (!word.startsWith("-")) break
+    const option = optionName(word)
+    // Shell text is not an argv executable; leave it to the ordinary script policy.
+    if (option === "-c" || option === "--call") return undefined
+    if (packageRunnerOptionsWithValue.has(option) && inlineOptionValue(word) === undefined) index += 1
+  }
+  const executable = words[index]
+  if (!executable) return undefined
+  const packageName = canonicalRegistryNodePackageName(executable)
+  return [packageName ?? executable, ...words.slice(index + 1)]
 }
 
 /**
@@ -499,7 +528,7 @@ function parsedCommandSegments(command: string, depth = 0): readonly (readonly s
   const direct = topLevelShellSegments(command)
     .map(({ text }) => shellWords(text))
     .filter((words): words is string[] => Boolean(words?.length))
-    .map((words) => shellWordsWithoutRedirections(effectiveShellCommandWords(words)))
+    .map((words) => shellWordsWithoutRedirections(unwrappedShellCommandWords(words)))
     .filter((words) => words.length > 0)
   if (depth >= 2) {
     return direct

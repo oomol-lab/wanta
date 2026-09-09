@@ -53,10 +53,11 @@ export interface OpencodeCustomModel {
   reasoningVariants?: readonly WantaReasoningVariant[]
 }
 
-// 内置工具与自定义连接器工具并存；本地 shell、写入和越出私有 scratch workspace
-// 的路径访问经 permission ask 进入 ChatService 本地访问策略。默认访问会自动批准普通 bash/文件操作，
-// 并可对当前项目内、标准包管理器的依赖操作授予一次任务级窄权限；其余基础安全边界推给 UI。连接器自定义工具不受内置工具 permission 影响。
-// 保留直接 oo CLI 的 OpenCode 快速路径：oo 由 WANTA_OO_BIN/PATH 指向 Wanta 内置二进制。
+// Local requests reach ChatService, which automatically approves ordinary operations
+// and bounded dependency/check lists with ordinary separators/output filters.
+// Only recognized consequential boundaries need confirmation; no project-dependency
+// task grant or command allowlist is needed.
+// Custom connector tools retain their own gates. OOMOL's managed CLI keeps its native fast path.
 function wantaPermission(linkRuntime: LinkRuntime | null): OpencodePermissionConfig {
   return {
     edit: "ask",

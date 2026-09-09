@@ -115,6 +115,21 @@ project output roots remain eligible for automatic cleanup, including proven cwd
 forms. Agents should put disposable intermediates in the supplied task process
 directory. This policy does not add filesystem scans or automatic backups.
 
+Default Access is a permissive guard against common consequential mistakes, not
+a sandbox for arbitrary scripts. Ordinary dependency command lists reuse the
+same per-step policy: `&&`, semicolon/newline separators, and existing bounded
+`head`/`tail` output filters do not add a confirmation when each step qualifies.
+Literal directory changes establish scope only on their success path. An
+unconditional separator after a directory-changing chain discards ambiguous cwd;
+a piped `cd` never establishes parent-shell scope. Shell control flow and
+in-process definitions fall back to the existing policy. Transparent shell
+launchers share risk/dependency normalization, and
+recognized package-runner CLI operations retain their consequential boundaries.
+Relative sensitive file operands and wildcard deletion retain those boundaries
+too. A shell permission with no command cannot be automatically approved in
+Default Access. ACP requests preserve explicit command cwd, otherwise using the
+directory supplied by Wanta when creating that native session.
+
 ## Kernel contract
 
 `HostCapabilityKernel` is the single registry and execution boundary for

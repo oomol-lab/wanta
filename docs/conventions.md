@@ -189,6 +189,16 @@
   reintroduce the obsolete project-dependency task grant or its renderer action.
   New ask rules must be verified end to end: pending-permission queries, event push, auto-approve
   dedup, and reply.
+  Ordinary dependency command lists (`&&`, semicolons/newlines, and existing bounded
+  `head`/`tail` filters) are evaluated per step, so installation followed by ordinary
+  checks/scripts remains automatic. Only successful literal cwd changes establish
+  scope; unconditional separators discard cwd that differs on a failure path.
+  Piped directory changes and shell control/definition syntax do not establish scope.
+  Keep ordinary scripts permissive; do not turn this classifier into a script
+  allowlist. Common shell launchers use shared normalization, recognized
+  package-runner deployments retain the direct command's confirmation, and
+  wildcard deletion remains consequential even without recursive flags. Missing
+  shell command metadata requires clarification, not automatic approval.
 - **oo CLI fast path**: OOMOL keeps the OpenCode fast pass for commands whose first token is `oo` /
   `$WANTA_OO_BIN` / `${WANTA_OO_BIN}`. OpenConnector keeps `bash: "ask"` so the main process can
   reject credential reads and runtime configuration overrides, then automatically approves built-in

@@ -370,6 +370,7 @@ describe("member read diagnostics", () => {
     )
     const error = await listTeamMembers("team-1").catch((cause: unknown) => cause)
     expect(error).toMatchObject({ status: 503 })
+    expect((error as Error).message).toContain("category=http_error")
     expect((error as Error).message).toContain("requestId=member-request-123")
     expect((error as Error).message).toContain("GET https://")
     expect((error as Error).message).not.toContain("private-person")
@@ -379,6 +380,41 @@ describe("member read diagnostics", () => {
 
 describe("member failure explanations", () => {
   afterEach(() => vi.unstubAllGlobals())
+
+  it.each([null, "private-status", 0, {}, []])(
+    "rejects malformed disable values without exposing them",
+    async (disable) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ members: [{ user_id: "private-id", role: "member", disable }] })),
+      )
+      const error = (await listTeamMembers("team-1").catch((cause: unknown) => cause)) as Error
+      expect(error.message).toContain("members[0]: disable must be a boolean when provided")
+      expect(error.message).toContain("category=invalid_response")
+      expect(error.message).not.toContain("private-")
+    },
+  )
+
+  it.each([500, 403, 0])("retains HTTP %s when reading its response body fails", async (status) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        status,
+        ok: false,
+        headers: new Headers({ "x-request-id": "failed-body" }),
+        text: async () => {
+          throw new TypeError("private-error")
+        },
+      })),
+    )
+    const error = (await listTeamMembers("team-1").catch((cause: unknown) => cause)) as Error
+    expect(error).toMatchObject({ status })
+    expect(error.message).toContain(`status=${status}`)
+    expect(error.message).toContain("category=response_read_error")
+    expect(error.message).toContain("stage=response_body")
+    expect(error.message).toContain("requestId=failed-body")
+    expect(error.message).not.toContain("private-error")
+  })
 
   it.each([
     [{ members: null }, "Expected members array; received null"],

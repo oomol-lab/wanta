@@ -140,6 +140,9 @@ function normalizeTeamMember(value: unknown): TeamMember | undefined {
   if (!userId || (role !== "creator" && role !== "admin" && role !== "member")) {
     return undefined
   }
+  if (value["disable"] !== undefined && typeof value["disable"] !== "boolean") {
+    return undefined
+  }
   return {
     user_id: userId,
     role,
@@ -168,7 +171,9 @@ function normalizeTeamMembers(value: unknown): TeamMember[] {
       ? `expected object; received ${responseValueType(value)}`
       : !asString(value["user_id"])
         ? `user_id must be a non-empty string; received ${responseValueType(value["user_id"])}`
-        : "role must be creator, admin, or member"
+        : value["role"] !== "creator" && value["role"] !== "admin" && value["role"] !== "member"
+          ? "role must be creator, admin, or member"
+          : `disable must be a boolean when provided; received ${responseValueType(value["disable"])}`
     throw new TeamMembersValidationError(
       `Team members response contains an invalid member. members[${index}]: ${reason}.`,
     )
@@ -420,9 +425,9 @@ export async function listTeamMembers(teamId: string): Promise<TeamMember[]> {
       ? "timeout_or_cancelled"
       : cause instanceof TeamMembersValidationError
         ? "invalid_response"
-        : status && (status < 200 || status >= 300)
+        : cause instanceof TeamRequestError
           ? "http_error"
-          : status
+          : status !== undefined
             ? "response_read_error"
             : "network_error"
     // Only generated explanations are shared; raw bodies and exception messages may contain credentials or personal data.

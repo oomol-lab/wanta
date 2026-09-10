@@ -147,15 +147,32 @@ function normalizeTeamMember(value: unknown): TeamMember | undefined {
   }
 }
 
+class TeamMembersValidationError extends Error {}
+
+function responseValueType(value: unknown): string {
+  if (value === undefined) return "missing"
+  if (value === null) return "null"
+  return Array.isArray(value) ? "array" : typeof value
+}
+
 function normalizeTeamMembers(value: unknown): TeamMember[] {
   if (!Array.isArray(value)) {
-    throw new Error("Team members response is invalid.")
+    throw new TeamMembersValidationError(
+      `Team members response is invalid. Expected members array; received ${responseValueType(value)}.`,
+    )
   }
-  const members = value.map(normalizeTeamMember)
-  if (members.some((member) => !member)) {
-    throw new Error("Team members response contains an invalid member.")
-  }
-  return members as TeamMember[]
+  return value.map((value, index) => {
+    const member = normalizeTeamMember(value)
+    if (member) return member
+    const reason = !isPlainObject(value)
+      ? `expected object; received ${responseValueType(value)}`
+      : !asString(value["user_id"])
+        ? `user_id must be a non-empty string; received ${responseValueType(value["user_id"])}`
+        : "role must be creator, admin, or member"
+    throw new TeamMembersValidationError(
+      `Team members response contains an invalid member. members[${index}]: ${reason}.`,
+    )
+  })
 }
 
 function normalizeUserSummaryMap(value: unknown): Record<string, TeamUserSummary> {
@@ -380,40 +397,58 @@ export async function listTeamMembers(teamId: string): Promise<TeamMember[]> {
   const startedAt = Date.now()
   let status: number | undefined
   let requestId: string | undefined
+  let stage: "request" | "response_body" | "validation" = "request"
   try {
     const result = await requestTeamControlJson(path, {
       onResponse: (response) => {
         status = response.status
+        stage = "response_body"
         const value = response.headers.get("x-request-id") ?? response.headers.get("request-id")
         if (value && /^[a-zA-Z0-9._:-]{1,128}$/.test(value)) requestId = value
       },
     })
-    return normalizeTeamMembers(isPlainObject(result) ? result["members"] : undefined)
+    stage = "validation"
+    if (!isPlainObject(result)) {
+      throw new TeamMembersValidationError(
+        `Team members response is invalid. Expected JSON object; received ${responseValueType(result)}.`,
+      )
+    }
+    return normalizeTeamMembers(result["members"])
   } catch (cause) {
-    const category =
-      status && status >= 200 && status < 300
+    const interrupted = cause instanceof Error && (cause.name === "TimeoutError" || cause.name === "AbortError")
+    const category = interrupted
+      ? "timeout_or_cancelled"
+      : cause instanceof TeamMembersValidationError
         ? "invalid_response"
-        : status
+        : status && (status < 200 || status >= 300)
           ? "http_error"
-          : cause instanceof Error && (cause.name === "TimeoutError" || cause.name === "AbortError")
-            ? "timeout_or_cancelled"
+          : status
+            ? "response_read_error"
             : "network_error"
-    // Never copy raw response bodies, API messages, cookies, or arbitrary error strings into diagnostics.
-    const validation =
-      category === "invalid_response" &&
-      cause instanceof Error &&
-      ["Team members response is invalid.", "Team members response contains an invalid member."].includes(cause.message)
+    // Only generated explanations are shared; raw bodies and exception messages may contain credentials or personal data.
+    const reason =
+      cause instanceof TeamMembersValidationError
         ? cause.message
-        : category
+        : interrupted
+          ? cause.name === "TimeoutError"
+            ? `Request exceeded the ${teamRequestTimeoutMs} ms deadline.`
+            : "Request was cancelled before completion."
+          : category === "http_error"
+            ? `Server returned HTTP ${status}. Use the request ID and timestamp to check server logs.`
+            : category === "response_read_error"
+              ? "Response headers arrived, but reading the response body failed."
+              : "No HTTP response was available. The browser cannot distinguish DNS, TLS, proxy, CORS, or connection failures here."
     const error = Object.assign(
       new Error(
         [
           "Team members read failed",
-          validation,
+          `reason=${reason}`,
+          `stage=${stage}`,
           `GET ${teamControlBaseUrl}${path}`,
           `time=${new Date(startedAt).toISOString()}`,
           `status=${status ?? "unavailable"}; category=${category}; elapsedMs=${Date.now() - startedAt}`,
           `requestId=${requestId ?? "unavailable"}`,
+          `platform=${globalThis.wanta?.platform ?? "unknown"}`,
           `version=${globalThis.wanta?.version ?? "unknown"}; commit=${globalThis.wanta?.appCommit ?? "unknown"}`,
         ].join("\n"),
       ),

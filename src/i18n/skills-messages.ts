@@ -65,6 +65,7 @@ export const skillsMessages = {
     "teams.memberVisibleCountCompact": "可见 {{count}} 名成员",
     "teams.memberCountUnavailable": "成员数暂不可用",
     "teams.copyMemberDiagnostics": "复制成员读取诊断",
+    "teams.memberDiagnosticsDetails": "查看错误详情，可复制给支持人员",
     "teams.addMemberConfirmed": "已添加用户 {{userId}}。",
     "teams.addMemberRefreshFailed": "成员已添加，但列表暂时无法刷新。请重试读取列表，无需重复添加。",
     "teams.memberCountLoading": "成员加载中",
@@ -494,6 +495,7 @@ export const skillsMessages = {
     "teams.memberVisibleCountCompact": "{{count}} visible members",
     "teams.memberCountUnavailable": "Member count unavailable",
     "teams.copyMemberDiagnostics": "Copy member list diagnostics",
+    "teams.memberDiagnosticsDetails": "View error details to share with support",
     "teams.addMemberConfirmed": "User {{userId}} has been added.",
     "teams.addMemberRefreshFailed":
       "The member was added, but the list could not refresh. Retry loading the list; you do not need to add them again.",

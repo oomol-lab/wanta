@@ -1905,6 +1905,7 @@
   "teams.memberVisibleCountCompact": "{{count}} 位可見成員",
   "teams.memberCountUnavailable": "無法取得成員數量",
   "teams.copyMemberDiagnostics": "複製成員清單診斷資訊",
+  "teams.memberDiagnosticsDetails": "查看錯誤詳情，可複製給支援人員",
   "teams.addMemberConfirmed": "已新增使用者 {{userId}}。",
   "teams.addMemberRefreshFailed": "成員已新增，但無法重新整理清單。請重試載入清單；您不需要再次新增。",
   "teams.memberCountLoading": "正在載入成員",

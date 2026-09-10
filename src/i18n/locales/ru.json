@@ -1905,6 +1905,7 @@
   "teams.memberVisibleCountCompact": "Видимых участников: {{count}}",
   "teams.memberCountUnavailable": "Количество участников недоступно",
   "teams.copyMemberDiagnostics": "Копировать диагностику списка участников",
+  "teams.memberDiagnosticsDetails": "Посмотреть подробности ошибки для отправки в поддержку",
   "teams.addMemberConfirmed": "Пользователь {{userId}} добавлен.",
   "teams.addMemberRefreshFailed": "Участник добавлен, но список не удалось обновить. Повторите загрузку списка; добавлять его снова не нужно.",
   "teams.memberCountLoading": "Загрузка участников",

@@ -1905,6 +1905,7 @@
   "teams.memberVisibleCountCompact": "표시된 멤버 {{count}}명",
   "teams.memberCountUnavailable": "멤버 수를 확인할 수 없음",
   "teams.copyMemberDiagnostics": "멤버 목록 진단 정보 복사",
+  "teams.memberDiagnosticsDetails": "지원팀에 공유할 오류 세부 정보 보기",
   "teams.addMemberConfirmed": "사용자 {{userId}}님이 추가되었습니다.",
   "teams.addMemberRefreshFailed": "멤버는 추가되었지만 목록을 새로 고치지 못했습니다. 목록을 다시 로드하세요. 멤버를 다시 추가할 필요는 없습니다.",
   "teams.memberCountLoading": "멤버 불러오는 중",

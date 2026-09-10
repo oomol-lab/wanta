@@ -1905,6 +1905,7 @@
   "teams.memberVisibleCountCompact": "{{count}}人の表示中のメンバー",
   "teams.memberCountUnavailable": "メンバー数を取得できません",
   "teams.copyMemberDiagnostics": "メンバーリストの診断情報をコピー",
+  "teams.memberDiagnosticsDetails": "エラー詳細を表示してサポートに共有",
   "teams.addMemberConfirmed": "ユーザー{{userId}}を追加しました。",
   "teams.addMemberRefreshFailed": "メンバーは追加されましたが、リストを更新できませんでした。リストを再読み込みしてください。再度追加する必要はありません。",
   "teams.memberCountLoading": "メンバーを読み込み中",

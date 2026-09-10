@@ -330,10 +330,13 @@ test("member selection and DOM survive background refresh and a refresh failure"
   }
 })
 
-test("403 without loaded members shows diagnostics and retry instead of an empty roster", async () => {
+test.each([false, true])("member failure shows copyable diagnostics and retry (forbidden=%s)", async (forbidden) => {
   const host = document.createElement("div")
   const root = createRoot(host)
   const retry = vi.fn()
+  const copy = vi.fn(async () => undefined)
+  vi.stubGlobal("wanta", { writeClipboardText: copy })
+  const diagnostics = `status=${forbidden ? 403 : 503}; requestId=test`
   try {
     await act(async () =>
       root.render(
@@ -344,8 +347,8 @@ test("403 without loaded members shows diagnostics and retry instead of an empty
           canManage
           members={[]}
           membersComplete={false}
-          membersError="status=403; requestId=test"
-          membersForbidden
+          membersError={diagnostics}
+          membersForbidden={forbidden}
           membersLoading={false}
           team={{ id: "t", name: "Team", creator_user_id: "creator", avatar: "" }}
           onAddMember={vi.fn()}
@@ -357,7 +360,13 @@ test("403 without loaded members shows diagnostics and retry instead of an empty
         />,
       ),
     )
-    expect(host.textContent).toContain("teams.membersForbiddenEmpty")
+    expect(host.textContent).toContain(forbidden ? "teams.membersForbiddenEmpty" : "teams.membersLoadFailedDescription")
+    expect(host.querySelector("details pre")?.textContent).toBe(diagnostics)
+    const copyButton = [...host.querySelectorAll("button")].find(
+      (element) => element.textContent === "teams.copyMemberDiagnostics",
+    )!
+    await act(async () => copyButton.click())
+    expect(copy).toHaveBeenCalledWith(diagnostics)
     expect(host.textContent).toContain("teams.copyMemberDiagnostics")
     expect(host.textContent).not.toContain("teams.emptyMembersDescription")
     const button = [...host.querySelectorAll("button")].find((element) => element.textContent === "teams.retry")!

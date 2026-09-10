@@ -7,6 +7,8 @@ import { createRoot } from "react-dom/client"
 import { afterEach, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  locale: "zh-CN",
+  loadLocale: vi.fn(),
   mount: vi.fn(),
   dispose: vi.fn(),
   disposeUnit: vi.fn(),
@@ -49,13 +51,17 @@ vi.mock("@univerjs/core/facade", () => ({
 }))
 vi.mock("@univerjs/preset-sheets-core", () => ({ UniverSheetsCorePreset: () => ({ plugins: [] }) }))
 vi.mock("@univerjs/preset-sheets-core/locales/zh-CN", () => ({ default: {} }))
+vi.mock("./artifact-univer-locales.ts", () => ({
+  univerLocales: { "zh-CN": "zh", en: "en", ja: "ja" },
+  loadUniverMessages: mocks.loadLocale,
+}))
 vi.mock("./artifact-univer-snapshot.ts", () => ({
   workbookSnapshotFromPreview: (preview: LocalArtifactPreviewResult) => ({ id: preview.text }),
 }))
 vi.mock("@/components/theme-context", () => ({ useTheme: () => ({ effectiveTheme: "light" }) }))
 vi.mock("@/i18n/i18n", () => {
   const t = (key: string, values?: Record<string, unknown>) => key + (values ? JSON.stringify(values) : "")
-  return { useT: () => t, useI18n: () => ({ locale: "zh", t }) }
+  return { useT: () => t, useI18n: () => ({ locale: mocks.locale, t }) }
 })
 vi.mock("@/components/ai-elements/code-block", () => ({
   CodeBlock: () => null,
@@ -77,6 +83,9 @@ let root = createRoot(container)
 afterEach(async () => {
   await act(async () => root.unmount())
   root = createRoot(container)
+  mocks.locale = "zh-CN"
+  mocks.loadLocale.mockReset()
+  vi.restoreAllMocks()
   vi.clearAllMocks()
 })
 const item = (name: string): LocalArtifactItem => ({
@@ -206,4 +215,42 @@ it("resetKey preserves healthy children and recovers an errored subtree", async 
   expect(container.textContent).toBe("healthy")
   expect(mounts).toBe(2)
   log.mockRestore()
+})
+
+it("shows loading when revisiting a failed spreadsheet locale and recovers after retry", async () => {
+  const { ArtifactUniverSpreadsheetPreview } = await import("./ArtifactUniverSpreadsheetPreview.tsx")
+  vi.spyOn(console, "warn").mockImplementation(() => undefined)
+  const renderLocale = async (locale: string) => {
+    mocks.locale = locale
+    await act(async () => root.render(<ArtifactUniverSpreadsheetPreview preview={null} />))
+  }
+  mocks.loadLocale
+    .mockRejectedValueOnce(new Error("Japanese pack failed"))
+    .mockRejectedValueOnce(new Error("English fallback failed"))
+  await renderLocale("ja")
+  expect(mocks.loadLocale.mock.calls.map(([locale]) => locale)).toEqual(["ja", "en"])
+  expect(container.textContent).toContain("artifacts.previewUnavailable")
+  let resolve!: (messages: object) => void
+  mocks.loadLocale.mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done
+    }),
+  )
+  await renderLocale("en")
+  expect(container.textContent).toContain("artifacts.previewLoading")
+  // Return before the intervening language finishes loading; its late result must be ignored.
+  let resolveRetry!: (messages: object) => void
+  mocks.loadLocale.mockReturnValueOnce(
+    new Promise((done) => {
+      resolveRetry = done
+    }),
+  )
+  await renderLocale("ja")
+  expect(container.textContent).toContain("artifacts.previewLoading")
+  expect(container.textContent).not.toContain("artifacts.previewUnavailable")
+  await act(async () => resolve({}))
+  expect(container.textContent).toContain("artifacts.previewLoading")
+  await act(async () => resolveRetry({}))
+  expect(mocks.mount).toHaveBeenCalledTimes(1)
+  expect(container.textContent).not.toContain("artifacts.previewUnavailable")
 })

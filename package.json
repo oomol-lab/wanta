@@ -37,12 +37,13 @@
     "format": "oxfmt --check .",
     "format:fix": "oxfmt .",
     "test": "vitest run",
-    "build:app": "pnpm run ts-check && vite build",
+    "build:app": "pnpm run i18n:check && pnpm run ts-check && vite build",
     "prepare:binaries": "node --experimental-strip-types scripts/prepare-binaries.ts",
     "build:electron": "pnpm run build:app && pnpm run prepare:binaries && electron-builder --publish never",
     "build:mac": "pnpm run build:app && pnpm run prepare:binaries && electron-builder --mac --publish never",
     "build:win": "pnpm run build:app && pnpm run prepare:binaries && electron-builder --win --publish never",
-    "build:linux": "pnpm run build:app && pnpm run prepare:binaries && electron-builder --linux --publish never"
+    "build:linux": "pnpm run build:app && pnpm run prepare:binaries && electron-builder --linux --publish never",
+    "i18n:check": "vitest run src/i18n/catalog.test.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.46",

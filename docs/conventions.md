@@ -333,8 +333,9 @@
   and `@source "../../node_modules/@streamdown/mermaid/dist"` — must not be deleted (Tailwind v4
   does not scan node_modules; deleting them means the classes those packages use are not generated).
 - i18n: an in-house lightweight implementation (`src/i18n/i18n.ts`), flat dot keys + `{var}`
-  placeholders, zh-CN as baseline + en mirror; new copy must be added to both locales; `useT()`
-  returns the translate function.
+  placeholders; all eight locales must cover new copy, with English as the runtime fallback.
+  `useT()` returns the translate function. Shared codes and validation live in `electron/app-locale.ts`;
+  see [internationalization.md](internationalization.md) for persistence, plurals, native copy and checks.
 - ai-elements is a chat component library — it has no sidebar/navigation/forms/list items; build
   non-chat UI with shadcn primitives, do not force ai-elements onto them.
 

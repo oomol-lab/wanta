@@ -1,7 +1,9 @@
 import type { MenuItemConstructorOptions } from "electron"
 
 import { Menu, Tray } from "electron"
+import { normalizeAppLocale } from "../app-locale.ts"
 import { branding } from "../branding.ts"
+import { nativeTranslate } from "../native-messages.ts"
 
 export function buildWindowsTrayMenuTemplate(input: {
   locale?: string
@@ -10,12 +12,10 @@ export function buildWindowsTrayMenuTemplate(input: {
   onOpen: () => void
   updateReadyVersion?: string
 }): MenuItemConstructorOptions[] {
-  const useChinese = input.locale?.toLowerCase().startsWith("zh") ?? false
-  const openLabel = useChinese ? `打开 ${branding.appName}` : `Open ${branding.appName}`
-  const updateLabel = useChinese
-    ? `重启并更新到 ${input.updateReadyVersion}`
-    : `Restart and update to ${input.updateReadyVersion}`
-  const exitLabel = useChinese ? "退出" : "Exit"
+  const locale = normalizeAppLocale(input.locale)
+  const openLabel = nativeTranslate(locale, "tray.open")
+  const updateLabel = nativeTranslate(locale, "tray.update", { version: input.updateReadyVersion ?? "" })
+  const exitLabel = nativeTranslate(locale, "menu.exit")
 
   return [
     {

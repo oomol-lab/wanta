@@ -113,11 +113,12 @@ export function buildDailySpendBuckets(
   items: BillingSpendStats["items"],
   period: BillingPeriodDays,
   fallbackTotalCredit = 0,
+  locale = "en",
 ): DailySpendBucket[] {
   const today = startOfDay(Date.now())
   const buckets = Array.from({ length: period }, (_, index) => {
     const time = today - (period - index - 1) * 24 * 60 * 60 * 1000
-    return { key: String(time), label: formatDate(time), credit: 0, estimated: false }
+    return { key: String(time), label: formatDate(time, locale), credit: 0, estimated: false }
   })
   const byKey = new Map(buckets.map((bucket) => [bucket.key, bucket]))
   for (const item of items) {
@@ -187,29 +188,32 @@ export function normalizeTimestamp(timestamp: number): number {
   return timestamp > 0 && timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp
 }
 
-export function formatCredit(value: number | string | undefined): string {
+export function formatCredit(value: number | string | undefined, locale = "en"): string {
   const amount = toNumber(value)
-  if (amount > 0 && amount < 0.01) return "<$0.01"
-  return `$${new Intl.NumberFormat(undefined, { maximumFractionDigits: amount >= 100 ? 0 : 2 }).format(amount)}`
+  if (amount > 0 && amount < 0.01)
+    return `<$${new Intl.NumberFormat(locale, { minimumFractionDigits: 2 }).format(0.01)}`
+  return `$${new Intl.NumberFormat(locale, { maximumFractionDigits: amount >= 100 ? 0 : 2 }).format(amount)}`
 }
 
 function summariesTotal(summaries: Map<UsageCategory, CategorySummary>, field: "credit" | "eventCount"): number {
   return [...summaries.values()].reduce((sum, summary) => sum + summary[field], 0)
 }
 
-export function formatPercent(value: number): string {
-  if (value <= 0) return "0%"
-  if (value < 0.1) return "<0.1%"
-  if (value < 1) return `${value.toFixed(1)}%`
-  return `${Math.round(value)}%`
+export function formatPercent(value: number, locale = "en"): string {
+  const bounded = value <= 0 ? 0 : value < 0.1 ? 0.1 : value
+  const formatted = new Intl.NumberFormat(locale, {
+    style: "percent",
+    maximumFractionDigits: bounded < 1 ? 1 : 0,
+  }).format(bounded / 100)
+  return value > 0 && value < 0.1 ? `<${formatted}` : formatted
 }
 
-export function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+export function formatDate(timestamp: number, locale = "en"): string {
+  return new Date(timestamp).toLocaleDateString(locale, { month: "short", day: "numeric" })
 }
 
-export function formatDateTime(timestamp: number): string {
-  return new Date(normalizeTimestamp(timestamp)).toLocaleString(undefined, {
+export function formatDateTime(timestamp: number, locale = "en"): string {
+  return new Date(normalizeTimestamp(timestamp)).toLocaleString(locale, {
     month: "short",
     day: "numeric",
     hour: "2-digit",

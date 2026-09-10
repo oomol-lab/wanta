@@ -302,3 +302,32 @@ test("account switching leaves the old cloud scope before replacing its cookie a
     currentId: "new",
   })
 })
+
+test("native login confirmation waits for app readiness and uses the selected language", async () => {
+  const ready = deferred<undefined>()
+  electronMocks.app.whenReady.mockReturnValueOnce(ready.promise)
+  electronMocks.dialog.showMessageBox.mockResolvedValueOnce({ response: 1 })
+  const getLocale = vi.fn(() => "ja" as const)
+  const manager = new AuthManager({
+    applyAccount: vi.fn(async () => undefined),
+    protocolScheme: "wanta",
+    store: memoryStore(),
+    getLocale,
+    runtime: {
+      exchangeLogin: async () => account("one"),
+      readCookie: async () => undefined,
+      persistCookie: async () => undefined,
+    },
+  })
+  const callback = manager.completeBrowserLoginCallback("wanta://signin?authID=locale-test")
+  await vi.waitFor(() => assert.equal(electronMocks.app.whenReady.mock.results.at(-1)?.value, ready.promise))
+  assert.equal(getLocale.mock.calls.length, 0)
+  ready.resolve(undefined)
+  await callback
+  assert.equal(getLocale.mock.calls.length, 1)
+  const options = (
+    electronMocks.dialog.showMessageBox.mock.calls as unknown as Array<[{ buttons: string[]; cancelId: number }]>
+  ).at(-1)![0]
+  assert.deepEqual(options.buttons, ["サインイン", "キャンセル"])
+  assert.equal(options.cancelId, 1)
+})

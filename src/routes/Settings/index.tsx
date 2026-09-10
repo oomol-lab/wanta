@@ -6,7 +6,7 @@ import type { UpdateChannel } from "../../../electron/update/common.ts"
 import type { ThemePreference } from "@/components/theme-context"
 import type { UseAppUpdate } from "@/hooks/useAppUpdate"
 import type { UseLinkRuntime } from "@/hooks/useLinkRuntime"
-import type { Locale, MessageKey } from "@/i18n/i18n"
+import type { LocalePreference, MessageKey } from "@/i18n/i18n"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 import {
@@ -31,6 +31,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { appLocales, supportedAppLocales } from "../../../electron/app-locale.ts"
 import { branding } from "../../../electron/branding.ts"
 import { notificationPresentation } from "./notification-presentation.ts"
 import { shouldShowSelfManagedRuntimeSettings } from "./settings-presentation.ts"
@@ -54,6 +55,7 @@ import {
 } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppSettings } from "@/hooks/useAppSettings"
@@ -75,11 +77,6 @@ const themeOptions = [
   { value: "dark", labelKey: "settings.themeDark", icon: MoonIcon },
   { value: "system", labelKey: "settings.themeSystem", icon: MonitorIcon },
 ] as const
-
-const localeOptions: Array<{ value: Locale; label: string }> = [
-  { value: "zh-CN", label: "简体中文" },
-  { value: "en", label: "English" },
-]
 
 const channelOptions = [
   { value: "stable", labelKey: "settings.channelStable" },
@@ -106,7 +103,7 @@ export function SettingsRoute({
   update: UseAppUpdate
 }) {
   const { preference, setPreference } = useTheme()
-  const { locale, setLocale, t } = useI18n()
+  const { locale, preference: localePreference, setLocale, t } = useI18n()
   const auth = useAuth()
   const appSettings = useAppSettings()
   const attention = useAttention()
@@ -139,7 +136,7 @@ export function SettingsRoute({
             <ThemeSettings preference={preference} setPreference={setPreference} />
           </SettingsItem>
           <SettingsItem title={t("settings.language")}>
-            <LanguageSettings locale={locale} setLocale={setLocale} />
+            <LanguageSettings locale={localePreference ?? locale} setLocale={setLocale} />
           </SettingsItem>
         </SettingsSection>
 
@@ -911,7 +908,7 @@ function SettingsItem({
   return (
     <section className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0 max-[760px]:grid-cols-1">
       <div className="min-w-0">
-        <h3 className="oo-text-label truncate text-foreground">{title}</h3>
+        <h3 className="oo-text-label break-words text-foreground">{title}</h3>
         {description ? <div className="oo-text-caption mt-0.5 max-w-[44rem]">{description}</div> : null}
       </div>
       <div className="min-w-0 justify-self-end max-[760px]:w-full max-[760px]:justify-self-stretch">{children}</div>
@@ -1039,26 +1036,33 @@ function ThemeSettings({
   )
 }
 
-function LanguageSettings({ locale, setLocale }: { locale: Locale; setLocale: (locale: Locale) => void }) {
+function LanguageSettings({
+  locale,
+  setLocale,
+}: {
+  locale: LocalePreference
+  setLocale: (locale: LocalePreference) => void
+}) {
+  const { t } = useI18n()
+  const localeOptions = [
+    { value: "system", label: t("settings.languageSystem") },
+    ...supportedAppLocales.map((value) => ({ value, label: appLocales[value].label })),
+  ]
   return (
-    <ToggleGroup
-      type="single"
-      value={locale}
-      onValueChange={(value) => {
-        if (value) {
-          setLocale(value as Locale)
-        }
-      }}
-      variant="outline"
-      size="sm"
-      className="flex-wrap"
-    >
-      {localeOptions.map((option) => (
-        <ToggleGroupItem key={option.value} value={option.value}>
-          {option.label}
-        </ToggleGroupItem>
-      ))}
-    </ToggleGroup>
+    <Select value={locale} onValueChange={(value) => setLocale(value as LocalePreference)}>
+      <SelectTrigger aria-label={t("settings.language")} className="max-w-full min-w-44" size="sm">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {localeOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   )
 }
 

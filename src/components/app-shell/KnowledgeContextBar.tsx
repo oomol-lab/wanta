@@ -69,7 +69,7 @@ export function KnowledgeContextBar({
             {items.map((item) => {
               const selected = activeIds.has(item.id)
               const authorLabel =
-                locale === "zh-CN"
+                locale === "zh-CN" || locale === "zh-TW"
                   ? item.authors.join("、")
                   : new Intl.ListFormat(locale, { style: "short", type: "conjunction" }).format(item.authors)
               const metadata = [item.relativePath, authorLabel, item.publisher].filter(Boolean).join(" · ")

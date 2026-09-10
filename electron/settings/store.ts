@@ -3,6 +3,7 @@ import path from "node:path"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface PersistedSettings {
+  localePreference?: string
   themeSource?: string
   /** 内置浏览器是否可用；缺失时默认开启。 */
   browserEnabled?: boolean

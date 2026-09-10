@@ -1,6 +1,9 @@
 import { skillsMessages } from "./skills-messages.ts"
 
 export const enMessages = {
+  "settings.languageSystem": "Follow system",
+  "common.justNow": "now",
+
   "common.cancel": "Cancel",
   "common.close": "Close",
   "common.delete": "Delete",

@@ -213,8 +213,8 @@ function MemberAccessWarning({
     <div className="mx-3 mt-3 flex items-start justify-between gap-3 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
       <div className="oo-text-caption min-w-0">
         {t(hasMembers ? "teams.membersForbiddenPartial" : "teams.membersForbiddenEmpty")}
+        {error ? <MemberDiagnostics error={error} /> : null}
       </div>
-      {error ? <CopyMemberDiagnosticsButton error={error} /> : null}
       <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onRetry}>
         <RefreshCwIcon className="size-3.5" />
         {t("teams.retry")}
@@ -228,7 +228,7 @@ function MemberLoadError({ error, onRetry }: { error: string; onRetry: () => voi
   return (
     <div className="flex min-h-32 flex-col items-center justify-center gap-3 px-4 py-8 text-center">
       <div className="oo-text-body text-muted-foreground">{t("teams.membersLoadFailedDescription")}</div>
-      <CopyMemberDiagnosticsButton error={error} />
+      <MemberDiagnostics error={error} />
       <Button type="button" variant="outline" size="sm" onClick={onRetry}>
         <RefreshCwIcon className="size-3.5" />
         {t("teams.retry")}
@@ -389,6 +389,19 @@ export function TeamMemberAdditionNotice({
         </div>
       </AlertDescription>
     </Alert>
+  )
+}
+
+function MemberDiagnostics({ error }: { error: string }) {
+  const { t } = useAppI18n()
+  return (
+    <div className="w-full max-w-2xl min-w-0 text-left">
+      <details className="rounded-md border border-border p-3 text-sm">
+        <summary className="cursor-pointer text-muted-foreground">{t("teams.memberDiagnosticsDetails")}</summary>
+        <pre className="mt-2 max-h-60 overflow-auto text-xs break-all whitespace-pre-wrap select-text">{error}</pre>
+      </details>
+      <CopyMemberDiagnosticsButton error={error} />
+    </div>
   )
 }
 

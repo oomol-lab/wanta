@@ -1905,6 +1905,7 @@
   "teams.memberVisibleCountCompact": "{{count}} miembros visibles",
   "teams.memberCountUnavailable": "Recuento de miembros no disponible",
   "teams.copyMemberDiagnostics": "Copiar diagnóstico de la lista de miembros",
+  "teams.memberDiagnosticsDetails": "Ver detalles del error para compartir con soporte",
   "teams.addMemberConfirmed": "Se ha añadido el usuario {{userId}}.",
   "teams.addMemberRefreshFailed": "Se añadió el miembro, pero no se pudo actualizar la lista. Vuelve a cargar la lista; no necesitas añadirlo de nuevo.",
   "teams.memberCountLoading": "Cargando miembros",

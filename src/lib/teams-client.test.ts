@@ -370,9 +370,108 @@ describe("member read diagnostics", () => {
     )
     const error = await listTeamMembers("team-1").catch((cause: unknown) => cause)
     expect(error).toMatchObject({ status: 503 })
+    expect((error as Error).message).toContain("category=http_error")
     expect((error as Error).message).toContain("requestId=member-request-123")
     expect((error as Error).message).toContain("GET https://")
     expect((error as Error).message).not.toContain("private-person")
     expect((error as Error).message).not.toContain("secret-token")
+  })
+})
+
+describe("member failure explanations", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it.each([null, "private-status", 0, {}, []])(
+    "rejects malformed disable values without exposing them",
+    async (disable) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ members: [{ user_id: "private-id", role: "member", disable }] })),
+      )
+      const error = (await listTeamMembers("team-1").catch((cause: unknown) => cause)) as Error
+      expect(error.message).toContain("members[0]: disable must be a boolean when provided")
+      expect(error.message).toContain("category=invalid_response")
+      expect(error.message).not.toContain("private-")
+    },
+  )
+
+  it.each([500, 403, 0])("retains HTTP %s when reading its response body fails", async (status) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        status,
+        ok: false,
+        headers: new Headers({ "x-request-id": "failed-body" }),
+        text: async () => {
+          throw new TypeError("private-error")
+        },
+      })),
+    )
+    const error = (await listTeamMembers("team-1").catch((cause: unknown) => cause)) as Error
+    expect(error).toMatchObject({ status })
+    expect(error.message).toContain(`status=${status}`)
+    expect(error.message).toContain("category=response_read_error")
+    expect(error.message).toContain("stage=response_body")
+    expect(error.message).toContain("requestId=failed-body")
+    expect(error.message).not.toContain("private-error")
+  })
+
+  it.each([
+    [{ members: null }, "Expected members array; received null"],
+    [
+      { members: [{ user_id: "private-id", role: "private-role" }] },
+      "members[0]: role must be creator, admin, or member",
+    ],
+    [{ members: [{ role: "member" }] }, "members[0]: user_id must be a non-empty string; received missing"],
+    ["<html>private-response</html>", "Expected JSON object; received string"],
+  ])("explains invalid response structure without including member values", async (payload, reason) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(payload)),
+    )
+    const error = (await listTeamMembers("team-1").catch((cause: unknown) => cause)) as Error
+    expect(error.message).toContain(reason)
+    expect(error.message).toContain("category=invalid_response")
+    expect(error.message).toContain("stage=validation")
+    expect(error.message).not.toContain("private-")
+  })
+
+  it.each([
+    [new DOMException("private-token", "TimeoutError"), "timeout_or_cancelled", "20000 ms deadline"],
+    [new DOMException("private-token", "AbortError"), "timeout_or_cancelled", "cancelled"],
+    [new TypeError("private-token"), "response_read_error", "reading the response body failed"],
+  ])("distinguishes response body failures from invalid member data", async (failure, category, reason) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        status: 200,
+        ok: true,
+        headers: new Headers({ "x-request-id": "body-failure" }),
+        text: async () => {
+          throw failure
+        },
+      })),
+    )
+    const error = (await listTeamMembers("team-1").catch((cause: unknown) => cause)) as Error
+    expect(error.message).toContain(`category=${category}`)
+    expect(error.message).toContain(reason)
+    expect(error.message).toContain("stage=response_body")
+    expect(error.message).toContain("requestId=body-failure")
+    expect(error.message).not.toContain("private-token")
+  })
+
+  it("reports unavailable network evidence without guessing a root cause", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("private-token")
+      }),
+    )
+    const error = (await listTeamMembers("team-1").catch((cause: unknown) => cause)) as Error
+    expect(error.message).toContain("category=network_error")
+    expect(error.message).toContain("stage=request")
+    expect(error.message).toContain("status=unavailable")
+    expect(error.message).toContain("cannot distinguish DNS, TLS, proxy, CORS, or connection failures")
+    expect(error.message).not.toContain("private-token")
   })
 })

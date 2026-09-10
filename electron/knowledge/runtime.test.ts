@@ -155,7 +155,10 @@ describe("WikiGraph 0.6 host integration", () => {
       addWikiGraphLibraryArchive(rt, source.path),
     ])
     expect(new Set(imports.map((archive) => archive.id)).size).toBe(2)
-    expect(imports.map((archive) => archive.relativePath)).toEqual(["fixture-v4.wikg", "fixture-v4 2.wikg"])
+    // Concurrent requests can reach the import queue in either order after asynchronous preparation.
+    expect(new Set(imports.map((archive) => archive.relativePath))).toEqual(
+      new Set(["fixture-v4.wikg", "fixture-v4 2.wikg"]),
+    )
     expect((await listWikiGraphLibraryArchives(rt)).length).toBe(2)
     expect(await readdir(path.join(rt.stateDir, "wanta-imports"))).toEqual([])
   }, 20_000)

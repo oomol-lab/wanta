@@ -4,6 +4,7 @@ import * as React from "react"
 import { isAppLocale, isLocalePreference, resolveSystemLocale } from "../../electron/app-locale.ts"
 import { storageKey } from "../../electron/branding.ts"
 import { messages } from "./app-messages.ts"
+import { formatNumber } from "./format.ts"
 import { pluralMessage } from "./plural-messages.ts"
 
 export type Locale = AppLocale
@@ -62,7 +63,11 @@ export function translateUnsafe(locale: Locale, key: string, vars?: Record<strin
       /\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}|\{\s*([A-Za-z0-9_.-]+)\s*\}/g,
       (match, doubleName, singleName) => {
         const name = (doubleName ?? singleName) as string
-        return Object.hasOwn(vars, name) ? String(vars[name]) : match
+        if (!Object.hasOwn(vars, name)) return match
+        const value = vars[name]
+        return name === "count" && typeof value === "number" && Number.isFinite(value)
+          ? formatNumber(value, locale)
+          : String(value)
       },
     )
   }

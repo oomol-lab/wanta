@@ -205,6 +205,7 @@ export function ArtifactUniverSpreadsheetPreview({
   )
 
   React.useEffect(() => {
+    setFailedLocale(null)
     if (univerLocale === LocaleType.ZH_CN) return
     let cancelled = false
     void loadUniverMessages(locale)

@@ -52,3 +52,18 @@ it("uses plural forms through the public translator", () => {
   expect(translate("ru", "knowledge.searchResultCount", { count: 2 })).toBe("2 файла")
   expect(translate("ru", "knowledge.searchResultCount", { count: 5 })).toBe("5 файлов")
 })
+
+it("formats grouped counts while selecting plural forms from the raw number", () => {
+  expect(translate("en", "tasks.totalCount", { count: 1000 })).toBe("1,000 tasks")
+  expect(translate("fr", "tasks.totalCount", { count: 1000 })).toContain("1\u202f000")
+  expect(translate("ru", "knowledge.searchResultCount", { count: 1001 })).toBe("1\u00a0001 файл")
+  expect(translate("ru", "knowledge.searchResultCount", { count: 1002 })).toBe("1\u00a0002 файла")
+  expect(translate("ru", "knowledge.searchResultCount", { count: 1005 })).toBe("1\u00a0005 файлов")
+  expect(translate("en", "teams.teamCount", { count: 1000 })).toBe("Teams: 1,000")
+})
+it("preserves preformatted counts, other variables, and caller-owned values", () => {
+  const vars = { count: 1000, label: 1000 }
+  expect(translate("en", "teams.memberAccessAriaLabel", vars)).toBe("1000, 1,000")
+  expect(vars).toEqual({ count: 1000, label: 1000 })
+  expect(translate("en", "tasks.totalCount", { count: "1k" })).toBe("1k tasks")
+})

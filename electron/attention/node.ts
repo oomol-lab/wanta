@@ -16,6 +16,7 @@ import { app, nativeImage, Notification, shell } from "electron"
 import { branding } from "../branding.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { AttentionService as AttentionServiceName } from "./common.ts"
+import { notificationMessages as messages } from "./messages.ts"
 import {
   notificationCapability,
   openFirstAvailableSystemSettingsUrl,
@@ -38,23 +39,6 @@ interface CompleteSessionRequest {
   runId: string
   sessionId: string
 }
-
-const messages = {
-  en: {
-    completedBody: "Open Wanta to review the result.",
-    completedTitle: "Task completed",
-    testBody: "Task completion notifications are ready.",
-    testTitle: "Test notification",
-    unreadBadge: "Unread tasks",
-  },
-  "zh-CN": {
-    completedBody: "打开 Wanta 查看结果。",
-    completedTitle: "任务已完成",
-    testBody: "任务完成通知已准备好。",
-    testTitle: "测试通知",
-    unreadBadge: "未读任务",
-  },
-} as const
 
 let windowsUnreadOverlay: NativeImage | null = null
 const notificationDeliveryTimeoutMs = 5_000

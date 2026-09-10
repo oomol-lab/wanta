@@ -1,0 +1,594 @@
+{
+  "sidebar.searchResults": {
+    "one": "{count} tarea encontrada",
+    "other": "{count} tareas encontradas"
+  },
+  "sidebar.showMoreSearchResults": {
+    "one": "Mostrar {count} resultado más",
+    "other": "Mostrar {count} resultados más"
+  },
+  "sidebar.showMoreTasks": {
+    "one": "Mostrar {count} tarea más",
+    "other": "Mostrar {count} tareas más"
+  },
+  "tasks.totalCount": {
+    "one": "{count} tarea",
+    "other": "{count} tareas"
+  },
+  "tasks.selectedCount": {
+    "one": "{count} seleccionada",
+    "other": "{count} seleccionadas"
+  },
+  "tasks.archiveConfirmTitle": {
+    "one": "¿Archivar {count} tarea?",
+    "other": "¿Archivar {count} tareas?"
+  },
+  "tasks.deleteConfirmTitle": {
+    "one": "¿Eliminar permanentemente {count} tarea?",
+    "other": "¿Eliminar permanentemente {count} tareas?"
+  },
+  "tasks.archiveCount": {
+    "one": "Archivar {count}",
+    "other": "Archivar {count}"
+  },
+  "tasks.deleteCount": {
+    "one": "Eliminar {count}",
+    "other": "Eliminar {count}"
+  },
+  "tasks.andMore": {
+    "one": "Y {count} más",
+    "other": "Y {count} más"
+  },
+  "tasks.archivedToast": {
+    "one": "Se archivó {count} tarea",
+    "other": "Se archivaron {count} tareas"
+  },
+  "tasks.deletedToast": {
+    "one": "Se eliminó {count} tarea",
+    "other": "Se eliminaron {count} tareas"
+  },
+  "tasks.partialFailureToast": {
+    "one": "No se pudo procesar {count} tarea",
+    "other": "No se pudieron procesar {count} tareas"
+  },
+  "project.hiddenSessions": {
+    "one": "{count} tarea más",
+    "other": "{count} tareas más"
+  },
+  "git.uncommittedFiles": {
+    "one": "Sin confirmar: {count} archivo",
+    "other": "Sin confirmar: {count} archivos"
+  },
+  "chat.emptyCurrentConnectorsMeta": {
+    "one": "{count} disponible",
+    "other": "{count} disponibles"
+  },
+  "chat.emptyTeamSkillsMeta": {
+    "one": "{count} para instalar",
+    "other": "{count} para instalar"
+  },
+  "chat.emptyTeamSkillsRecommendedMeta": {
+    "one": "{count}",
+    "other": "{count}"
+  },
+  "chat.queueTitle": {
+    "one": "{count} mensaje en cola",
+    "other": "{count} mensajes en cola"
+  },
+  "chat.queueAttachments": {
+    "one": "{count} archivo adjunto",
+    "other": "{count} archivos adjuntos"
+  },
+  "chat.connectionAccountCount": {
+    "one": "{count} cuenta",
+    "other": "{count} cuentas"
+  },
+  "chatError.paymentDialog.credits": {
+    "one": "{count} crédito",
+    "other": "{count} créditos"
+  },
+  "billing.popover.creditSources": {
+    "one": "{count} fuente de saldo",
+    "other": "{count} fuentes de saldo"
+  },
+  "billing.popover.availableSources": {
+    "one": "{count} disponible",
+    "other": "{count} disponibles"
+  },
+  "billing.popover.planSeats": {
+    "one": "Capacidad de miembros {count}/{limit}",
+    "other": "Capacidad de miembros {count}/{limit}"
+  },
+  "billing.popover.planMembers": {
+    "one": "{count} miembro",
+    "other": "{count} miembros"
+  },
+  "billing.popover.sharedLinks": {
+    "one": "{count} aplicación conectada",
+    "other": "{count} aplicaciones conectadas"
+  },
+  "billing.categoryCalls": {
+    "one": "{count} llamada",
+    "other": "{count} llamadas"
+  },
+  "billing.categoryConnectorApps": {
+    "one": "{apps} aplicación · {count} llamada",
+    "other": "{apps} aplicaciones · {count} llamadas"
+  },
+  "billing.categoryConnectorAggregateOnly": {
+    "one": "{count} llamada · Detalles de la aplicación no disponibles",
+    "other": "{count} llamadas · Detalles de la aplicación no disponibles"
+  },
+  "billing.breakdown.items": {
+    "one": "{count} elemento",
+    "other": "{count} elementos"
+  },
+  "billing.breakdown.subjectCount": {
+    "one": "{count} sujeto de facturación",
+    "other": "{count} sujetos de facturación"
+  },
+  "billing.breakdown.connectorAggregateOnlyDescription": {
+    "one": "Este período tiene {count} llamada de conector y {amount} de gasto. El servicio de facturación devolvió solo el total del conector, no si provino de Google Sheets, Gmail u otra aplicación.",
+    "other": "Este período tiene {count} llamadas de conector y {amount} de gasto. El servicio de facturación solo devolvió el total del conector, no si provino de Google Sheets, Gmail u otra aplicación."
+  },
+  "billing.breakdown.hidden": {
+    "one": "{count} elemento más está oculto",
+    "other": "{count} elementos más están ocultos"
+  },
+  "billing.hiddenBalanceLots": {
+    "one": "{count} fuente de saldo más está oculta",
+    "other": "{count} fuentes de saldo más están ocultas"
+  },
+  "billing.planStatus.members": {
+    "one": "{count} miembro",
+    "other": "{count} miembros"
+  },
+  "chat.connectionIssueDuplicateCount": {
+    "one": "El mismo problema de conexión afectó a {count} llamada.",
+    "other": "El mismo problema de conexión afectó a {count} llamadas."
+  },
+  "chat.toolActivityConnectorCompleted": {
+    "one": "Se usó {count} paso de conector",
+    "other": "Se usaron {count} pasos de conector"
+  },
+  "chat.toolActivityConnectorRunning": {
+    "one": "Usando {count} paso de conector",
+    "other": "Usando {count} pasos de conector"
+  },
+  "chat.toolActivityConnectorError": {
+    "one": "{count} paso de conector necesita atención",
+    "other": "{count} pasos de conector necesitan atención"
+  },
+  "chat.toolActivityConnectorStopped": {
+    "one": "Se detuvo {count} paso de conector",
+    "other": "Se detuvieron {count} pasos de conector"
+  },
+  "chat.toolActivityShellCompleted": {
+    "one": "Se ejecutó {count} comando",
+    "other": "Se ejecutaron {count} comandos"
+  },
+  "chat.toolActivityShellRunning": {
+    "one": "Ejecutando {count} comando",
+    "other": "Ejecutando {count} comandos"
+  },
+  "chat.toolActivityShellError": {
+    "one": "{count} comando necesita atención",
+    "other": "{count} comandos necesitan atención"
+  },
+  "chat.toolActivityShellStopped": {
+    "one": "Se detuvo {count} comando",
+    "other": "Se detuvieron {count} comandos"
+  },
+  "chat.toolActivityFileCompleted": {
+    "one": "Se gestionó {count} operación de archivo",
+    "other": "Se gestionaron {count} operaciones de archivo"
+  },
+  "chat.toolActivityFileRunning": {
+    "one": "Gestionando {count} operación de archivo",
+    "other": "Gestionando {count} operaciones de archivo"
+  },
+  "chat.toolActivityFileError": {
+    "one": "{count} operación de archivo necesita atención",
+    "other": "{count} operaciones de archivo necesitan atención"
+  },
+  "chat.toolActivityFileStopped": {
+    "one": "Se detuvo {count} operación de archivo",
+    "other": "Se detuvieron {count} operaciones de archivo"
+  },
+  "chat.toolActivityFileReadCompleted": {
+    "one": "Se leyó {count} archivo",
+    "other": "Se leyeron {count} archivos"
+  },
+  "chat.toolActivityFileReadRunning": {
+    "one": "Leyendo {count} archivo",
+    "other": "Leyendo {count} archivos"
+  },
+  "chat.toolActivityFileReadError": {
+    "one": "{count} lectura de archivo requiere atención",
+    "other": "{count} lecturas de archivo requieren atención"
+  },
+  "chat.toolActivityFileReadStopped": {
+    "one": "Se detuvo la lectura de {count} archivo",
+    "other": "Se detuvo la lectura de {count} archivos"
+  },
+  "chat.toolActivityFileWriteCompleted": {
+    "one": "Se escribió {count} archivo",
+    "other": "Se escribieron {count} archivos"
+  },
+  "chat.toolActivityFileWriteRunning": {
+    "one": "Escribiendo {count} archivo",
+    "other": "Escribiendo {count} archivos"
+  },
+  "chat.toolActivityFileWriteError": {
+    "one": "{count} escritura de archivo requiere atención",
+    "other": "{count} escrituras de archivo requieren atención"
+  },
+  "chat.toolActivityFileWriteStopped": {
+    "one": "Se detuvo la escritura de {count} archivo",
+    "other": "Se detuvo la escritura de {count} archivos"
+  },
+  "chat.toolActivityFileEditCompleted": {
+    "one": "Se editó {count} archivo",
+    "other": "Se editaron {count} archivos"
+  },
+  "chat.toolActivityFileEditRunning": {
+    "one": "Editando {count} archivo",
+    "other": "Editando {count} archivos"
+  },
+  "chat.toolActivityFileEditError": {
+    "one": "{count} edición de archivo requiere atención",
+    "other": "{count} ediciones de archivo requieren atención"
+  },
+  "chat.toolActivityFileEditStopped": {
+    "one": "Se detuvo la edición de {count} archivo",
+    "other": "Se detuvo la edición de {count} archivos"
+  },
+  "chat.toolActivityFileListCompleted": {
+    "one": "Se listó {count} carpeta",
+    "other": "Se listaron {count} carpetas"
+  },
+  "chat.toolActivityFileListRunning": {
+    "one": "Listando {count} carpeta",
+    "other": "Listando {count} carpetas"
+  },
+  "chat.toolActivityFileListError": {
+    "one": "{count} listado de carpeta requiere atención",
+    "other": "{count} listados de carpeta requieren atención"
+  },
+  "chat.toolActivityFileListStopped": {
+    "one": "Se detuvo el listado de {count} carpeta",
+    "other": "Se detuvo el listado de {count} carpetas"
+  },
+  "chat.toolActivityFileSearchCompleted": {
+    "one": "Se buscó en los archivos {count} vez",
+    "other": "Se buscó en los archivos {count} veces"
+  },
+  "chat.toolActivityFileSearchRunning": {
+    "one": "Buscando en los archivos {count} vez",
+    "other": "Buscando en los archivos {count} veces"
+  },
+  "chat.toolActivityFileSearchError": {
+    "one": "{count} búsqueda de archivos requiere atención",
+    "other": "{count} búsquedas de archivos requieren atención"
+  },
+  "chat.toolActivityFileSearchStopped": {
+    "one": "Se detuvo {count} búsqueda de archivos",
+    "other": "Se detuvieron {count} búsquedas de archivos"
+  },
+  "chat.toolActivityWebCompleted": {
+    "one": "Se leyó {count} página web",
+    "other": "Se leyeron {count} páginas web"
+  },
+  "chat.toolActivityWebRunning": {
+    "one": "Leyendo {count} página web",
+    "other": "Leyendo {count} páginas web"
+  },
+  "chat.toolActivityWebError": {
+    "one": "{count} lectura de página web requiere atención",
+    "other": "{count} lecturas de páginas web requieren atención"
+  },
+  "chat.toolActivityWebStopped": {
+    "one": "Se detuvo la lectura de {count} página web",
+    "other": "Se detuvo la lectura de {count} páginas web"
+  },
+  "chat.toolActivityTaskCompleted": {
+    "one": "Se ejecutó {count} tarea",
+    "other": "Se ejecutaron {count} tareas"
+  },
+  "chat.toolActivityTaskRunning": {
+    "one": "Ejecutando {count} tarea",
+    "other": "Ejecutando {count} tareas"
+  },
+  "chat.toolActivityTaskError": {
+    "one": "{count} tarea requiere atención",
+    "other": "{count} tareas requieren atención"
+  },
+  "chat.toolActivityTaskStopped": {
+    "one": "Se detuvo {count} tarea",
+    "other": "Se detuvieron {count} tareas"
+  },
+  "chat.toolActivitySkillCompleted": {
+    "one": "Se cargó {count} skill",
+    "other": "Se cargaron {count} skills"
+  },
+  "chat.toolActivitySkillRunning": {
+    "one": "Cargando {count} skill",
+    "other": "Cargando {count} skills"
+  },
+  "chat.toolActivitySkillError": {
+    "one": "{count} skill requiere atención",
+    "other": "{count} skills requieren atención"
+  },
+  "chat.toolActivitySkillStopped": {
+    "one": "Se detuvo {count} skill",
+    "other": "Se detuvieron {count} skills"
+  },
+  "chat.toolActivityCustomCompleted": {
+    "one": "Se usó {count} herramienta",
+    "other": "Se usaron {count} herramientas"
+  },
+  "chat.toolActivityCustomRunning": {
+    "one": "Usando {count} herramienta",
+    "other": "Usando {count} herramientas"
+  },
+  "chat.toolActivityCustomError": {
+    "one": "{count} herramienta requiere atención",
+    "other": "{count} herramientas requieren atención"
+  },
+  "chat.toolActivityCustomStopped": {
+    "one": "Se detuvo {count} herramienta",
+    "other": "Se detuvieron {count} herramientas"
+  },
+  "chat.toolActivityMixedCompleted": {
+    "one": "Se usó {count} herramienta",
+    "other": "Se usaron {count} herramientas"
+  },
+  "chat.toolActivityMixedRunning": {
+    "one": "Usando {count} herramienta",
+    "other": "Usando {count} herramientas"
+  },
+  "chat.toolActivityMixedError": {
+    "one": "{count} herramienta requiere atención",
+    "other": "{count} herramientas requieren atención"
+  },
+  "chat.toolActivityMixedStopped": {
+    "one": "Se detuvo {count} herramienta",
+    "other": "Se detuvieron {count} herramientas"
+  },
+  "chat.toolAttachments": {
+    "one": "{count} archivo adjunto",
+    "other": "{count} archivos adjuntos"
+  },
+  "artifacts.viewAll": {
+    "one": "Ver todo {count}",
+    "other": "Ver los {count}"
+  },
+  "artifacts.outputCount": {
+    "one": "{count} resultado",
+    "other": "{count} resultados"
+  },
+  "artifacts.count": {
+    "one": "{count} elemento",
+    "other": "{count} elementos"
+  },
+  "artifacts.imageCount": {
+    "one": "{count} imagen",
+    "other": "{count} imágenes"
+  },
+  "artifacts.sheetCount": {
+    "one": "{count} hoja",
+    "other": "{count} hojas"
+  },
+  "artifacts.archiveShownCount": {
+    "one": "{count} entrada mostrada",
+    "other": "{count} entradas mostradas"
+  },
+  "artifacts.archiveCount": {
+    "one": "Mostrando {count}/{total} entrada",
+    "other": "Mostrando {count}/{total} entradas"
+  },
+  "turnOutputs.changesSummary": {
+    "one": "{count} archivo modificado",
+    "other": "{count} archivos modificados"
+  },
+  "turnOutputs.editedSummary": {
+    "one": "Se editó {count} archivo",
+    "other": "Se editaron {count} archivos"
+  },
+  "turnOutputs.processSummary": {
+    "one": "{count} archivo de proceso",
+    "other": "{count} archivos de proceso"
+  },
+  "turnOutputs.viewChanges": {
+    "one": "Ver todos los cambios ({count})",
+    "other": "Ver todos los cambios ({count})"
+  },
+  "turnOutputs.viewProcess": {
+    "one": "Ver proceso ({count})",
+    "other": "Ver proceso ({count})"
+  },
+  "turnOutputs.showMoreFiles": {
+    "one": "Mostrar {count} archivo más",
+    "other": "Mostrar {count} archivos más"
+  },
+  "turnOutputs.processNotArtifact": {
+    "one": "{count} archivo de proceso · No son resultados finales",
+    "other": "{count} archivos de proceso · No son resultados finales"
+  },
+  "connections.more": {
+    "one": "Busca para conectar más ({count} en total)",
+    "other": "Busca para conectar más ({count} en total)"
+  },
+  "connections.showingProviders": {
+    "one": "Mostrando {count} / {total}",
+    "other": "Mostrando {count} / {total}"
+  },
+  "connections.scenario.connectionCount": {
+    "one": "{count} conexión",
+    "other": "{count} conexiones"
+  },
+  "connections.discovery.providerCount": {
+    "one": "{count}",
+    "other": "{count}"
+  },
+  "connections.discovery.categoryProviderCount": {
+    "one": "{count} conector",
+    "other": "{count} conectores"
+  },
+  "connections.accessRemainingMembers": {
+    "one": "{count} miembro restante",
+    "other": "{count} miembros restantes"
+  },
+  "connections.accessAssignedMembers": {
+    "one": "{count} miembro asignado",
+    "other": "{count} miembros asignados"
+  },
+  "connections.accessNewRuleDefaultName": {
+    "one": "Regla n.º {count}",
+    "other": "Regla n.º {count}"
+  },
+  "connections.memberAccessSelectedSummary": {
+    "one": "Disponible para {count} miembro seleccionado",
+    "other": "Disponible para {count} miembros seleccionados"
+  },
+  "connections.memberSelectedCount": {
+    "one": "{count} miembro seleccionado",
+    "other": "{count} miembros seleccionados"
+  },
+  "connections.connectionCount": {
+    "one": "{count} conexión",
+    "other": "{count} conexiones"
+  },
+  "knowledge.folderCount": {
+    "one": "{count} archivo de conocimiento",
+    "other": "{count} archivos de conocimiento"
+  },
+  "knowledge.searchResultCount": {
+    "one": "{count} archivo",
+    "other": "{count} archivos"
+  },
+  "knowledge.chapterCount": {
+    "one": "{count} capítulo de contenido",
+    "other": "{count} capítulos de contenido"
+  },
+  "knowledge.wordCount": {
+    "one": "{count} palabra en total",
+    "other": "{count} palabras en total"
+  },
+  "knowledge.contextCount": {
+    "one": "{count} seleccionado",
+    "other": "{count} seleccionados"
+  },
+  "knowledge.contextQueueNotice": {
+    "one": "Los cambios no afectarán al {count} mensaje ya en cola.",
+    "other": "Los cambios no afectarán a los {count} mensajes ya en cola."
+  },
+  "teams.teamCount": {
+    "one": "Equipos: {{count}}",
+    "other": "Equipos: {{count}}"
+  },
+  "teams.memberCountCompact": {
+    "one": "{{count}} miembro",
+    "other": "{{count}} miembros"
+  },
+  "teams.memberVisibleCountCompact": {
+    "one": "{{count}} miembro visible",
+    "other": "{{count}} miembros visibles"
+  },
+  "teams.memberAccessAriaLabel": {
+    "one": "{{label}}, {{count}}",
+    "other": "{{label}}, {{count}}"
+  },
+  "teams.selectedMembers": {
+    "one": "{{count}} miembro seleccionado",
+    "other": "{{count}} miembros seleccionados"
+  },
+  "teams.skillGuideEnabledCount": {
+    "one": "{{count}} recomendación del equipo",
+    "other": "{{count}} recomendaciones del equipo"
+  },
+  "teams.skillGuideSystemCount": {
+    "one": "{{count}} recomendación del sistema",
+    "other": "{{count}} recomendaciones del sistema"
+  },
+  "teams.skillManageInstallMissingAll": {
+    "one": "Sincronizar {{count}} Skill del equipo",
+    "other": "Sincronizar {{count}} Skills del equipo"
+  },
+  "teams.skillManageInstallMissingSuccess": {
+    "one": "{{count}} Skill del equipo sincronizada.",
+    "other": "{{count}} Skills del equipo sincronizadas."
+  },
+  "teams.skillManageInstallMissingFailed": {
+    "one": "Falló la sincronización de {{count}} Skill del equipo: {{error}}",
+    "other": "Falló la sincronización de {{count}} Skills del equipo: {{error}}"
+  },
+  "teams.skillManageLinkAll": {
+    "one": "Establecer {{count}} como recomendación del equipo",
+    "other": "Establecer los {{count}} como recomendaciones del equipo"
+  },
+  "teams.skillManageAddInstallAll": {
+    "one": "Instalar y establecer {{count}} como recomendación del equipo",
+    "other": "Instalar y establecer los {{count}} como recomendaciones del equipo"
+  },
+  "teams.skillManageBulkAddSuccess": {
+    "one": "{{count}} Skill establecido como recomendación del equipo.",
+    "other": "{{count}} Skills establecidos como recomendaciones del equipo."
+  },
+  "teams.skillManageBulkAddInstallSuccess": {
+    "one": "{{count}} Skill instalado y establecido como recomendación del equipo.",
+    "other": "{{count}} Skills instalados y establecidos como recomendaciones del equipo."
+  },
+  "teams.skillManageBulkAddFailed": {
+    "one": "Falló {{count}} recomendación de Skill: {{error}}",
+    "other": "Fallaron {{count}} recomendaciones de Skills: {{error}}"
+  },
+  "teams.skillManageRemovePackageConfirmDescription": {
+    "one": "Los vínculos del equipo se basan en paquetes. Esto elimina el paquete y {{count}} Skill incluido; las instalaciones locales no se ven afectadas.",
+    "other": "Los vínculos del equipo se basan en paquetes. Esto elimina el paquete y los {{count}} Skills incluidos; las instalaciones locales no se ven afectadas."
+  },
+  "skills.discoverDownloads": {
+    "one": "{{count}} descarga",
+    "other": "{{count}} descargas"
+  },
+  "skills.registryInstallBatchDone": {
+    "one": "{{count}} Skill instalado.",
+    "other": "{{count}} Skills instalados."
+  },
+  "skills.registryInstallBatchFailed": {
+    "one": "{{count}} Skill no se pudo instalar: {{error}}",
+    "other": "{{count}} Skills no se pudieron instalar: {{error}}"
+  },
+  "skills.teamPackageSkillCount": {
+    "one": "{{count}} Skill",
+    "other": "{{count}} Skills"
+  },
+  "skills.providerRecommendationsCount": {
+    "one": "{{count}}",
+    "other": "{{count}}"
+  },
+  "skills.providerRecommendationsInstallAllCount": {
+    "one": "Instalar {{count}}",
+    "other": "Instalar los {{count}}"
+  },
+  "skills.providerRecommendationsMore": {
+    "one": "{{count}} Skill recomendado más.",
+    "other": "{{count}} Skills recomendados más."
+  },
+  "skills.providerRecommendationsViewAll": {
+    "one": "Ver {{count}}",
+    "other": "Ver los {{count}}"
+  },
+  "skills.providerRecommendationsDialogDescription": {
+    "one": "Se puede instalar {{count}} Skill de conector.",
+    "other": "Se pueden instalar {{count}} Skills de conector."
+  },
+  "skills.providerRecommendationsInstallDone": {
+    "one": "{{count}} Skill recomendado instalado.",
+    "other": "{{count}} Skills recomendadas instaladas."
+  },
+  "skills.platform.count": {
+    "one": "{{count}} plataforma",
+    "other": "{{count}} plataformas"
+  }
+}

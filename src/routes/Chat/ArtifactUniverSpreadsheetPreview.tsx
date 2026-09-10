@@ -7,6 +7,7 @@ import { FUniver as UniverFacade } from "@univerjs/core/facade"
 import { UniverSheetsCorePreset } from "@univerjs/preset-sheets-core"
 import zhCN from "@univerjs/preset-sheets-core/locales/zh-CN"
 import * as React from "react"
+import { univerLocales, loadUniverMessages } from "./artifact-univer-locales.ts"
 import { workbookSnapshotFromPreview } from "./artifact-univer-snapshot.ts"
 import { useTheme } from "@/components/theme-context"
 import { useI18n } from "@/i18n/i18n"
@@ -188,11 +189,15 @@ export function ArtifactUniverSpreadsheetPreview({
 }) {
   const { locale, t } = useI18n()
   const { effectiveTheme } = useTheme()
-  const univerLocale = locale === "en" ? LocaleType.EN_US : LocaleType.ZH_CN
-  const [enUSMessages, setEnUSMessages] = React.useState<
-    (typeof import("@univerjs/preset-sheets-core/locales/en-US"))["default"] | null
-  >(null)
-  const localeMessages = univerLocale === LocaleType.EN_US ? enUSMessages : zhCN
+  const univerLocale = univerLocales[locale] ?? LocaleType.EN_US
+  const [loadedLocale, setLoadedLocale] = React.useState<{ locale: LocaleType; messages: typeof zhCN } | null>(null)
+  const [failedLocale, setFailedLocale] = React.useState<string | null>(null)
+  const localeMessages =
+    univerLocale === LocaleType.ZH_CN
+      ? zhCN
+      : loadedLocale && loadedLocale.locale === univerLocale
+        ? loadedLocale.messages
+        : null
   const runtimeConfigKey = `${univerLocale}:${effectiveTheme}`
   const snapshot = React.useMemo(
     () => (preview ? workbookSnapshotFromPreview(preview, univerLocale) : null),
@@ -200,17 +205,21 @@ export function ArtifactUniverSpreadsheetPreview({
   )
 
   React.useEffect(() => {
-    if (univerLocale !== LocaleType.EN_US || enUSMessages) {
-      return
-    }
+    if (univerLocale === LocaleType.ZH_CN) return
     let cancelled = false
-    void import("@univerjs/preset-sheets-core/locales/en-US").then((module) => {
-      if (!cancelled) setEnUSMessages(module.default)
-    })
+    void loadUniverMessages(locale)
+      .catch(() => loadUniverMessages("en"))
+      .then((messages) => {
+        if (!cancelled) setLoadedLocale({ locale: univerLocale, messages })
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setFailedLocale(locale)
+        console.warn("[wanta] spreadsheet locale failed to load", error)
+      })
     return () => {
       cancelled = true
     }
-  }, [enUSMessages, univerLocale])
+  }, [locale, univerLocale])
 
   return (
     <div className={cn("flex h-full min-h-0 min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3", className)}>
@@ -226,7 +235,7 @@ export function ArtifactUniverSpreadsheetPreview({
         ) : null}
         {!localeMessages ? (
           <div className="oo-text-body absolute inset-0 flex items-center justify-center text-muted-foreground">
-            {t("artifacts.previewLoading")}
+            {t(failedLocale === locale ? "artifacts.previewUnavailable" : "artifacts.previewLoading")}
           </div>
         ) : null}
       </div>

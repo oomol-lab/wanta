@@ -13,7 +13,7 @@ import {
 } from "./payment-recovery-storage.ts"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
-import { useT } from "@/i18n/i18n"
+import { useI18n } from "@/i18n/i18n"
 import { getCreditBalance } from "@/lib/billing-client"
 import { writeClipboardText } from "@/lib/clipboard"
 import { cn } from "@/lib/utils"
@@ -84,7 +84,7 @@ export function ChatErrorNotice({
   onRetryFresh,
   onViewBilling,
 }: ChatErrorNoticeProps) {
-  const t = useT()
+  const { t, locale } = useI18n()
   const billingRequestScope = React.useContext(BillingRequestScopeContext)
   const error = resolveChatError(message, { errorCode, errorKind })
   const [purchaseDialogOpen, setPurchaseDialogOpen] = React.useState(false)
@@ -118,7 +118,7 @@ export function ChatErrorNotice({
     setBalanceLoading(true)
     setRefreshFailed(false)
     try {
-      const result = await getCreditBalance(billingRequestScope)
+      const result = await getCreditBalance(billingRequestScope, undefined, locale)
       if (requestId !== balanceRequestIdRef.current) {
         return null
       }
@@ -139,7 +139,7 @@ export function ChatErrorNotice({
         setBalanceLoading(false)
       }
     }
-  }, [billingRequestScope, canManageFunding])
+  }, [billingRequestScope, canManageFunding, locale])
 
   React.useEffect(() => {
     balanceRequestIdRef.current += 1

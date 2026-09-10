@@ -3,6 +3,7 @@ import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
 import type { AgentPermissionMode, ChatContextMention, ChatTeamSkillContext, ChatProjectContext } from "./common.ts"
 import type { DetectedResponseLanguage } from "./response-language.ts"
 
+import { appLocales } from "../app-locale.ts"
 import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../knowledge/common.ts"
 
 function quoted(value: string): string {
@@ -240,12 +241,9 @@ export function buildResponseLanguageSystem(
   appLocale: AppLocale | undefined,
   detectedLanguage?: DetectedResponseLanguage,
 ): string {
-  const fallback =
-    appLocale === "en"
-      ? "- If neither the latest request nor the conversation establishes a language, use the application interface language: English."
-      : appLocale === "zh-CN"
-        ? "- If neither the latest request nor the conversation establishes a language, use the application interface language: Simplified Chinese."
-        : "- If neither the latest request nor the conversation establishes a language, use the language that best fits the user's available context."
+  const fallback = appLocale
+    ? `- If neither the latest request nor the conversation establishes a language, use the application interface language: ${appLocales[appLocale].language}.`
+    : "- If neither the latest request nor the conversation establishes a language, use the language that best fits the user's available context."
   const detection = detectedLanguage
     ? `- Wanta has classified the latest user instruction as ${detectedLanguage}. Respond in ${detectedLanguage} unless the user explicitly requests a different response language. This classification takes priority over the application interface language. When delegating work through the task tool, explicitly require ${detectedLanguage} in the task prompt. Never present a subagent result in a different language; translate or rewrite it into ${detectedLanguage} before showing it to the user.`
     : "- Wanta could not classify the latest instruction with high confidence. Infer its language from the instruction itself and the rules below."

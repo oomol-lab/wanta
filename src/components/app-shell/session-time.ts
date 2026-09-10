@@ -1,5 +1,8 @@
 import type { Locale } from "@/i18n/i18n"
 
+import { formatRelativeTime } from "@/i18n/format"
+import { translate } from "@/i18n/i18n"
+
 const SECOND_MS = 1000
 const MINUTE_MS = 60 * SECOND_MS
 const HOUR_MS = 60 * MINUTE_MS
@@ -14,21 +17,17 @@ export function formatSessionRelativeTime(updatedAt: number, now: number, locale
 
   const elapsed = Math.max(0, now - updatedAt)
   if (elapsed < MINUTE_MS) {
-    return locale === "zh-CN" ? "刚刚" : "now"
+    return translate(locale, "common.justNow")
   }
-  if (elapsed < HOUR_MS) {
-    return formatRelativeUnit(Math.floor(elapsed / MINUTE_MS), "m", "分", locale)
-  }
-  if (elapsed < DAY_MS) {
-    return formatRelativeUnit(Math.floor(elapsed / HOUR_MS), "h", "小时", locale)
-  }
-  if (elapsed < MONTH_MS) {
-    return formatRelativeUnit(Math.floor(elapsed / DAY_MS), "d", "天", locale)
-  }
-  if (elapsed < YEAR_MS) {
-    return formatRelativeUnit(Math.floor(elapsed / MONTH_MS), "mo", "个月", locale)
-  }
-  return formatRelativeUnit(Math.floor(elapsed / YEAR_MS), "y", "年", locale)
+  const units = [
+    [YEAR_MS, "year"],
+    [MONTH_MS, "month"],
+    [DAY_MS, "day"],
+    [HOUR_MS, "hour"],
+    [MINUTE_MS, "minute"],
+  ] as const
+  const [duration, unit] = units.find(([duration]) => elapsed >= duration) ?? units[units.length - 1]
+  return formatRelativeTime(locale, -Math.floor(elapsed / duration), unit)
 }
 
 export function formatSessionAbsoluteTime(updatedAt: number, locale: Locale): string {
@@ -36,8 +35,4 @@ export function formatSessionAbsoluteTime(updatedAt: number, locale: Locale): st
     return ""
   }
   return new Date(updatedAt).toLocaleString(locale)
-}
-
-function formatRelativeUnit(value: number, enUnit: string, zhUnit: string, locale: Locale): string {
-  return locale === "zh-CN" ? `${value}${zhUnit}` : `${value}${enUnit}`
 }

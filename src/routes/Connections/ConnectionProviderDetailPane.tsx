@@ -35,7 +35,7 @@ import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
-import { useT } from "@/i18n/i18n"
+import { useI18n } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 function ProviderStatusBadge({
@@ -45,7 +45,7 @@ function ProviderStatusBadge({
   canManageConnections: boolean
   provider: ConnectionProviderSummary
 }) {
-  const t = useT()
+  const { t } = useI18n()
   const tone = getProviderStatusTone(provider)
   return (
     <Badge
@@ -73,7 +73,7 @@ export function EmptyList({
   onDiscover?: () => void
   summary: ConnectionSummary | null
 }) {
-  const t = useT()
+  const { t } = useI18n()
   const state = getEmptyState(summary, t)
   return (
     <section className="grid gap-1 rounded-lg border bg-muted/30 px-3 py-3">
@@ -139,7 +139,7 @@ export function ProviderDetail({
   provider: ConnectionProviderSummary
   showCloseButton?: boolean
 }) {
-  const t = useT()
+  const { t, locale } = useI18n()
   const currentAuthType = getDefaultAuthType(provider)
   const accountValue = getProviderAccountValue(provider, t)
   const directlyAvailable = isDirectlyAvailableProvider(provider)
@@ -253,7 +253,10 @@ export function ProviderDetail({
             <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
             <DetailRow label={t("connections.service")} value={provider.service} mono />
             {shouldShowProviderUpdatedAt(provider) ? (
-              <DetailRow label={t("connections.updatedAt")} value={formatDateTime(provider.connectedUpdatedAt, t)} />
+              <DetailRow
+                label={t("connections.updatedAt")}
+                value={formatDateTime(provider.connectedUpdatedAt, t, locale)}
+              />
             ) : null}
           </dl>
         )}
@@ -263,7 +266,7 @@ export function ProviderDetail({
 }
 
 export function ReadOnlyConnectionNotice() {
-  const t = useT()
+  const { t } = useI18n()
   return (
     <section className="grid gap-1 rounded-lg border bg-muted/30 px-3 py-2.5">
       <div className="oo-text-label">{t("connections.readOnlyTitle")}</div>
@@ -273,7 +276,7 @@ export function ReadOnlyConnectionNotice() {
 }
 
 export function ConnectionStateNotice({ status }: { status: "loading" | "forbidden" | "unavailable" }) {
-  const t = useT()
+  const { t } = useI18n()
   if (status === "loading") {
     return (
       <div role="status" className="oo-text-caption oo-text-muted flex min-h-10 items-center gap-2 px-3 py-2">
@@ -301,7 +304,7 @@ function ConnectionAuthIntentNotice({
   authIntent: ConnectionAuthIntent
   provider: ConnectionProviderSummary
 }) {
-  const t = useT()
+  const { t } = useI18n()
   return (
     <div className="grid gap-1 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
       <div className="flex min-w-0 items-center gap-2">
@@ -366,7 +369,7 @@ function ConnectionPanel({
   reopenPollingLabel?: string
   provider: ConnectionProviderSummary
 }) {
-  const t = useT()
+  const { t } = useI18n()
   const [selectedAuthType, setSelectedAuthType] = React.useState<ConnectionCredentialAuthType | null>(currentAuthType)
   const authTypes = detail?.authTypes.length ? detail.authTypes : provider.authTypes
   const usableAuthTypes = authTypes.length > 0 ? authTypes : currentAuthType ? [currentAuthType] : []

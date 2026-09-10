@@ -1,5 +1,5 @@
 import type { AppCommand } from "./app-command.ts"
-import type { AppLocale } from "./app-locale.ts"
+import type { AppLocale, LocalePreference } from "./app-locale.ts"
 import type { AttachmentPickerKind, SaveClipboardAttachmentInput, SelectedAttachmentPath } from "./attachment-picker.ts"
 
 export type { AttachmentPickerKind, SaveClipboardAttachmentInput, SelectedAttachmentPath } from "./attachment-picker.ts"
@@ -7,7 +7,7 @@ export type { AttachmentPickerKind, SaveClipboardAttachmentInput, SelectedAttach
 import { setupConnectionPreload } from "@oomol/connection-electron-adapter/preload"
 import { contextBridge, ipcRenderer, webUtils } from "electron"
 import { APP_COMMAND_CHANNEL, isAppCommand } from "./app-command.ts"
-import { APP_LOCALE_CHANNEL } from "./app-locale.ts"
+import { APP_LOCALE_CHANNEL, APP_LOCALE_PREFERENCE_CHANNEL } from "./app-locale.ts"
 import { branding } from "./branding.ts"
 import { WRITE_CLIPBOARD_TEXT_CHANNEL } from "./clipboard-common.ts"
 
@@ -32,7 +32,8 @@ export interface WantaBridge {
   selectedAttachmentPathForFile(file: File): Promise<SelectedAttachmentPath | null>
   selectAttachmentPaths(kind: AttachmentPickerKind): Promise<SelectedAttachmentPath[]>
   selectProjectDirectory(): Promise<SelectedAttachmentPath | null>
-  setAppLocale(locale: AppLocale): void
+  getAppLocalePreference?(): Promise<LocalePreference | null>
+  setAppLocale(locale: AppLocale, preference?: LocalePreference): void
   version: string
   writeClipboardText(text: string): Promise<void>
 }
@@ -80,7 +81,9 @@ const wanta: WantaBridge = {
     ipcRenderer.invoke("wanta:select-attachment-paths", kind) as Promise<SelectedAttachmentPath[]>,
   selectProjectDirectory: () =>
     ipcRenderer.invoke("wanta:select-project-directory") as Promise<SelectedAttachmentPath | null>,
-  setAppLocale: (locale: AppLocale) => ipcRenderer.send(APP_LOCALE_CHANNEL, locale),
+  getAppLocalePreference: () => ipcRenderer.invoke(APP_LOCALE_PREFERENCE_CHANNEL),
+  setAppLocale: (locale: AppLocale, preference?: LocalePreference) =>
+    ipcRenderer.send(APP_LOCALE_CHANNEL, locale, preference),
   version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0",
   writeClipboardText: (text: string) => ipcRenderer.invoke(WRITE_CLIPBOARD_TEXT_CHANNEL, text) as Promise<void>,
 }

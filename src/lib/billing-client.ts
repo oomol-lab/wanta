@@ -50,12 +50,12 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function formatCredits(value: unknown): string | null {
+function formatCredits(value: unknown, locale: string): string | null {
   const amount = typeof value === "string" || typeof value === "number" ? Number(value) : Number.NaN
   if (!Number.isFinite(amount)) {
     return null
   }
-  return `$${new Intl.NumberFormat(undefined, { maximumFractionDigits: amount >= 100 ? 0 : 2 }).format(amount)}`
+  return `$${new Intl.NumberFormat(locale, { maximumFractionDigits: amount >= 100 ? 0 : 2 }).format(amount)}`
 }
 
 function sumCreditValues(values: unknown[]): number {
@@ -94,7 +94,7 @@ function filterGeneralCreditUsages(usages: CreditUsages): CreditUsages {
   }
 }
 
-function readCreditBalance(payload: unknown): CreditBalanceResult {
+function readCreditBalance(payload: unknown, locale: string): CreditBalanceResult {
   const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {}
   const items = Array.isArray(record["items"]) ? record["items"].filter(isGeneralCreditItem) : []
   const total =
@@ -109,7 +109,7 @@ function readCreditBalance(payload: unknown): CreditBalanceResult {
       : total["currentCredit"]
   const amount = typeof rawCurrent === "number" ? rawCurrent : Number(rawCurrent)
   return {
-    balance: formatCredits(rawCurrent),
+    balance: formatCredits(rawCurrent, locale),
     hasCredits: Number.isFinite(amount) && amount > 0,
   }
 }
@@ -414,9 +414,13 @@ function fetchAuthenticatedJson(url: URL, scope?: BillingRequestScope, signal?: 
   })
 }
 
-export async function getCreditBalance(scope: BillingRequestScope, signal?: AbortSignal): Promise<CreditBalanceResult> {
+export async function getCreditBalance(
+  scope: BillingRequestScope,
+  signal?: AbortSignal,
+  locale = "en",
+): Promise<CreditBalanceResult> {
   const url = new URL("/v1/balance/available", insightBaseUrl)
-  return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, undefined, signal)))
+  return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, undefined, signal)), locale)
 }
 
 async function getCreditUsages(nextToken?: string, signal?: AbortSignal): Promise<CreditUsages> {

@@ -69,7 +69,7 @@ import {
   SplitViewMobileDetailPane,
   SplitViewRoot,
 } from "@/components/ui/split-view"
-import { useT } from "@/i18n/i18n"
+import { useT, useI18n } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 type KnowledgeAction = {
@@ -290,6 +290,7 @@ function KnowledgeDetailInspectRows({
   coverage: KnowledgeCoverage | undefined
   t: ReturnType<typeof useT>
 }) {
+  const { locale } = useI18n()
   return (
     <div className="grid gap-3">
       {knowledgeCoverageSpecs.map((spec) => {
@@ -306,7 +307,7 @@ function KnowledgeDetailInspectRows({
               <div className="oo-text-control truncate font-medium text-foreground">{label}</div>
               <div className="oo-text-caption truncate text-muted-foreground">
                 {t("knowledge.inspect.coverageWords", {
-                  covered: coveredWords.toLocaleString(),
+                  covered: coveredWords.toLocaleString(locale),
                 })}
               </div>
             </div>
@@ -344,7 +345,7 @@ function KnowledgeChapterTree({ chapters, depth = 0 }: { chapters: KnowledgeChap
 }
 
 function KnowledgeActionsDropdown({ actions, className }: { actions: KnowledgeAction[]; className?: string }) {
-  const t = useT()
+  const { t } = useI18n()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -626,7 +627,7 @@ export function KnowledgeRoute({
   onCurrentDirectoryChange: (directory: string) => void
   onStartChat: (item: KnowledgeBaseSummary) => void
 }) {
-  const t = useT()
+  const { t } = useI18n()
   const [query, setQuery] = React.useState("")
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [removeTarget, setRemoveTarget] = React.useState<KnowledgeBaseSummary | null>(null)
@@ -1170,7 +1171,7 @@ function KnowledgeTextDialog({
   onSubmit: () => void
   onValueChange: (value: string) => void
 }) {
-  const t = useT()
+  const { t } = useI18n()
   const inputId = React.useId()
   return (
     <Dialog
@@ -1225,7 +1226,7 @@ function KnowledgeArchiveRenameDialog({
   onDraftChange: (draft: KnowledgeRenameDraft) => void
   onSubmit: () => void
 }) {
-  const t = useT()
+  const { t } = useI18n()
   const titleId = React.useId()
   const authorsId = React.useId()
   const fileNameId = React.useId()
@@ -1441,7 +1442,7 @@ function KnowledgeDetail({
   onRename: (item: KnowledgeBaseSummary) => void
   onReveal: (id: string) => void
 }) {
-  const t = useT()
+  const { t, locale } = useI18n()
   const disabled = busy !== null
   const actions = knowledgeActions({ busy, item, onMove, onRefresh, onRemove, onRename, onReveal, onStartChat, t })
   const fileDisplayName = knowledgeArchiveDisplayName(item.relativePath || item.sourceFileName)
@@ -1474,7 +1475,7 @@ function KnowledgeDetail({
               <p className="oo-text-caption mt-1 truncate text-muted-foreground">{fileDisplayName}</p>
               {item.statistics.sourceWords ? (
                 <p className="oo-text-caption mt-1 truncate text-muted-foreground">
-                  {t("knowledge.wordCount", { count: item.statistics.sourceWords.toLocaleString() })}
+                  {t("knowledge.wordCount", { count: item.statistics.sourceWords.toLocaleString(locale) })}
                 </p>
               ) : null}
             </div>

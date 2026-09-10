@@ -34,7 +34,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { useT } from "@/i18n/i18n"
+import { useT, useI18n } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
@@ -74,7 +74,7 @@ export function UsageDetailsDisclosure({
   totalSpend: number
   onOpenChange: (open: boolean) => void
 }) {
-  const t = useT()
+  const { t, locale } = useI18n()
   const connectorAggregate = getSummary(summaries, "link")
   const canExport = subjectSummaries.length > 0 || connectorAggregate.credit > 0 || connectorAggregate.eventCount > 0
   return (
@@ -104,7 +104,7 @@ export function UsageDetailsDisclosure({
               title={t("billing.breakdown.title")}
               meta={
                 dataAsOf
-                  ? t("billing.breakdown.metaAsOf", { date: formatDateTime(dataAsOf) })
+                  ? t("billing.breakdown.metaAsOf", { date: formatDateTime(dataAsOf, locale) })
                   : t("billing.breakdown.meta")
               }
               bodyClassName="p-0"
@@ -176,7 +176,7 @@ function PeriodToggle({
   onChange: (period: BillingPeriodDays) => void
   period: BillingPeriodDays
 }) {
-  const t = useT()
+  const { t } = useI18n()
   return (
     <ToggleGroup
       type="single"
@@ -240,7 +240,7 @@ export function BalanceOverview({
   totalEvents: number
   totalSpend: number
 }) {
-  const t = useT()
+  const { t, locale } = useI18n()
   return (
     <section className="overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
       <div className="flex min-h-10 flex-wrap items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
@@ -268,7 +268,7 @@ export function BalanceOverview({
               <div className="min-w-0">
                 <div className="oo-text-caption text-muted-foreground">{t("billing.availableCredits")}</div>
                 <div className="oo-text-metric-large mt-1 text-foreground">
-                  {loading ? "..." : balanceAvailable ? formatCredit(currentCredit) : "—"}
+                  {loading ? "..." : balanceAvailable ? formatCredit(currentCredit, locale) : "—"}
                 </div>
               </div>
             ) : (
@@ -291,7 +291,7 @@ export function BalanceOverview({
                       : t("billing.coverageStable")}
               </span>
               {spendAvailable && !hasNoUsage ? (
-                <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
+                <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend, locale) })}</span>
               ) : null}
             </div>
           ) : null}
@@ -307,17 +307,17 @@ export function BalanceOverview({
               icon={<SparklesIcon className="size-4" />}
               label={t("billing.periodSpend")}
               meta={t(`billing.period${period}`)}
-              value={loading ? "..." : spendAvailable ? formatCredit(totalSpend) : "—"}
+              value={loading ? "..." : spendAvailable ? formatCredit(totalSpend, locale) : "—"}
             />
             <MiniStat
               icon={<MessageCircleIcon className="size-4" />}
               label={t("billing.modelSpend")}
-              value={loading ? "..." : spendAvailable ? formatCredit(modelSpend) : "—"}
+              value={loading ? "..." : spendAvailable ? formatCredit(modelSpend, locale) : "—"}
             />
             <MiniStat
               icon={<ListIcon className="size-4" />}
               label={t("billing.callCount")}
-              value={loading ? "..." : meteringAvailable ? Intl.NumberFormat().format(totalEvents) : "—"}
+              value={loading ? "..." : meteringAvailable ? Intl.NumberFormat(locale).format(totalEvents) : "—"}
             />
           </div>
         )}
@@ -402,7 +402,7 @@ function CategorySpendList({
   subjectSummaries: SubjectSummary[]
   total: number
 }) {
-  const t = useT()
+  const { t, locale } = useI18n()
   const connectorAppCount = subjectSummaries.filter((summary) => summary.category === "link").length
   return (
     <div className="grid gap-0">
@@ -424,15 +424,15 @@ function CategorySpendList({
                   <div className="oo-text-caption truncate">
                     {category === "link" && connectorAppCount > 0
                       ? t("billing.categoryConnectorApps", {
-                          apps: Intl.NumberFormat().format(connectorAppCount),
-                          count: meteringAvailable ? Intl.NumberFormat().format(summary.eventCount) : "—",
+                          apps: Intl.NumberFormat(locale).format(connectorAppCount),
+                          count: meteringAvailable ? Intl.NumberFormat(locale).format(summary.eventCount) : "—",
                         })
                       : category === "link" && (summary.eventCount > 0 || summary.credit > 0)
                         ? t("billing.categoryConnectorAggregateOnly", {
-                            count: meteringAvailable ? Intl.NumberFormat().format(summary.eventCount) : "—",
+                            count: meteringAvailable ? Intl.NumberFormat(locale).format(summary.eventCount) : "—",
                           })
                         : meteringAvailable
-                          ? t("billing.categoryCalls", { count: Intl.NumberFormat().format(summary.eventCount) })
+                          ? t("billing.categoryCalls", { count: Intl.NumberFormat(locale).format(summary.eventCount) })
                           : t("billing.breakdown.unavailable")}
                   </div>
                 </div>
@@ -440,8 +440,10 @@ function CategorySpendList({
               <Progress value={share} className="h-1.5 bg-muted" />
             </div>
             <div className="text-right">
-              <div className="oo-text-title text-foreground">{spendAvailable ? formatCredit(summary.credit) : "—"}</div>
-              <div className="oo-text-caption">{spendAvailable ? formatPercent(share) : "—"}</div>
+              <div className="oo-text-title text-foreground">
+                {spendAvailable ? formatCredit(summary.credit, locale) : "—"}
+              </div>
+              <div className="oo-text-caption">{spendAvailable ? formatPercent(share, locale) : "—"}</div>
             </div>
           </div>
         )
@@ -463,7 +465,7 @@ function SubjectBreakdown({
   summaries: SubjectSummary[]
   totalSpend: number
 }) {
-  const t = useT()
+  const { t, locale } = useI18n()
   const hasConnectorUsage = connectorAggregate.credit > 0 || connectorAggregate.eventCount > 0
   const [category, setCategory] = React.useState<UsageCategory | "all">(() => (hasConnectorUsage ? "link" : "all"))
   const [expanded, setExpanded] = React.useState(false)
@@ -501,8 +503,8 @@ function SubjectBreakdown({
             <div className="oo-text-title text-foreground">{t("billing.breakdown.connectorAggregateOnlyTitle")}</div>
             <p className="oo-text-body text-muted-foreground">
               {t("billing.breakdown.connectorAggregateOnlyDescription", {
-                amount: spendAvailable ? formatCredit(connectorAggregate.credit) : "—",
-                count: meteringAvailable ? Intl.NumberFormat().format(connectorAggregate.eventCount) : "—",
+                amount: spendAvailable ? formatCredit(connectorAggregate.credit, locale) : "—",
+                count: meteringAvailable ? Intl.NumberFormat(locale).format(connectorAggregate.eventCount) : "—",
               })}
             </p>
           </div>
@@ -554,19 +556,19 @@ function SubjectBreakdown({
                 </div>
                 <BreakdownMetric
                   label={t("billing.breakdown.calls")}
-                  value={meteringAvailable ? Intl.NumberFormat().format(summary.eventCount) : "—"}
+                  value={meteringAvailable ? Intl.NumberFormat(locale).format(summary.eventCount) : "—"}
                 />
                 <BreakdownMetric
                   label={t("billing.breakdown.usage")}
-                  value={meteringAvailable ? formatUsage(summary.totalUsage) : "—"}
+                  value={meteringAvailable ? formatUsage(summary.totalUsage, locale) : "—"}
                 />
                 <BreakdownMetric
                   label={t("billing.breakdown.spend")}
-                  value={spendAvailable ? formatCredit(summary.credit) : "—"}
+                  value={spendAvailable ? formatCredit(summary.credit, locale) : "—"}
                 />
                 <BreakdownMetric
                   label={t("billing.breakdown.share")}
-                  value={spendAvailable ? formatPercent(share) : "—"}
+                  value={spendAvailable ? formatPercent(share, locale) : "—"}
                 />
               </div>
             )
@@ -597,7 +599,7 @@ function BreakdownMetric({ label, value }: { label: string; value: string }) {
 }
 
 function BalanceLots({ lots }: { lots: CreditItem[] }) {
-  const t = useT()
+  const { t } = useI18n()
   const [expanded, setExpanded] = React.useState(false)
   const sortedLots = [...lots].sort((left, right) => Number(right.currentCredit) - Number(left.currentCredit))
   if (sortedLots.length === 0) {
@@ -631,7 +633,7 @@ function BalanceLots({ lots }: { lots: CreditItem[] }) {
 }
 
 function BalanceLotRow({ lot }: { lot: CreditItem }) {
-  const t = useT()
+  const { t, locale } = useI18n()
   const current = toNumber(lot.currentCredit)
   const original = toNumber(lot.originalCredit)
   const share = original > 0 ? Math.max(0, Math.min(100, (current / original) * 100)) : 0
@@ -646,15 +648,17 @@ function BalanceLotRow({ lot }: { lot: CreditItem }) {
           <div className="oo-text-caption flex min-w-0 items-center gap-2">
             <Badge variant="outline">{balanceScopeLabel(lot.serviceScope, t)}</Badge>
             <span className="truncate">
-              {lot.expiresAt ? t("billing.expiresAt", { date: formatDate(lot.expiresAt) }) : t("billing.neverExpires")}
+              {lot.expiresAt
+                ? t("billing.expiresAt", { date: formatDate(lot.expiresAt, locale) })
+                : t("billing.neverExpires")}
             </span>
           </div>
         </div>
         <Progress value={share} className="h-1.5 bg-muted" />
       </div>
       <div className="oo-text-title shrink-0 text-right text-foreground">
-        {formatCredit(current)}
-        <div className="oo-text-caption">{formatCredit(original)}</div>
+        {formatCredit(current, locale)}
+        <div className="oo-text-caption">{formatCredit(original, locale)}</div>
       </div>
     </div>
   )
@@ -667,7 +671,7 @@ function TrendChart({
   buckets: ReturnType<typeof buildDailySpendBuckets>
   maxDailySpend: number
 }) {
-  const t = useT()
+  const { t, locale } = useI18n()
   return (
     <div
       className="grid min-h-36 items-end gap-1 px-3 py-3"
@@ -680,7 +684,7 @@ function TrendChart({
           <div
             key={bucket.key}
             className="flex h-28 min-w-0 items-end justify-center"
-            title={`${bucket.label}: ${formatCredit(bucket.credit)}`}
+            title={`${bucket.label}: ${formatCredit(bucket.credit, locale)}`}
           >
             <div
               className={cn(
@@ -749,8 +753,8 @@ function formatSubjectLabel(summary: SubjectSummary): string {
   return summary.displayName || summary.subject
 }
 
-function formatUsage(value: number): string {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value)
+function formatUsage(value: number, locale: string): string {
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 4 }).format(value)
 }
 
 function exportUsageCsv(

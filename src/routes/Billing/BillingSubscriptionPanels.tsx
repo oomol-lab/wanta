@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { useT } from "@/i18n/i18n"
+import { useT, useI18n } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
@@ -209,7 +209,7 @@ export function TeamSubscriptionPreviewDialog({
   onClose: () => void
   onConfirm: () => void
 }) {
-  const t = useT()
+  const { t, locale } = useI18n()
   const details = preview?.preview
   const targetPlan = details?.targetPlan ? teamPlanLabel(details.targetPlan, t) : t("billing.teamNoPlan")
 
@@ -238,11 +238,11 @@ export function TeamSubscriptionPreviewDialog({
           <TeamPreviewMetric label={t("billing.teamPreview.seats")} value={String(details.targetAdditionalSeats)} />
           <TeamPreviewMetric
             label={t("billing.teamPreview.dueNow")}
-            value={formatTeamPreviewMoney(details.amountDue, details.currency)}
+            value={formatTeamPreviewMoney(details.amountDue, details.currency, locale)}
           />
           <TeamPreviewMetric
             label={t("billing.teamPreview.total")}
-            value={formatTeamPreviewMoney(details.total, details.currency)}
+            value={formatTeamPreviewMoney(details.total, details.currency, locale)}
           />
           <TeamPreviewMetric
             label={t("billing.teamPreview.timing")}
@@ -464,9 +464,9 @@ export function AdditionalSeatsPanel({
   )
 }
 
-function formatTeamPreviewMoney(value: number, currency: string | null): string {
+function formatTeamPreviewMoney(value: number, currency: string | null, locale: string): string {
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat(locale, {
       currency: currency?.toUpperCase() || "USD",
       style: "currency",
     }).format(value / 100)

@@ -9,7 +9,7 @@ import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
-import { useT } from "@/i18n/i18n"
+import { useI18n } from "@/i18n/i18n"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
@@ -22,7 +22,7 @@ export function AccountExecutionLogsButton({
   connections: UseConnections
   name: string
 }) {
-  const t = useT()
+  const { t } = useI18n()
   const [open, setOpen] = React.useState(false)
   const [logs, setLogs] = React.useState<ConnectionExecutionLogSummary | null>(null)
   const [loading, setLoading] = React.useState(false)
@@ -100,7 +100,7 @@ function ExecutionLogs({
   loading: boolean
   error: UserFacingError | null
 }) {
-  const t = useT()
+  const { t, locale } = useI18n()
   if (loading) {
     return (
       <div className="grid gap-1">
@@ -127,7 +127,7 @@ function ExecutionLogs({
           <div className="min-w-0">
             <div className="oo-text-control truncate font-mono">{item.action}</div>
             <div className="oo-text-micro oo-text-muted truncate">
-              {formatDateTime(item.finishedAt, t)} · {formatDuration(item.durationMs, t)}
+              {formatDateTime(item.finishedAt, t, locale)} · {formatDuration(item.durationMs, t, locale)}
             </div>
           </div>
           <Badge variant={item.status === "success" ? "success" : "warning"}>

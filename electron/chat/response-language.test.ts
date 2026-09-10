@@ -41,6 +41,15 @@ test("detectResponseLanguage ignores quoted instruction-like source lines", () =
 
 test("detectResponseLanguage leaves short and unsupported-language requests unresolved", () => {
   assert.equal(detectResponseLanguage("OK, continue"), undefined)
-  assert.equal(detectResponseLanguage("Analysez mes messages Gmail des trois derniers jours"), undefined)
-  assert.equal(detectResponseLanguage("メールを分析してください"), undefined)
+  assert.equal(detectResponseLanguage("Analysez mes messages Gmail des trois derniers jours"), "French")
+  assert.equal(detectResponseLanguage("メールを分析してください"), "Japanese")
+})
+
+test("recognizes all target languages and preserves traditional Chinese", () => {
+  assert.equal(detectResponseLanguage("請幫我分析過去三天的郵件並總結結果"), "Traditional Chinese")
+  assert.equal(detectResponseLanguage("지난 삼일 동안 받은 이메일을 분석해주세요"), "Korean")
+  assert.equal(detectResponseLanguage("Проанализируй мои сообщения за последние три дня"), "Russian")
+  assert.equal(detectResponseLanguage("Analiza mis mensajes de los últimos tres días"), "Spanish")
+  assert.equal(detectResponseLanguage("分析資料"), undefined)
+  assert.equal(detectResponseLanguage("分析"), undefined)
 })

@@ -1,6 +1,9 @@
 import { skillsMessages } from "./skills-messages.ts"
 
 export const zhCNMessages = {
+  "settings.languageSystem": "跟随系统",
+  "common.justNow": "刚刚",
+
   "common.cancel": "取消",
   "common.close": "关闭",
   "common.delete": "删除",

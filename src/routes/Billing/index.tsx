@@ -34,7 +34,7 @@ import { PageRouteShell } from "@/components/PageRouteShell"
 import { useAuth } from "@/hooks/useAuth"
 import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
-import { useT } from "@/i18n/i18n"
+import { useI18n } from "@/i18n/i18n"
 import {
   billingRequestScopeForWorkspace,
   canManageTeamSubscriptionForWorkspace,
@@ -60,7 +60,7 @@ export function BillingRoute({
   titlebarActions,
   workspace,
 }: BillingRouteProps) {
-  const t = useT()
+  const { t, locale } = useI18n()
   const { login } = useAuth()
   const chatService = useChatService()
   const [period, setPeriod] = React.useState<BillingPeriodDays>(30)
@@ -150,8 +150,8 @@ export function BillingRoute({
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const showCoverageDays = totalSpend >= 0.01 && coverageDays > 0 && coverageDays <= 999
   const dailyBuckets = React.useMemo(
-    () => buildDailySpendBuckets(data?.spend?.items ?? [], period, totalSpend),
-    [data?.spend, period, totalSpend],
+    () => buildDailySpendBuckets(data?.spend?.items ?? [], period, totalSpend, locale),
+    [data?.spend, period, totalSpend, locale],
   )
   const hasEstimatedTrend = dailyBuckets.some((bucket) => bucket.estimated)
   const maxDailySpend = Math.max(

@@ -1,10 +1,15 @@
+import type { AppLocale, LocalePreference } from "../../electron/app-locale.ts"
+
 import * as React from "react"
+import { isAppLocale, isLocalePreference, resolveSystemLocale } from "../../electron/app-locale.ts"
 import { storageKey } from "../../electron/branding.ts"
 import { messages } from "./app-messages.ts"
+import { pluralMessage } from "./plural-messages.ts"
 
-export type Locale = "zh-CN" | "en"
+export type Locale = AppLocale
+export type { LocalePreference } from "../../electron/app-locale.ts"
 
-export const defaultLocale: Locale = "zh-CN"
+export const defaultLocale: Locale = "en"
 export const localeStorageKey = storageKey("locale")
 
 export type MessageKey = keyof (typeof messages)["zh-CN"]
@@ -12,27 +17,36 @@ export type TranslateFn = (key: MessageKey, vars?: Record<string, string | numbe
 
 export interface I18nContextValue {
   locale: Locale
-  setLocale: (locale: Locale) => void
+  preference?: LocalePreference
+  setLocale: (locale: LocalePreference) => void
   t: TranslateFn
 }
 
 export const I18nContext = React.createContext<I18nContextValue | null>(null)
 
 export function isLocale(value: string | null): value is Locale {
-  return value === "zh-CN" || value === "en"
+  return isAppLocale(value)
+}
+
+export function detectLocalePreference(): LocalePreference {
+  const override = (import.meta.env as Record<string, string | undefined>)["VITE_WANTA_LOCALE"]
+  if (isLocalePreference(override)) return override
+  try {
+    const stored = globalThis.localStorage?.getItem(localeStorageKey)
+    if (isLocalePreference(stored)) return stored
+  } catch {
+    /* Storage can be disabled in embedded browser contexts. */
+  }
+  return "system"
+}
+
+export function systemLocale(): Locale {
+  return resolveSystemLocale(globalThis.navigator?.languages ?? [globalThis.navigator?.language ?? "en"])
 }
 
 export function detectInitialLocale(): Locale {
-  // dev/screenshot 旁路（生产无此 env，无害）。
-  const override = (import.meta.env as Record<string, string | undefined>)["VITE_WANTA_LOCALE"]
-  if (isLocale(override ?? null)) {
-    return override as Locale
-  }
-  const stored = globalThis.localStorage?.getItem(localeStorageKey)
-  if (isLocale(stored)) {
-    return stored
-  }
-  return globalThis.navigator?.language?.startsWith("zh") ? "zh-CN" : "en"
+  const preference = detectLocalePreference()
+  return preference === "system" ? systemLocale() : preference
 }
 
 export function translate(locale: Locale, key: MessageKey, vars?: Record<string, string | number>): string {
@@ -40,9 +54,9 @@ export function translate(locale: Locale, key: MessageKey, vars?: Record<string,
 }
 
 export function translateUnsafe(locale: Locale, key: string, vars?: Record<string, string | number>): string {
-  const localeMessages = messages[locale] as Record<string, string>
+  const localeMessages = (messages[locale] ?? messages[defaultLocale]) as Record<string, string>
   const fallbackMessages = messages[defaultLocale] as Record<string, string>
-  let text: string = localeMessages[key] ?? fallbackMessages[key] ?? key
+  let text: string = pluralMessage(locale, key, vars?.count) ?? localeMessages[key] ?? fallbackMessages[key] ?? key
   if (vars) {
     text = text.replace(
       /\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}|\{\s*([A-Za-z0-9_.-]+)\s*\}/g,

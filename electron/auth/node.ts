@@ -1,3 +1,4 @@
+import type { AppLocale } from "../app-locale.ts"
 import type { BrowserLoginProfile } from "./browser-login.ts"
 import type { AuthService, AuthState } from "./common.ts"
 import type { AuthAccount, AuthRuntimeAccount, AuthStore } from "./store.ts"
@@ -6,8 +7,10 @@ import type { IConnectionService } from "@oomol/connection"
 import { ConnectionService } from "@oomol/connection"
 import { app, dialog, shell } from "electron"
 import { randomUUID } from "node:crypto"
+import { normalizeAppLocale } from "../app-locale.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { apiBaseUrl } from "../domain.ts"
+import { nativeTranslate } from "../native-messages.ts"
 import { ServiceEvent } from "../service-events.ts"
 import {
   browserLoginUrl,
@@ -20,6 +23,7 @@ import { clearOomolSessionCookies, persistOomolSessionCookie, readOomolSessionCo
 import { removeAccount, selectAccount, upsertAccount } from "./store.ts"
 
 export interface AuthManagerDeps {
+  getLocale?: () => AppLocale
   store: AuthStore
   /** deep-link 协议（生产 wanta / dev wanta-local，见 branding）。 */
   protocolScheme: string
@@ -69,7 +73,7 @@ export class AuthManager {
     this.deps = deps
     this.runtime = {
       clearCookies: clearOomolSessionCookies,
-      confirmLogin: confirmBrowserLogin,
+      confirmLogin: (account) => confirmBrowserLogin(account, deps.getLocale),
       exchangeLogin,
       openExternal: (url) => shell.openExternal(url),
       persistCookie: persistOomolSessionCookie,
@@ -444,13 +448,14 @@ export class AuthServiceImpl extends ConnectionService<AuthService> implements I
 }
 
 /** launcher 尚无 state/nonce 回传，所有登录回调均须确认账号（dialog 需 app ready）。 */
-async function confirmBrowserLogin(account: AuthRuntimeAccount): Promise<boolean> {
+async function confirmBrowserLogin(account: AuthRuntimeAccount, getLocale?: () => AppLocale): Promise<boolean> {
   await app.whenReady()
+  const locale = getLocale?.() ?? normalizeAppLocale(app.getLocale())
   const { response } = await dialog.showMessageBox({
     type: "question",
-    message: `使用账号 "${account.name}" 登录？`,
-    detail: "收到来自浏览器的登录请求。如果这不是你发起的登录，请取消。",
-    buttons: ["登录", "取消"],
+    message: nativeTranslate(locale, "auth.message", { name: account.name }),
+    detail: nativeTranslate(locale, "auth.detail"),
+    buttons: [nativeTranslate(locale, "auth.signIn"), nativeTranslate(locale, "auth.cancel")],
     defaultId: 0,
     cancelId: 1,
   })

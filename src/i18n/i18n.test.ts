@@ -60,7 +60,8 @@ test("full access permission mode is localized without implementation labels", (
 test("isLocale guards the supported locales", () => {
   assert.equal(isLocale("zh-CN"), true)
   assert.equal(isLocale("en"), true)
-  assert.equal(isLocale("fr"), false)
+  assert.equal(isLocale("fr"), true)
+  assert.equal(isLocale("de"), false)
   assert.equal(isLocale(null), false)
 })
 

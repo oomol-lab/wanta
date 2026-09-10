@@ -298,7 +298,7 @@ export function isConnectionAuthType(
   return authTypes.some((authType) => authType === value)
 }
 
-export function formatDateTime(value: number | string | undefined, t: TranslateFn): string {
+export function formatDateTime(value: number | string | undefined, t: TranslateFn, locale = "en"): string {
   if (!value) {
     return t("connections.notConnected")
   }
@@ -308,7 +308,7 @@ export function formatDateTime(value: number | string | undefined, t: TranslateF
     return t("connections.executionTimeUnknown")
   }
 
-  return date.toLocaleString([], {
+  return date.toLocaleString(locale, {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
@@ -316,7 +316,7 @@ export function formatDateTime(value: number | string | undefined, t: TranslateF
   })
 }
 
-export function formatDuration(durationMs: number | null, t: TranslateFn): string {
+export function formatDuration(durationMs: number | null, t: TranslateFn, locale = "en"): string {
   if (durationMs === null) {
     return t("connections.executionDurationUnknown")
   }
@@ -324,7 +324,7 @@ export function formatDuration(durationMs: number | null, t: TranslateFn): strin
     return t("connections.executionDurationMs", { value: durationMs })
   }
   return t("connections.executionDurationSeconds", {
-    value: Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(durationMs / 1000),
+    value: Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(durationMs / 1000),
   })
 }
 

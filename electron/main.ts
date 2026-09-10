@@ -76,7 +76,13 @@ import {
 } from "./agent/skill-host-capability.ts"
 import { SkillRegistry } from "./agent/skill-registry.ts"
 import { APP_COMMAND_CHANNEL, APP_COMMANDS } from "./app-command.ts"
-import { APP_LOCALE_CHANNEL, isAppLocale, normalizeAppLocale } from "./app-locale.ts"
+import {
+  APP_LOCALE_CHANNEL,
+  APP_LOCALE_PREFERENCE_CHANNEL,
+  isAppLocale,
+  isLocalePreference,
+  normalizeAppLocale,
+} from "./app-locale.ts"
 import { ArtifactResourceLeaseStore } from "./artifact-resource/lease-store.ts"
 import {
   artifactResourceUrl,
@@ -119,6 +125,7 @@ import {
 import { ModelCredentialStore } from "./models/credential-store.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
+import { nativeTranslate } from "./native-messages.ts"
 import { installOomolCorsShim } from "./net/oomol-cors.ts"
 // Teams 请求已整体搬到渲染层（src/lib/teams-client.ts），不再有对应主进程 service。
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
@@ -602,6 +609,7 @@ const modelsService = new ModelsServiceImpl({
 })
 // 凭证逻辑在未注册的 AuthManager；注册给渲染层的 AuthServiceImpl 只是薄门面（防 RPC 凭证泄露）。
 const authManager = new AuthManager({
+  getLocale: activeLocale,
   store: authStore,
   protocolScheme,
   applyAccount: applyAuthAccount,
@@ -1335,7 +1343,9 @@ function installApplicationMenu(): void {
 }
 
 function activeLocale(): AppLocale {
-  return currentLocale ?? normalizeAppLocale(app.getLocale())
+  if (currentLocale) return currentLocale
+  const preference = settingsStore.read().localePreference
+  return isAppLocale(preference) ? preference : normalizeAppLocale(app.getLocale())
 }
 
 function shouldShowDevelopmentMenu(): boolean {
@@ -1343,8 +1353,17 @@ function shouldShowDevelopmentMenu(): boolean {
 }
 
 function registerAppLocaleHandler(): void {
-  ipcMain.on(APP_LOCALE_CHANNEL, (_event, locale: unknown) => {
-    if (!isAppLocale(locale) || currentLocale === locale) {
+  ipcMain.handle(APP_LOCALE_PREFERENCE_CHANNEL, () => {
+    const saved = settingsStore.read().localePreference
+    return isLocalePreference(saved) ? saved : null
+  })
+  ipcMain.on(APP_LOCALE_CHANNEL, (_event, locale: unknown, preference: unknown) => {
+    if (!isAppLocale(locale)) return
+    const persisted = settingsStore.read()
+    if (isLocalePreference(preference) && persisted.localePreference !== preference) {
+      settingsStore.write({ ...persisted, localePreference: preference })
+    }
+    if (currentLocale === locale) {
       return
     }
     currentLocale = locale
@@ -1562,12 +1581,12 @@ function handleAppUpdateStateChanged(state: AppUpdateState): void {
     return
   }
 
-  const chinese = activeLocale() === "zh-CN"
+  const locale = activeLocale()
   const notification = new Notification({
-    body: chinese ? "打开 Wanta 即可选择合适的时间重启。" : "Open Wanta to restart when you're ready.",
+    body: nativeTranslate(locale, "update.body"),
     groupId: "app-update",
     id: `app-update-${readyVersion}`,
-    title: chinese ? `Wanta ${readyVersion} 已准备好` : `Wanta ${readyVersion} is ready`,
+    title: nativeTranslate(locale, "update.title", { version: readyVersion }),
   })
   updateReadyNotification?.close()
   updateReadyNotification = notification

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { useAuth } from "@/hooks/useAuth"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
-import { useT } from "@/i18n/i18n"
+import { useI18n } from "@/i18n/i18n"
 import { topUpCheckoutUrl } from "@/lib/billing-client"
 import { cn } from "@/lib/utils"
 
@@ -68,7 +68,7 @@ export function CreditPurchaseModal({
   requestScope,
   showViewDetails = true,
 }: CreditPurchaseModalProps) {
-  const t = useT()
+  const { t, locale } = useI18n()
   const { login } = useAuth()
   const chatService = useChatService()
   const overview = useBillingOverview(30, { cacheScope, enabled: open, requestScope })
@@ -79,7 +79,7 @@ export function CreditPurchaseModal({
   }, [login, overview])
   const [topUpLoading, setTopUpLoading] = React.useState<RechargePrice | null>(null)
 
-  const currentCredits = overview.data ? formatCredit(overview.data.balance?.total.currentCredit) : "--"
+  const currentCredits = overview.data ? formatCredit(overview.data.balance?.total.currentCredit, locale) : "--"
 
   const handleTopUp = React.useCallback(
     async (price: RechargePrice) => {

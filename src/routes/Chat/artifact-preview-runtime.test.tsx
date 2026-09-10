@@ -55,7 +55,7 @@ vi.mock("./artifact-univer-snapshot.ts", () => ({
 vi.mock("@/components/theme-context", () => ({ useTheme: () => ({ effectiveTheme: "light" }) }))
 vi.mock("@/i18n/i18n", () => {
   const t = (key: string, values?: Record<string, unknown>) => key + (values ? JSON.stringify(values) : "")
-  return { useT: () => t, useI18n: () => ({ locale: "zh", t }) }
+  return { useT: () => t, useI18n: () => ({ locale: "zh-CN", t }) }
 })
 vi.mock("@/components/ai-elements/code-block", () => ({
   CodeBlock: () => null,

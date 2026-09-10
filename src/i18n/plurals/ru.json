@@ -1,0 +1,890 @@
+{
+  "sidebar.searchResults": {
+    "one": "Найдена {count} задача",
+    "few": "Найдено {count} задачи",
+    "many": "Найдено {count} задач",
+    "other": "Найдено {count} задачи"
+  },
+  "sidebar.showMoreSearchResults": {
+    "one": "Показать ещё {count} результат",
+    "few": "Показать ещё {count} результата",
+    "many": "Показать ещё {count} результатов",
+    "other": "Показать ещё {count} результата"
+  },
+  "sidebar.showMoreTasks": {
+    "one": "Показать ещё {count} задачу",
+    "few": "Показать ещё {count} задачи",
+    "many": "Показать ещё {count} задач",
+    "other": "Показать ещё {count} задачи"
+  },
+  "tasks.totalCount": {
+    "one": "{count} задача",
+    "few": "{count} задачи",
+    "many": "{count} задач",
+    "other": "{count} задачи"
+  },
+  "tasks.selectedCount": {
+    "one": "Выбрана {count}",
+    "few": "Выбрано {count}",
+    "many": "Выбрано {count}",
+    "other": "Выбрано {count}"
+  },
+  "tasks.archiveConfirmTitle": {
+    "one": "Архивировать {count} задачу?",
+    "few": "Архивировать {count} задачи?",
+    "many": "Архивировать {count} задач?",
+    "other": "Архивировать {count} задачи?"
+  },
+  "tasks.deleteConfirmTitle": {
+    "one": "Безвозвратно удалить {count} задачу?",
+    "few": "Безвозвратно удалить {count} задачи?",
+    "many": "Безвозвратно удалить {count} задач?",
+    "other": "Безвозвратно удалить {count} задачи?"
+  },
+  "tasks.archiveCount": {
+    "one": "Архивировать {count}",
+    "few": "Архивировать {count}",
+    "many": "Архивировать {count}",
+    "other": "Архивировать {count}"
+  },
+  "tasks.deleteCount": {
+    "one": "Удалить {count}",
+    "few": "Удалить {count}",
+    "many": "Удалить {count}",
+    "other": "Удалить {count}"
+  },
+  "tasks.andMore": {
+    "one": "И ещё {count}",
+    "few": "И ещё {count}",
+    "many": "И ещё {count}",
+    "other": "И ещё {count}"
+  },
+  "tasks.archivedToast": {
+    "one": "Архивирована {count} задача",
+    "few": "Архивировано {count} задачи",
+    "many": "Архивировано {count} задач",
+    "other": "Архивировано {count} задачи"
+  },
+  "tasks.deletedToast": {
+    "one": "Удалена {count} задача",
+    "few": "Удалено {count} задачи",
+    "many": "Удалено {count} задач",
+    "other": "Удалено {count} задачи"
+  },
+  "tasks.partialFailureToast": {
+    "one": "Не удалось обработать {count} задачу",
+    "few": "Не удалось обработать {count} задачи",
+    "many": "Не удалось обработать {count} задач",
+    "other": "Не удалось обработать {count} задачи"
+  },
+  "project.hiddenSessions": {
+    "one": "Ещё {count} задача",
+    "few": "Ещё {count} задачи",
+    "many": "Ещё {count} задач",
+    "other": "Ещё {count} задачи"
+  },
+  "git.uncommittedFiles": {
+    "one": "Не закоммичен: {count} файл",
+    "few": "Не закоммичено: {count} файла",
+    "many": "Не закоммичено: {count} файлов",
+    "other": "Не закоммичено: {count} файла"
+  },
+  "chat.emptyCurrentConnectorsMeta": {
+    "one": "Доступен {count}",
+    "few": "Доступно {count}",
+    "many": "Доступно {count}",
+    "other": "Доступно {count}"
+  },
+  "chat.emptyTeamSkillsMeta": {
+    "one": "{count} для установки",
+    "few": "Установить: {count}",
+    "many": "Установить: {count}",
+    "other": "Установить: {count}"
+  },
+  "chat.emptyTeamSkillsRecommendedMeta": {
+    "one": "{count}",
+    "few": "{count}",
+    "many": "{count}",
+    "other": "{count}"
+  },
+  "chat.queueTitle": {
+    "one": "{count} сообщение в очереди",
+    "few": "{count} сообщения в очереди",
+    "many": "{count} сообщений в очереди",
+    "other": "{count} сообщения в очереди"
+  },
+  "chat.queueAttachments": {
+    "one": "{count} вложение",
+    "few": "{count} вложения",
+    "many": "{count} вложений",
+    "other": "{count} вложения"
+  },
+  "chat.connectionAccountCount": {
+    "one": "{count} аккаунт",
+    "few": "{count} аккаунта",
+    "many": "{count} аккаунтов",
+    "other": "{count} аккаунта"
+  },
+  "chatError.paymentDialog.credits": {
+    "one": "{count} кредит",
+    "few": "{count} кредита",
+    "many": "{count} кредитов",
+    "other": "{count} кредита"
+  },
+  "billing.popover.creditSources": {
+    "one": "{count} источник баланса",
+    "few": "{count} источника баланса",
+    "many": "{count} источников баланса",
+    "other": "{count} источника баланса"
+  },
+  "billing.popover.availableSources": {
+    "one": "Доступен {count}",
+    "few": "Доступно {count}",
+    "many": "Доступно {count}",
+    "other": "Доступно {count}"
+  },
+  "billing.popover.planSeats": {
+    "one": "Мест для участников: {count}/{limit}",
+    "few": "Мест для участников: {count}/{limit}",
+    "many": "Мест для участников: {count}/{limit}",
+    "other": "Мест для участников: {count}/{limit}"
+  },
+  "billing.popover.planMembers": {
+    "one": "{count} участник",
+    "few": "{count} участника",
+    "many": "{count} участников",
+    "other": "{count} участника"
+  },
+  "billing.popover.sharedLinks": {
+    "one": "{count} подключённое приложение",
+    "few": "{count} подключённых приложения",
+    "many": "{count} подключённых приложений",
+    "other": "{count} подключённого приложения"
+  },
+  "billing.categoryCalls": {
+    "one": "{count} вызов",
+    "few": "{count} вызова",
+    "many": "{count} вызовов",
+    "other": "{count} вызова"
+  },
+  "billing.categoryConnectorApps": {
+    "one": "{apps} приложение · {count} вызов",
+    "few": "{apps} приложения · {count} вызова",
+    "many": "{apps} приложений · {count} вызовов",
+    "other": "{apps} приложения · {count} вызова"
+  },
+  "billing.categoryConnectorAggregateOnly": {
+    "one": "{count} вызов · Детали приложения недоступны",
+    "few": "{count} вызова · Детали приложения недоступны",
+    "many": "{count} вызовов · Детали приложения недоступны",
+    "other": "{count} вызова · Детали приложения недоступны"
+  },
+  "billing.breakdown.items": {
+    "one": "{count} позиция",
+    "few": "{count} позиции",
+    "many": "{count} позиций",
+    "other": "{count} позиции"
+  },
+  "billing.breakdown.subjectCount": {
+    "one": "{count} объект оплаты",
+    "few": "{count} объекта оплаты",
+    "many": "{count} объектов оплаты",
+    "other": "{count} объекта оплаты"
+  },
+  "billing.breakdown.connectorAggregateOnlyDescription": {
+    "one": "За этот период: {count} вызов коннектора и {amount} расходов. Сервис оплаты вернул только общий итог по коннектору, без указания, откуда именно поступили вызовы — из Google Sheets, Gmail или другого приложения.",
+    "few": "За этот период: {count} вызова коннектора и {amount} расходов. Сервис оплаты вернул только общий итог по коннектору, без указания, откуда именно поступили вызовы — из Google Sheets, Gmail или другого приложения.",
+    "many": "За этот период было {count} вызовов коннекторов и {amount} расходов. Служба выставления счетов вернула только общую сумму по коннекторам, но не указала, были ли они из Google Sheets, Gmail или другого приложения.",
+    "other": "За этот период было {count} вызовов коннекторов и {amount} расходов. Служба выставления счетов вернула только общую сумму по коннекторам, но не указала, были ли они из Google Sheets, Gmail или другого приложения."
+  },
+  "billing.breakdown.hidden": {
+    "one": "Скрыт ещё {count} элемент",
+    "few": "Скрыто ещё {count} элемента",
+    "many": "Скрыто ещё {count} элементов",
+    "other": "Скрыто ещё {count} элемента"
+  },
+  "billing.hiddenBalanceLots": {
+    "one": "Скрыт ещё {count} источник баланса",
+    "few": "Скрыто ещё {count} источника баланса",
+    "many": "Скрыто ещё {count} источников баланса",
+    "other": "Скрыто ещё {count} источника баланса"
+  },
+  "billing.planStatus.members": {
+    "one": "{count} участник",
+    "few": "{count} участника",
+    "many": "{count} участников",
+    "other": "{count} участника"
+  },
+  "chat.connectionIssueDuplicateCount": {
+    "one": "Одна и та же проблема с подключением затронула {count} вызов.",
+    "few": "Одна и та же проблема с подключением затронула {count} вызова.",
+    "many": "Одна и та же проблема с подключением затронула {count} вызовов.",
+    "other": "Одна и та же проблема с подключением затронула {count} вызова."
+  },
+  "chat.toolActivityConnectorCompleted": {
+    "one": "Использован {count} шаг коннектора",
+    "few": "Использовано {count} шага коннектора",
+    "many": "Использовано {count} шагов коннектора",
+    "other": "Использовано {count} шага коннектора"
+  },
+  "chat.toolActivityConnectorRunning": {
+    "one": "Выполняется {count} шаг коннектора",
+    "few": "Выполняется {count} шага коннектора",
+    "many": "Выполняется {count} шагов коннектора",
+    "other": "Выполняется {count} шага коннектора"
+  },
+  "chat.toolActivityConnectorError": {
+    "one": "{count} шаг коннектора требует внимания",
+    "few": "{count} шага коннектора требуют внимания",
+    "many": "{count} шагов коннектора требуют внимания",
+    "other": "{count} шага коннектора требуют внимания"
+  },
+  "chat.toolActivityConnectorStopped": {
+    "one": "Остановлен {count} шаг коннектора",
+    "few": "Остановлено {count} шага коннектора",
+    "many": "Остановлено {count} шагов коннектора",
+    "other": "Остановлено {count} шага коннектора"
+  },
+  "chat.toolActivityShellCompleted": {
+    "one": "Выполнена {count} команда",
+    "few": "Выполнено {count} команды",
+    "many": "Выполнено {count} команд",
+    "other": "Выполнено {count} команды"
+  },
+  "chat.toolActivityShellRunning": {
+    "one": "Выполняется {count} команда",
+    "few": "Выполняется {count} команды",
+    "many": "Выполняется {count} команд",
+    "other": "Выполняется {count} команды"
+  },
+  "chat.toolActivityShellError": {
+    "one": "{count} команда требует внимания",
+    "few": "{count} команды требуют внимания",
+    "many": "{count} команд требуют внимания",
+    "other": "{count} команды требуют внимания"
+  },
+  "chat.toolActivityShellStopped": {
+    "one": "Остановлена {count} команда",
+    "few": "Остановлено {count} команды",
+    "many": "Остановлено {count} команд",
+    "other": "Остановлено {count} команды"
+  },
+  "chat.toolActivityFileCompleted": {
+    "one": "Обработана {count} файловая операция",
+    "few": "Обработано {count} файловые операции",
+    "many": "Обработано {count} файловых операций",
+    "other": "Обработано {count} файловые операции"
+  },
+  "chat.toolActivityFileRunning": {
+    "one": "Обрабатывается {count} файловая операция",
+    "few": "Обрабатывается {count} файловые операции",
+    "many": "Обрабатывается {count} файловых операций",
+    "other": "Обрабатывается {count} файловые операции"
+  },
+  "chat.toolActivityFileError": {
+    "one": "{count} файловая операция требует внимания",
+    "few": "{count} файловые операции требуют внимания",
+    "many": "{count} файловых операций требуют внимания",
+    "other": "{count} файловые операции требуют внимания"
+  },
+  "chat.toolActivityFileStopped": {
+    "one": "Остановлена {count} файловая операция",
+    "few": "Остановлено {count} файловые операции",
+    "many": "Остановлено {count} файловых операций",
+    "other": "Остановлено операций с файлами: {count}"
+  },
+  "chat.toolActivityFileReadCompleted": {
+    "one": "Прочитан {count} файл",
+    "few": "Прочитано {count} файла",
+    "many": "Прочитано {count} файлов",
+    "other": "Прочитано {count} файла"
+  },
+  "chat.toolActivityFileReadRunning": {
+    "one": "Чтение {count} файла",
+    "few": "Чтение {count} файлов",
+    "many": "Чтение {count} файлов",
+    "other": "Чтение {count} файла"
+  },
+  "chat.toolActivityFileReadError": {
+    "one": "{count} чтение файла требует внимания",
+    "few": "{count} чтения файлов требуют внимания",
+    "many": "{count} чтений файлов требуют внимания",
+    "other": "{count} чтения файла требуют внимания"
+  },
+  "chat.toolActivityFileReadStopped": {
+    "one": "Остановлено чтение {count} файла",
+    "few": "Остановлено чтение {count} файлов",
+    "many": "Остановлено чтение {count} файлов",
+    "other": "Остановлено чтение {count} файла"
+  },
+  "chat.toolActivityFileWriteCompleted": {
+    "one": "Записан {count} файл",
+    "few": "Записано {count} файла",
+    "many": "Записано {count} файлов",
+    "other": "Записано {count} файла"
+  },
+  "chat.toolActivityFileWriteRunning": {
+    "one": "Запись {count} файла",
+    "few": "Запись {count} файлов",
+    "many": "Запись {count} файлов",
+    "other": "Запись {count} файла"
+  },
+  "chat.toolActivityFileWriteError": {
+    "one": "{count} запись файла требует внимания",
+    "few": "{count} записи файлов требуют внимания",
+    "many": "{count} записей файлов требуют внимания",
+    "other": "{count} записи файла требуют внимания"
+  },
+  "chat.toolActivityFileWriteStopped": {
+    "one": "Остановлена запись {count} файла",
+    "few": "Остановлена запись {count} файлов",
+    "many": "Остановлена запись {count} файлов",
+    "other": "Остановлена запись {count} файла"
+  },
+  "chat.toolActivityFileEditCompleted": {
+    "one": "Изменён {count} файл",
+    "few": "Изменено {count} файла",
+    "many": "Изменено {count} файлов",
+    "other": "Изменено {count} файла"
+  },
+  "chat.toolActivityFileEditRunning": {
+    "one": "Изменение {count} файла",
+    "few": "Изменение {count} файлов",
+    "many": "Изменение {count} файлов",
+    "other": "Изменение {count} файла"
+  },
+  "chat.toolActivityFileEditError": {
+    "one": "{count} изменение файла требует внимания",
+    "few": "{count} изменения файлов требуют внимания",
+    "many": "{count} изменений файлов требуют внимания",
+    "other": "{count} изменения файла требуют внимания"
+  },
+  "chat.toolActivityFileEditStopped": {
+    "one": "Остановлено изменение {count} файла",
+    "few": "Остановлено изменение {count} файлов",
+    "many": "Остановлено изменение {count} файлов",
+    "other": "Остановлено изменение {count} файла"
+  },
+  "chat.toolActivityFileListCompleted": {
+    "one": "Показана {count} папка",
+    "few": "Показано {count} папки",
+    "many": "Показано {count} папок",
+    "other": "Показано {count} папки"
+  },
+  "chat.toolActivityFileListRunning": {
+    "one": "Просмотр {count} папки",
+    "few": "Просмотр {count} папок",
+    "many": "Просмотр {count} папок",
+    "other": "Просмотр {count} папки"
+  },
+  "chat.toolActivityFileListError": {
+    "one": "{count} просмотр папки требует внимания",
+    "few": "{count} просмотра папок требуют внимания",
+    "many": "{count} просмотров папок требуют внимания",
+    "other": "{count} просмотра папки требуют внимания"
+  },
+  "chat.toolActivityFileListStopped": {
+    "one": "Остановлен просмотр {count} папки",
+    "few": "Остановлен просмотр {count} папок",
+    "many": "Остановлен просмотр {count} папок",
+    "other": "Остановлен просмотр {count} папки"
+  },
+  "chat.toolActivityFileSearchCompleted": {
+    "one": "Поиск по файлам выполнен {count} раз",
+    "few": "Поиск по файлам выполнен {count} раза",
+    "many": "Поиск по файлам выполнен {count} раз",
+    "other": "Поиск по файлам выполнен {count} раза"
+  },
+  "chat.toolActivityFileSearchRunning": {
+    "one": "Поиск по файлам выполняется {count} раз",
+    "few": "Поиск по файлам выполняется {count} раза",
+    "many": "Поиск по файлам выполняется {count} раз",
+    "other": "Поиск по файлам выполняется {count} раза"
+  },
+  "chat.toolActivityFileSearchError": {
+    "one": "{count} поиск по файлам требует внимания",
+    "few": "{count} поиска по файлам требуют внимания",
+    "many": "{count} поисков по файлам требуют внимания",
+    "other": "{count} поиска по файлам требуют внимания"
+  },
+  "chat.toolActivityFileSearchStopped": {
+    "one": "Остановлен {count} поиск по файлам",
+    "few": "Остановлено {count} поиска по файлам",
+    "many": "Остановлено {count} поисков по файлам",
+    "other": "Остановлено {count} поиска по файлам"
+  },
+  "chat.toolActivityWebCompleted": {
+    "one": "Прочитана {count} веб-страница",
+    "few": "Прочитано {count} веб-страницы",
+    "many": "Прочитано {count} веб-страниц",
+    "other": "Прочитано {count} веб-страницы"
+  },
+  "chat.toolActivityWebRunning": {
+    "one": "Чтение {count} веб-страницы",
+    "few": "Чтение {count} веб-страниц",
+    "many": "Чтение {count} веб-страниц",
+    "other": "Чтение {count} веб-страницы"
+  },
+  "chat.toolActivityWebError": {
+    "one": "{count} чтение веб-страницы требует внимания",
+    "few": "{count} чтения веб-страниц требуют внимания",
+    "many": "{count} чтений веб-страниц требуют внимания",
+    "other": "{count} чтения веб-страниц требуют внимания"
+  },
+  "chat.toolActivityWebStopped": {
+    "one": "Остановлено чтение {count} веб-страницы",
+    "few": "Остановлено чтение {count} веб-страниц",
+    "many": "Остановлено чтение {count} веб-страниц",
+    "other": "Остановлено чтение {count} веб-страницы"
+  },
+  "chat.toolActivityTaskCompleted": {
+    "one": "Выполнена {count} задача",
+    "few": "Выполнено {count} задачи",
+    "many": "Выполнено {count} задач",
+    "other": "Выполнено {count} задачи"
+  },
+  "chat.toolActivityTaskRunning": {
+    "one": "Выполняется {count} задача",
+    "few": "Выполняется {count} задачи",
+    "many": "Выполняется {count} задач",
+    "other": "Выполняется {count} задачи"
+  },
+  "chat.toolActivityTaskError": {
+    "one": "{count} задача требует внимания",
+    "few": "{count} задачи требуют внимания",
+    "many": "{count} задач требуют внимания",
+    "other": "{count} задачи требуют внимания"
+  },
+  "chat.toolActivityTaskStopped": {
+    "one": "Остановлена {count} задача",
+    "few": "Остановлено {count} задачи",
+    "many": "Остановлено {count} задач",
+    "other": "Остановлено {count} задачи"
+  },
+  "chat.toolActivitySkillCompleted": {
+    "one": "Загружен {count} навык",
+    "few": "Загружено {count} навыка",
+    "many": "Загружено {count} навыков",
+    "other": "Загружено {count} навыка"
+  },
+  "chat.toolActivitySkillRunning": {
+    "one": "Загружается {count} навык",
+    "few": "Загружается {count} навыка",
+    "many": "Загружается {count} навыков",
+    "other": "Загружается {count} навыка"
+  },
+  "chat.toolActivitySkillError": {
+    "one": "{count} навык требует внимания",
+    "few": "{count} навыка требуют внимания",
+    "many": "{count} навыков требуют внимания",
+    "other": "{count} навыка требуют внимания"
+  },
+  "chat.toolActivitySkillStopped": {
+    "one": "Остановлена загрузка {count} навыка",
+    "few": "Остановлена загрузка {count} навыков",
+    "many": "Остановлена загрузка {count} навыков",
+    "other": "Остановлена загрузка {count} навыка"
+  },
+  "chat.toolActivityCustomCompleted": {
+    "one": "Использован {count} инструмент",
+    "few": "Использовано {count} инструмента",
+    "many": "Использовано {count} инструментов",
+    "other": "Использовано {count} инструмента"
+  },
+  "chat.toolActivityCustomRunning": {
+    "one": "Используется {count} инструмент",
+    "few": "Используется {count} инструмента",
+    "many": "Используется {count} инструментов",
+    "other": "Используется {count} инструмента"
+  },
+  "chat.toolActivityCustomError": {
+    "one": "{count} инструмент требует внимания",
+    "few": "{count} инструмента требуют внимания",
+    "many": "{count} инструментов требуют внимания",
+    "other": "{count} инструмента требуют внимания"
+  },
+  "chat.toolActivityCustomStopped": {
+    "one": "Остановлен {count} инструмент",
+    "few": "Остановлено {count} инструмента",
+    "many": "Остановлено {count} инструментов",
+    "other": "Остановлено {count} инструмента"
+  },
+  "chat.toolActivityMixedCompleted": {
+    "one": "Использован {count} инструмент",
+    "few": "Использовано {count} инструмента",
+    "many": "Использовано {count} инструментов",
+    "other": "Использовано {count} инструмента"
+  },
+  "chat.toolActivityMixedRunning": {
+    "one": "Используется {count} инструмент",
+    "few": "Используется {count} инструмента",
+    "many": "Используется {count} инструментов",
+    "other": "Используется {count} инструмента"
+  },
+  "chat.toolActivityMixedError": {
+    "one": "{count} инструмент требует внимания",
+    "few": "{count} инструмента требуют внимания",
+    "many": "{count} инструментов требуют внимания",
+    "other": "{count} инструмента требуют внимания"
+  },
+  "chat.toolActivityMixedStopped": {
+    "one": "Остановлен {count} инструмент",
+    "few": "Остановлено {count} инструмента",
+    "many": "Остановлено {count} инструментов",
+    "other": "Остановлено {count} инструмента"
+  },
+  "chat.toolAttachments": {
+    "one": "{count} вложение",
+    "few": "{count} вложения",
+    "many": "{count} вложений",
+    "other": "{count} вложения"
+  },
+  "artifacts.viewAll": {
+    "one": "Показать все {count}",
+    "few": "Показать все {count}",
+    "many": "Показать все {count}",
+    "other": "Показать все {count}"
+  },
+  "artifacts.outputCount": {
+    "one": "{count} результат",
+    "few": "{count} результата",
+    "many": "{count} результатов",
+    "other": "{count} результата"
+  },
+  "artifacts.count": {
+    "one": "{count} элемент",
+    "few": "{count} элемента",
+    "many": "{count} элементов",
+    "other": "{count} элемента"
+  },
+  "artifacts.imageCount": {
+    "one": "{count} изображение",
+    "few": "{count} изображения",
+    "many": "{count} изображений",
+    "other": "{count} изображения"
+  },
+  "artifacts.sheetCount": {
+    "one": "{count} таблица",
+    "few": "{count} таблицы",
+    "many": "{count} таблиц",
+    "other": "{count} таблицы"
+  },
+  "artifacts.archiveShownCount": {
+    "one": "Показан {count} элемент",
+    "few": "Показано {count} элемента",
+    "many": "Показано {count} элементов",
+    "other": "Показано {count} элемента"
+  },
+  "artifacts.archiveCount": {
+    "one": "Показан {count}/{total} элемент",
+    "few": "Показано {count}/{total} элемента",
+    "many": "Показано {count}/{total} элементов",
+    "other": "Показано {count}/{total} элемента"
+  },
+  "turnOutputs.changesSummary": {
+    "one": "{count} изменённый файл",
+    "few": "{count} изменённых файла",
+    "many": "Изменено файлов: {count}",
+    "other": "Изменено файлов: {count}"
+  },
+  "turnOutputs.editedSummary": {
+    "one": "Изменён {count} файл",
+    "few": "Изменено {count} файла",
+    "many": "Изменено файлов: {count}",
+    "other": "Изменено файлов: {count}"
+  },
+  "turnOutputs.processSummary": {
+    "one": "{count} файл процесса",
+    "few": "{count} файла процесса",
+    "many": "{count} файлов процесса",
+    "other": "{count} файлов процесса"
+  },
+  "turnOutputs.viewChanges": {
+    "one": "Просмотреть все изменения ({count})",
+    "few": "Просмотреть все изменения ({count})",
+    "many": "Просмотреть все изменения ({count})",
+    "other": "Просмотреть все изменения ({count})"
+  },
+  "turnOutputs.viewProcess": {
+    "one": "Просмотреть процесс ({count})",
+    "few": "Просмотреть процесс ({count})",
+    "many": "Просмотреть процесс ({count})",
+    "other": "Просмотреть процесс ({count})"
+  },
+  "turnOutputs.showMoreFiles": {
+    "one": "Показать ещё {count} файл",
+    "few": "Показать ещё {count} файла",
+    "many": "Показать ещё {count} файлов",
+    "other": "Показать ещё {count} файлов"
+  },
+  "turnOutputs.processNotArtifact": {
+    "one": "{count} файл процесса · Не итоговые результаты",
+    "few": "{count} файла процесса · Не итоговые результаты",
+    "many": "{count} файлов процесса · Не итоговые результаты",
+    "other": "{count} файлов процесса · Не итоговые результаты"
+  },
+  "connections.more": {
+    "one": "Найдите в поиске, чтобы подключить больше (всего {count})",
+    "few": "Найдите в поиске, чтобы подключить больше (всего {count})",
+    "many": "Найдите в поиске, чтобы подключить больше (всего {count})",
+    "other": "Найдите в поиске, чтобы подключить больше (всего {count})"
+  },
+  "connections.showingProviders": {
+    "one": "Показано {count} / {total}",
+    "few": "Показано {count} / {total}",
+    "many": "Показано {count} / {total}",
+    "other": "Показано {count} / {total}"
+  },
+  "connections.scenario.connectionCount": {
+    "one": "{count} подключение",
+    "few": "{count} подключения",
+    "many": "{count} подключений",
+    "other": "{count} подключений"
+  },
+  "connections.discovery.providerCount": {
+    "one": "{count}",
+    "few": "{count}",
+    "many": "{count}",
+    "other": "{count}"
+  },
+  "connections.discovery.categoryProviderCount": {
+    "one": "{count} коннектор",
+    "few": "{count} коннектора",
+    "many": "{count} коннекторов",
+    "other": "{count} коннекторов"
+  },
+  "connections.accessRemainingMembers": {
+    "one": "Остался {count} участник",
+    "few": "Осталось {count} участника",
+    "many": "Осталось {count} участников",
+    "other": "Осталось {count} участников"
+  },
+  "connections.accessAssignedMembers": {
+    "one": "Назначен {count} участник",
+    "few": "Назначено {count} участника",
+    "many": "Назначено {count} участников",
+    "other": "Назначено {count} участников"
+  },
+  "connections.accessNewRuleDefaultName": {
+    "one": "Правило №{count}",
+    "few": "Правило №{count}",
+    "many": "Правило №{count}",
+    "other": "Правило №{count}"
+  },
+  "connections.memberAccessSelectedSummary": {
+    "one": "Доступно для {count} выбранного участника",
+    "few": "Доступно для {count} выбранных участников",
+    "many": "Доступно для {count} выбранных участников",
+    "other": "Доступно для {count} выбранных участников"
+  },
+  "connections.memberSelectedCount": {
+    "one": "Выбран {count} участник",
+    "few": "Выбрано {count} участника",
+    "many": "Выбрано {count} участников",
+    "other": "Выбрано участников: {count}"
+  },
+  "connections.connectionCount": {
+    "one": "{count} подключение",
+    "few": "{count} подключения",
+    "many": "{count} подключений",
+    "other": "{count} подключения"
+  },
+  "knowledge.folderCount": {
+    "one": "{count} файл базы знаний",
+    "few": "{count} файла базы знаний",
+    "many": "{count} файлов базы знаний",
+    "other": "{count} файла базы знаний"
+  },
+  "knowledge.searchResultCount": {
+    "one": "{count} файл",
+    "few": "{count} файла",
+    "many": "{count} файлов",
+    "other": "{count} файла"
+  },
+  "knowledge.chapterCount": {
+    "one": "{count} раздел контента",
+    "few": "{count} раздела контента",
+    "many": "{count} разделов контента",
+    "other": "{count} раздела контента"
+  },
+  "knowledge.wordCount": {
+    "one": "Всего {count} слово",
+    "few": "Всего {count} слова",
+    "many": "Всего {count} слов",
+    "other": "Всего {count} слова"
+  },
+  "knowledge.contextCount": {
+    "one": "Выбрано: {count}",
+    "few": "Выбрано: {count}",
+    "many": "Выбрано: {count}",
+    "other": "Выбрано: {count}"
+  },
+  "knowledge.contextQueueNotice": {
+    "one": "Изменения не повлияют на {count} сообщение, уже добавленное в очередь.",
+    "few": "Изменения не повлияют на {count} сообщения, уже добавленные в очередь.",
+    "many": "Изменения не повлияют на {count} сообщений, уже добавленных в очередь.",
+    "other": "Изменения не повлияют на {count} сообщения, уже добавленные в очередь."
+  },
+  "teams.teamCount": {
+    "one": "Команды: {{count}}",
+    "few": "Команды: {{count}}",
+    "many": "Команды: {{count}}",
+    "other": "Команды: {{count}}"
+  },
+  "teams.memberCountCompact": {
+    "one": "{{count}} участник",
+    "few": "{{count}} участника",
+    "many": "{{count}} участников",
+    "other": "{{count}} участника"
+  },
+  "teams.memberVisibleCountCompact": {
+    "one": "{{count}} видимый участник",
+    "few": "{{count}} видимых участника",
+    "many": "{{count}} видимых участников",
+    "other": "{{count}} видимых участника"
+  },
+  "teams.memberAccessAriaLabel": {
+    "one": "{{label}}, {{count}}",
+    "few": "{{label}}, {{count}}",
+    "many": "{{label}}, {{count}}",
+    "other": "{{label}}, {{count}}"
+  },
+  "teams.selectedMembers": {
+    "one": "Выбран {{count}} участник",
+    "few": "Выбрано {{count}} участника",
+    "many": "Выбрано {{count}} участников",
+    "other": "Выбрано {{count}} участника"
+  },
+  "teams.skillGuideEnabledCount": {
+    "one": "{{count}} рекомендация команды",
+    "few": "{{count}} рекомендации команды",
+    "many": "{{count}} рекомендаций команды",
+    "other": "{{count}} рекомендации команды"
+  },
+  "teams.skillGuideSystemCount": {
+    "one": "{{count}} системная рекомендация",
+    "few": "{{count}} системные рекомендации",
+    "many": "{{count}} системных рекомендаций",
+    "other": "{{count}} системные рекомендации"
+  },
+  "teams.skillManageInstallMissingAll": {
+    "one": "Синхронизировать {{count}} командный Skill",
+    "few": "Синхронизировать {{count}} командных Skills",
+    "many": "Синхронизировать {{count}} командных Skills",
+    "other": "Синхронизировать {{count}} командных Skills"
+  },
+  "teams.skillManageInstallMissingSuccess": {
+    "one": "Синхронизирован {{count}} командный Skill.",
+    "few": "Синхронизировано {{count}} командных Skills.",
+    "many": "Синхронизировано {{count}} командных Skills.",
+    "other": "Синхронизировано {{count}} командных Skills."
+  },
+  "teams.skillManageInstallMissingFailed": {
+    "one": "Не удалось синхронизировать {{count}} командный Skill: {{error}}",
+    "few": "Не удалось синхронизировать {{count}} командных Skill: {{error}}",
+    "many": "Не удалось синхронизировать {{count}} командных Skill: {{error}}",
+    "other": "Не удалось синхронизировать {{count}} командных Skill: {{error}}"
+  },
+  "teams.skillManageLinkAll": {
+    "one": "Сделать все {{count}} командными рекомендациями",
+    "few": "Сделать все {{count}} командными рекомендациями",
+    "many": "Сделать все {{count}} командными рекомендациями",
+    "other": "Сделать все {{count}} командными рекомендациями"
+  },
+  "teams.skillManageAddInstallAll": {
+    "one": "Установить и сделать все {{count}} командными рекомендациями",
+    "few": "Установить и сделать все {{count}} командными рекомендациями",
+    "many": "Установить и сделать все {{count}} командными рекомендациями",
+    "other": "Установить и сделать все {{count}} командными рекомендациями"
+  },
+  "teams.skillManageBulkAddSuccess": {
+    "one": "{{count}} Skill назначен командной рекомендацией.",
+    "few": "{{count}} Skills назначены командными рекомендациями.",
+    "many": "{{count}} Skills назначены командными рекомендациями.",
+    "other": "{{count}} Skills назначены командными рекомендациями."
+  },
+  "teams.skillManageBulkAddInstallSuccess": {
+    "one": "{{count}} Skill установлен и назначен командной рекомендацией.",
+    "few": "{{count}} Skills установлены и назначены командными рекомендациями.",
+    "many": "{{count}} Skills установлены и назначены командными рекомендациями.",
+    "other": "{{count}} Skills установлены и назначены командными рекомендациями."
+  },
+  "teams.skillManageBulkAddFailed": {
+    "one": "Не удалось добавить {{count}} рекомендацию Skill: {{error}}",
+    "few": "Не удалось добавить {{count}} рекомендации Skills: {{error}}",
+    "many": "Не удалось добавить {{count}} рекомендаций Skills: {{error}}",
+    "other": "Не удалось добавить {{count}} рекомендаций Skills: {{error}}"
+  },
+  "teams.skillManageRemovePackageConfirmDescription": {
+    "one": "Командные привязки основаны на пакетах. Это удалит пакет и все {{count}} входящий в него Skill; локальные установки не затрагиваются.",
+    "few": "Командные привязки основаны на пакетах. Это удалит пакет и все {{count}} входящих в него Skills; локальные установки не затрагиваются.",
+    "many": "Командные привязки основаны на пакетах. Это удалит пакет и все {{count}} входящих в него Skills; локальные установки не затрагиваются.",
+    "other": "Командные привязки основаны на пакетах. Это удалит пакет и все {{count}} входящих в него Skills; локальные установки не затрагиваются."
+  },
+  "skills.discoverDownloads": {
+    "one": "{{count}} загрузка",
+    "few": "{{count}} загрузки",
+    "many": "{{count}} загрузок",
+    "other": "{{count}} загрузки"
+  },
+  "skills.registryInstallBatchDone": {
+    "one": "{{count}} Skill установлен.",
+    "few": "{{count}} Skills установлены.",
+    "many": "{{count}} Skills установлены.",
+    "other": "{{count}} Skills установлены."
+  },
+  "skills.registryInstallBatchFailed": {
+    "one": "Не удалось установить {{count}} Skill: {{error}}",
+    "few": "Не удалось установить {{count}} Skills: {{error}}",
+    "many": "Не удалось установить {{count}} Skills: {{error}}",
+    "other": "Не удалось установить {{count}} Skills: {{error}}"
+  },
+  "skills.teamPackageSkillCount": {
+    "one": "{{count}} Skill",
+    "few": "{{count}} Skills",
+    "many": "{{count}} Skills",
+    "other": "{{count}} Skills"
+  },
+  "skills.providerRecommendationsCount": {
+    "one": "{{count}}",
+    "few": "{{count}}",
+    "many": "{{count}}",
+    "other": "{{count}}"
+  },
+  "skills.providerRecommendationsInstallAllCount": {
+    "one": "Установить все {{count}}",
+    "few": "Установить все {{count}}",
+    "many": "Установить все {{count}}",
+    "other": "Установить все {{count}}"
+  },
+  "skills.providerRecommendationsMore": {
+    "one": "Ещё {{count}} рекомендованный Skill.",
+    "few": "Ещё {{count}} рекомендованных Skills.",
+    "many": "Ещё {{count}} рекомендованных Skills.",
+    "other": "Ещё {{count}} рекомендованных Skills."
+  },
+  "skills.providerRecommendationsViewAll": {
+    "one": "Показать все {{count}}",
+    "few": "Показать все {{count}}",
+    "many": "Показать все {{count}}",
+    "other": "Показать все {{count}}"
+  },
+  "skills.providerRecommendationsDialogDescription": {
+    "one": "Можно установить {{count}} Skill коннектора.",
+    "few": "Можно установить {{count}} Skills коннектора.",
+    "many": "Можно установить {{count}} Skills коннектора.",
+    "other": "Можно установить {{count}} Skills коннектора."
+  },
+  "skills.providerRecommendationsInstallDone": {
+    "one": "{{count}} рекомендованный Skill установлен.",
+    "few": "Установлено {{count}} рекомендованных Skills.",
+    "many": "Установлено {{count}} рекомендованных Skills.",
+    "other": "Установлено {{count}} рекомендованных Skills."
+  },
+  "skills.platform.count": {
+    "one": "{{count}} платформа",
+    "few": "{{count}} платформы",
+    "many": "{{count}} платформ",
+    "other": "{{count}} платформы"
+  }
+}

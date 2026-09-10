@@ -7,18 +7,19 @@ import * as React from "react"
 import { connectionAuthorizationIssueDecision } from "./connection-authorization-issue.ts"
 import { MessageAction, MessageActions } from "@/components/ai-elements/message"
 import { Button } from "@/components/ui/button"
-import { useT } from "@/i18n/i18n"
+import { useT, useI18n } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-function formatMessageTime(createdAt: number): string {
+function formatMessageTime(createdAt: number, locale: string): string {
   if (!Number.isFinite(createdAt)) {
     return ""
   }
-  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(createdAt))
+  return new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(createdAt))
 }
 
 export function MessageTimestamp({ createdAt }: { createdAt: number }) {
-  const label = formatMessageTime(createdAt)
+  const { locale } = useI18n()
+  const label = formatMessageTime(createdAt, locale)
   if (!label) {
     return null
   }

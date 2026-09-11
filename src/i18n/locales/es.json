@@ -1976,8 +1976,8 @@
   "teams.skillGuideSystemLoading": "Buscando recomendaciones del sistema",
   "teams.skillGuideReadOnlyBadge": "Solo vista de ajustes del equipo",
   "teams.skillGuideReadOnlyDescription": "Las recomendaciones del equipo son ajustes compartidos del equipo; las recomendaciones del sistema provienen de los servicios conectados; el estado de instalación se aplica solo a este dispositivo, y solo los administradores del equipo pueden cambiar las recomendaciones del equipo.",
-  "teams.skillGuideEmptyTitle": "Aún no hay habilidades del equipo",
-  "teams.skillGuideEmptyDescription": "Cuando un administrador añada habilidades, podrás instalarlas en este dispositivo.",
+  "teams.skillGuideEmptyTitle": "No hay habilidades compartidas configuradas",
+  "teams.skillGuideEmptyDescription": "Puedes consultar recomendaciones e instalar habilidades en este dispositivo. Los administradores gestionan la lista compartida.",
   "teams.skillGuideEmptyCreatorDescription": "Añade habilidades habituales para que los miembros las instalen en sus propios dispositivos.",
   "teams.skillManageTitle": "Skills del equipo",
   "teams.skillManageRecommendations": "Recomendaciones",
@@ -2297,5 +2297,7 @@
   "teams.sharedSkillsDescription": "Gestionadas por el equipo e instaladas en el dispositivo de cada miembro.",
   "teams.localSkillsCount": "Instaladas en este dispositivo: {{installed}} / {{total}}",
   "teams.localSkillsComplete": "Todas instaladas en este dispositivo",
-  "teams.skillsCredentialNote": "Se comparte la lista de habilidades, pero no las credenciales de conexión personales."
+  "teams.skillsCredentialNote": "Se comparte la lista de habilidades, pero no las credenciales de conexión personales.",
+  "teams.browseSkillsTitle": "Ver habilidades recomendadas",
+  "teams.browseSkillsDescription": "Descubre habilidades para los servicios conectados del equipo e instálalas en este dispositivo."
 }

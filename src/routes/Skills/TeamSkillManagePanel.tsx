@@ -99,7 +99,7 @@ export function TeamSkillManagePanel({
   const busyConfigId = skillRemoval.busySkillId
   const [catalogTab, setActiveTab] = React.useState<TeamSkillManageTab>("recommendations")
   const [addingSkills, setAddingSkills] = React.useState(false)
-  const adding = addingSkills && teamSkills.canManage
+  const adding = addingSkills
   const activeTab = adding ? catalogTab : "recommendations"
   const addBackRef = React.useRef<HTMLButtonElement>(null)
   const addButtonRef = React.useRef<HTMLButtonElement>(null)
@@ -297,12 +297,26 @@ export function TeamSkillManagePanel({
               {t("teams.backToSkills")}
             </Button>
           ) : null}
-          <h2 className="oo-text-title">{t(adding ? "teams.addSkillsTitle" : "teams.sharedSkillsTitle")}</h2>
+          <h2 className="oo-text-title">
+            {t(
+              adding
+                ? teamSkills.canManage
+                  ? "teams.addSkillsTitle"
+                  : "teams.browseSkillsTitle"
+                : "teams.sharedSkillsTitle",
+            )}
+          </h2>
           <p className="oo-text-caption text-muted-foreground">
-            {t(adding ? "teams.addSkillsDescription" : "teams.sharedSkillsDescription")}
+            {t(
+              adding
+                ? teamSkills.canManage
+                  ? "teams.addSkillsDescription"
+                  : "teams.browseSkillsDescription"
+                : "teams.sharedSkillsDescription",
+            )}
           </p>
         </div>
-        {!adding && teamSkills.canManage ? (
+        {!adding ? (
           <Button
             ref={addButtonRef}
             size="sm"
@@ -315,7 +329,7 @@ export function TeamSkillManagePanel({
             }}
           >
             <PlusIcon data-icon="inline-start" />
-            {t("teams.addSkillsTitle")}
+            {t(teamSkills.canManage ? "teams.addSkillsTitle" : "teams.browseSkillsTitle")}
           </Button>
         ) : null}
       </div>
@@ -351,7 +365,7 @@ export function TeamSkillManagePanel({
                 variant="outline"
                 size="sm"
                 value={activeTab}
-                aria-label={t("teams.addSkillsTitle")}
+                aria-label={t(teamSkills.canManage ? "teams.addSkillsTitle" : "teams.browseSkillsTitle")}
                 onValueChange={(value) => {
                   if (value === "recommendations" || value === "market") changeActiveTab(value)
                 }}
@@ -403,6 +417,19 @@ export function TeamSkillManagePanel({
               <TeamSkillDialogEmpty
                 className={emptyStateClassName}
                 title={t(adding ? "teams.skillManageRecommendedEmptyTitle" : "teams.skillGuideEmptyTitle")}
+                action={
+                  !adding ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setAddingSkills(true)
+                        setSearchQuery("")
+                      }}
+                    >
+                      {t("teams.browseSkillsTitle")}
+                    </Button>
+                  ) : undefined
+                }
                 description={t(
                   adding
                     ? "teams.skillManageRecommendedEmpty"
@@ -449,7 +476,7 @@ export function TeamSkillManagePanel({
                       }
                       actionsDisabled={Boolean(busyAction)}
                       canManage={teamSkills.canManage}
-                      selectionOnly
+                      selectionOnly={teamSkills.canManage}
                       recommendation={item.recommendation}
                       onAdd={onAddRecommendation}
                       onInstallRuntime={onInstallRuntimeSkill}
@@ -508,7 +535,7 @@ export function TeamSkillManagePanel({
                       canManage={teamSkills.canManage}
                       groupById={groupById}
                       linked={teamSkillPackageLinked(linkedPackageKeys, pkg.name)}
-                      selectionOnly
+                      selectionOnly={teamSkills.canManage}
                       pkg={pkg}
                       onAdd={onAddMarketPackage}
                       onInstallRuntime={onInstallRuntimeSkill}

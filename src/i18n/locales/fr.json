@@ -1976,8 +1976,8 @@
   "teams.skillGuideSystemLoading": "Correspondance des recommandations système",
   "teams.skillGuideReadOnlyBadge": "Vue des paramètres d'équipe uniquement",
   "teams.skillGuideReadOnlyDescription": "Les recommandations d'équipe sont des paramètres d'équipe partagés ; les recommandations système proviennent des services connectés ; l'état d'installation ne s'applique qu'à cet appareil, et seuls les administrateurs d'équipe peuvent modifier les recommandations d'équipe.",
-  "teams.skillGuideEmptyTitle": "Aucune compétence dans l’équipe",
-  "teams.skillGuideEmptyDescription": "Une fois les compétences ajoutées par un administrateur, vous pouvez les installer sur cet appareil.",
+  "teams.skillGuideEmptyTitle": "Aucune compétence partagée configurée",
+  "teams.skillGuideEmptyDescription": "Vous pouvez consulter les recommandations et installer des compétences sur cet appareil. Les administrateurs gèrent la liste partagée.",
   "teams.skillGuideEmptyCreatorDescription": "Ajoutez les compétences courantes pour que les membres les installent sur leurs appareils.",
   "teams.skillManageTitle": "Skills d'équipe",
   "teams.skillManageRecommendations": "Recommandations",
@@ -2297,5 +2297,7 @@
   "teams.sharedSkillsDescription": "Gérées par l’équipe et installées sur l’appareil de chaque membre.",
   "teams.localSkillsCount": "Installées sur cet appareil : {{installed}} / {{total}}",
   "teams.localSkillsComplete": "Toutes installées sur cet appareil",
-  "teams.skillsCredentialNote": "La liste est partagée, mais pas les identifiants de connexion personnels."
+  "teams.skillsCredentialNote": "La liste est partagée, mais pas les identifiants de connexion personnels.",
+  "teams.browseSkillsTitle": "Voir les compétences recommandées",
+  "teams.browseSkillsDescription": "Découvrez des compétences pour les services connectés de l’équipe et installez-les sur cet appareil."
 }

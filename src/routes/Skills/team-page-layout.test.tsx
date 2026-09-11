@@ -287,3 +287,49 @@ test("catalog details stay inline and return to the skill selection flow", async
     await view.unmount()
   }
 })
+
+test("ordinary members can discover and install recommendations without changing the shared list", async () => {
+  const props = paneProps(skills(false))
+  const view = await mount(<TeamSkillManagePanel {...props} />)
+  try {
+    expect(view.container.querySelector('[data-slot="empty-content"]')?.textContent).toContain(
+      "teams.browseSkillsTitle",
+    )
+    await clickText(view.container, "teams.browseSkillsTitle")
+    expect(view.container.textContent).toContain("Suggested skill")
+    expect(view.container.textContent).toContain("teams.skillManageMarket")
+    expect(view.container.textContent).not.toContain("teams.skillManageAddOnly")
+    await clickText(view.container, "teams.skillManageInstallRuntime")
+    expect(props.onInstallRuntimeSkill).toHaveBeenCalledExactlyOnceWith({
+      packageName: suggestion.packageName,
+      skillName: suggestion.skillId,
+    })
+    expect(props.onAddRecommendation).not.toHaveBeenCalled()
+    expect(props.teamSkills.addSkill).not.toHaveBeenCalled()
+    await clickText(view.container, "teams.backToSkills")
+    expect(view.container.textContent).toContain("teams.skillGuideEmptyTitle")
+  } finally {
+    await view.unmount()
+  }
+})
+
+test("revoking management rights keeps discovery available and switches to local-only actions", async () => {
+  const props = paneProps()
+  const view = await mount(<TeamSkillManagePanel {...props} />)
+  try {
+    await clickText(view.container, "teams.addSkillsTitle")
+    await view.render(<TeamSkillManagePanel {...props} teamSkills={skills(false)} />)
+    expect(view.container.textContent).toContain("Suggested skill")
+    expect(view.container.textContent).not.toContain("teams.skillManageAddOnly")
+    expect(view.container.textContent).toContain("teams.skillManageInstallRuntime")
+    const installed = { ...suggestion, installState: "installed" as const }
+    await view.render(
+      <TeamSkillManagePanel {...props} teamSkills={skills(false)} providerRecommendations={[installed]} />,
+    )
+    await clickText(view.container, "skills.installedManage")
+    expect(props.onOpenManagedSkill).toHaveBeenCalledExactlyOnceWith(suggestion.skillId)
+    expect(props.onAddRecommendation).not.toHaveBeenCalled()
+  } finally {
+    await view.unmount()
+  }
+})

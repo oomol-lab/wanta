@@ -37,7 +37,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
+import { Empty, EmptyHeader, EmptyContent, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
@@ -145,10 +145,12 @@ function TeamSkillManageRowSkeleton({
 }
 
 export function TeamSkillDialogEmpty({
+  action,
   className,
   description,
   title,
 }: {
+  action?: React.ReactNode
   className?: string
   description: string
   title: string
@@ -162,6 +164,7 @@ export function TeamSkillDialogEmpty({
         <EmptyTitle>{title}</EmptyTitle>
         <EmptyDescription>{description}</EmptyDescription>
       </EmptyHeader>
+      {action ? <EmptyContent>{action}</EmptyContent> : null}
     </Empty>
   )
 }

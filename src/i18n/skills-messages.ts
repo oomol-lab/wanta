@@ -137,8 +137,8 @@ export const skillsMessages = {
     "teams.skillGuideReadOnlyBadge": "仅可查看团队配置",
     "teams.skillGuideReadOnlyDescription":
       "团队推荐是团队共享配置，系统推荐来自已连接服务；安装状态仅表示当前设备是否已安装，只有团队管理员可以修改团队推荐。",
-    "teams.skillGuideEmptyTitle": "团队还没有添加技能",
-    "teams.skillGuideEmptyDescription": "管理员添加技能后，你可以在这台设备上安装使用。",
+    "teams.skillGuideEmptyTitle": "团队尚未配置共享技能",
+    "teams.skillGuideEmptyDescription": "你仍可查看系统推荐，并将需要的技能安装到本机。团队共享清单由管理员维护。",
     "teams.skillGuideEmptyCreatorDescription": "将常用技能加入团队清单，方便成员在自己的设备上安装使用。",
     "teams.skillManageTitle": "团队 Skill",
     "teams.skillManageRecommendations": "推荐",
@@ -435,6 +435,8 @@ export const skillsMessages = {
     "teams.localSkillsCount": "本机已安装 {{installed}} / {{total}} 项",
     "teams.localSkillsComplete": "本机已全部安装",
     "teams.skillsCredentialNote": "共享技能清单，不共享个人连接凭据。",
+    "teams.browseSkillsTitle": "查看推荐技能",
+    "teams.browseSkillsDescription": "根据团队已连接的服务发现技能，可安装到本机使用。",
   },
   en: {
     "nav.skills": "Skills",
@@ -582,8 +584,9 @@ export const skillsMessages = {
     "teams.skillGuideReadOnlyBadge": "Team settings view only",
     "teams.skillGuideReadOnlyDescription":
       "Team recommendations are shared team settings; system recommendations come from connected services; install status applies only to this device, and only team admins can change team recommendations.",
-    "teams.skillGuideEmptyTitle": "No team skills yet",
-    "teams.skillGuideEmptyDescription": "Once an administrator adds skills, you can install them on this device.",
+    "teams.skillGuideEmptyTitle": "No shared skills configured",
+    "teams.skillGuideEmptyDescription":
+      "You can still browse recommendations and install skills on this device. Administrators maintain the shared team list.",
     "teams.skillGuideEmptyCreatorDescription":
       "Add frequently used skills so members can install them on their own devices.",
     "teams.skillManageTitle": "Team Skills",
@@ -900,5 +903,8 @@ export const skillsMessages = {
     "teams.localSkillsCount": "Installed on this device: {{installed}} / {{total}}",
     "teams.localSkillsComplete": "All installed on this device",
     "teams.skillsCredentialNote": "The skill list is shared. Personal connection credentials are not.",
+    "teams.browseSkillsTitle": "Browse recommended skills",
+    "teams.browseSkillsDescription":
+      "Discover skills for the team’s connected services and install them on this device.",
   },
 } as const

@@ -1976,8 +1976,8 @@
   "teams.skillGuideSystemLoading": "시스템 추천 매칭 중",
   "teams.skillGuideReadOnlyBadge": "팀 설정 보기 전용",
   "teams.skillGuideReadOnlyDescription": "팀 추천은 팀 공유 설정이며, 시스템 추천은 연결된 서비스에서 제공됩니다. 설치 상태는 이 기기에만 적용되며, 팀 관리자만 팀 추천을 변경할 수 있습니다.",
-  "teams.skillGuideEmptyTitle": "아직 팀 스킬이 없습니다",
-  "teams.skillGuideEmptyDescription": "관리자가 스킬을 추가하면 이 기기에 설치할 수 있습니다.",
+  "teams.skillGuideEmptyTitle": "공유 스킬이 설정되지 않았습니다",
+  "teams.skillGuideEmptyDescription": "추천 스킬을 살펴보고 이 기기에 설치할 수 있습니다. 팀 공유 목록은 관리자가 관리합니다.",
   "teams.skillGuideEmptyCreatorDescription": "자주 쓰는 스킬을 팀 목록에 추가하여 멤버가 각자의 기기에 설치할 수 있게 하세요.",
   "teams.skillManageTitle": "팀 Skills",
   "teams.skillManageRecommendations": "추천",
@@ -2297,5 +2297,7 @@
   "teams.sharedSkillsDescription": "팀에서 관리하며 각 멤버의 기기에 설치합니다.",
   "teams.localSkillsCount": "이 기기에 설치됨: {{installed}} / {{total}}",
   "teams.localSkillsComplete": "이 기기에 모두 설치됨",
-  "teams.skillsCredentialNote": "스킬 목록은 공유되지만 개인 연결 인증 정보는 공유되지 않습니다."
+  "teams.skillsCredentialNote": "스킬 목록은 공유되지만 개인 연결 인증 정보는 공유되지 않습니다.",
+  "teams.browseSkillsTitle": "추천 스킬 보기",
+  "teams.browseSkillsDescription": "팀에 연결된 서비스의 스킬을 찾아 이 기기에 설치할 수 있습니다."
 }

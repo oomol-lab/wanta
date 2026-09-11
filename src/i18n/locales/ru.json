@@ -1976,8 +1976,8 @@
   "teams.skillGuideSystemLoading": "Подбор системных рекомендаций",
   "teams.skillGuideReadOnlyBadge": "Только просмотр настроек команды",
   "teams.skillGuideReadOnlyDescription": "Командные рекомендации — это общие настройки команды; системные рекомендации поступают из подключённых сервисов; статус установки относится только к этому устройству, и изменять командные рекомендации могут только администраторы команды.",
-  "teams.skillGuideEmptyTitle": "Навыков команды пока нет",
-  "teams.skillGuideEmptyDescription": "После добавления навыков администратором вы сможете установить их на это устройство.",
+  "teams.skillGuideEmptyTitle": "Общие навыки не настроены",
+  "teams.skillGuideEmptyDescription": "Вы можете просматривать рекомендации и устанавливать навыки на это устройство. Общим списком команды управляют администраторы.",
   "teams.skillGuideEmptyCreatorDescription": "Добавьте часто используемые навыки, чтобы участники могли установить их на свои устройства.",
   "teams.skillManageTitle": "Командные Skills",
   "teams.skillManageRecommendations": "Рекомендации",
@@ -2297,5 +2297,7 @@
   "teams.sharedSkillsDescription": "Управляются командой и устанавливаются на устройства участников.",
   "teams.localSkillsCount": "Установлено на этом устройстве: {{installed}} / {{total}}",
   "teams.localSkillsComplete": "Все установлены на этом устройстве",
-  "teams.skillsCredentialNote": "Список навыков общий. Личные данные авторизации подключений не передаются."
+  "teams.skillsCredentialNote": "Список навыков общий. Личные данные авторизации подключений не передаются.",
+  "teams.browseSkillsTitle": "Посмотреть рекомендации",
+  "teams.browseSkillsDescription": "Найдите навыки для подключённых сервисов команды и установите их на это устройство."
 }

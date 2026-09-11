@@ -31,6 +31,7 @@ import { useSkillCatalog } from "./use-skill-catalog.ts"
 import { useTeamSkillRemoval } from "./use-team-skill-removal.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
+import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppI18n } from "@/i18n"
@@ -109,7 +110,9 @@ export function TeamSkillManagePanel({
     else if (wasAddingRef.current) addButtonRef.current?.focus()
     wasAddingRef.current = adding
   }, [adding])
-  const recommendationSourceFilter = adding ? "recommended" : "configured"
+  const showInlineRecommendations = !adding && teamSkills.hasLoaded && teamSkills.skills.length === 0
+  const showingRecommendations = adding || showInlineRecommendations
+  const recommendationSourceFilter = showingRecommendations ? "recommended" : "configured"
   const [searchQuery, setSearchQuery] = React.useState("")
   const [marketExactPackage, setMarketExactPackage] = React.useState<PublicSkillPackage | null>(null)
   const [marketExactLoading, setMarketExactLoading] = React.useState(false)
@@ -303,7 +306,9 @@ export function TeamSkillManagePanel({
                 ? teamSkills.canManage
                   ? "teams.addSkillsTitle"
                   : "teams.browseSkillsTitle"
-                : "teams.sharedSkillsTitle",
+                : showInlineRecommendations
+                  ? "teams.skillManageRecommended"
+                  : "teams.sharedSkillsTitle",
             )}
           </h2>
           <p className="oo-text-caption text-muted-foreground">
@@ -312,7 +317,9 @@ export function TeamSkillManagePanel({
                 ? teamSkills.canManage
                   ? "teams.addSkillsDescription"
                   : "teams.browseSkillsDescription"
-                : "teams.sharedSkillsDescription",
+                : showInlineRecommendations
+                  ? "teams.browseSkillsDescription"
+                  : "teams.sharedSkillsDescription",
             )}
           </p>
         </div>
@@ -333,6 +340,11 @@ export function TeamSkillManagePanel({
           </Button>
         ) : null}
       </div>
+      {showInlineRecommendations && teamSkills.apiEnabled && !teamSkills.error ? (
+        <Alert>
+          <AlertTitle>{t("teams.skillGuideEmptyTitle")}</AlertTitle>
+        </Alert>
+      ) : null}
       {!teamSkills.apiEnabled ? (
         <TeamSkillDialogEmpty
           className={emptyStateClassName}
@@ -416,7 +428,9 @@ export function TeamSkillManagePanel({
             ) : allRecommendationItems.length === 0 ? (
               <TeamSkillDialogEmpty
                 className={emptyStateClassName}
-                title={t(adding ? "teams.skillManageRecommendedEmptyTitle" : "teams.skillGuideEmptyTitle")}
+                title={t(
+                  showingRecommendations ? "teams.skillManageRecommendedEmptyTitle" : "teams.skillGuideEmptyTitle",
+                )}
                 action={
                   !adding ? (
                     <Button
@@ -431,7 +445,7 @@ export function TeamSkillManagePanel({
                   ) : undefined
                 }
                 description={t(
-                  adding
+                  showingRecommendations
                     ? "teams.skillManageRecommendedEmpty"
                     : teamSkills.canManage
                       ? "teams.skillGuideEmptyCreatorDescription"
@@ -475,8 +489,8 @@ export function TeamSkillManagePanel({
                         busyAction === `installSkill:${item.recommendation.packageName}:${item.recommendation.skillId}`
                       }
                       actionsDisabled={Boolean(busyAction)}
-                      canManage={teamSkills.canManage}
-                      selectionOnly={teamSkills.canManage}
+                      canManage={adding && teamSkills.canManage}
+                      selectionOnly={adding && teamSkills.canManage}
                       recommendation={item.recommendation}
                       onAdd={onAddRecommendation}
                       onInstallRuntime={onInstallRuntimeSkill}

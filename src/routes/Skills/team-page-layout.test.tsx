@@ -212,12 +212,12 @@ test("switching teams clears settings and member dialog; revoked management righ
   }
 })
 
-test("system recommendations only appear during addition, which links without installing", async () => {
+test("empty teams show recommendations directly, while addition links without installing", async () => {
   const props = paneProps()
   const view = await mount(<TeamSkillManagePanel {...props} />)
   try {
     expect(view.container.textContent).toContain("teams.skillGuideEmptyTitle")
-    expect(view.container.textContent).not.toContain("Suggested skill")
+    expect(view.container.textContent).toContain("Suggested skill")
     await clickText(view.container, "teams.addSkillsTitle")
     expect(view.container.textContent).toContain("Suggested skill")
     expect(view.container.textContent).not.toContain("teams.skillManageInstallRuntime")
@@ -225,7 +225,7 @@ test("system recommendations only appear during addition, which links without in
     expect(props.onAddRecommendation).toHaveBeenCalledWith(suggestion, { installRuntime: false })
     expect(props.onInstallRuntimeSkill).not.toHaveBeenCalled()
     await clickText(view.container, "teams.backToSkills")
-    expect(view.container.textContent).not.toContain("Suggested skill")
+    expect(view.container.textContent).toContain("Suggested skill")
     await view.render(<TeamSkillManagePanel {...props} teamSkills={skills(false)} />)
     expect(view.container.textContent).not.toContain("teams.addSkillsTitle")
   } finally {
@@ -292,9 +292,7 @@ test("ordinary members can discover and install recommendations without changing
   const props = paneProps(skills(false))
   const view = await mount(<TeamSkillManagePanel {...props} />)
   try {
-    expect(view.container.querySelector('[data-slot="empty-content"]')?.textContent).toContain(
-      "teams.browseSkillsTitle",
-    )
+    expect(view.container.textContent).toContain("Suggested skill")
     await clickText(view.container, "teams.browseSkillsTitle")
     expect(view.container.textContent).toContain("Suggested skill")
     expect(view.container.textContent).toContain("teams.skillManageMarket")

@@ -66,7 +66,7 @@ export function permissionDeletionTargets(command: string | undefined): string[]
     } else if (!optionsEnded && word.startsWith("-")) {
       if (!/^-[rfdiIvPR]+$/u.test(word) && !["--recursive", "--force", "--dir", "--verbose"].includes(word)) return
     } else {
-      if (!word || /[$`*?[\]{}\n\r]/u.test(word)) return
+      if (!word || word.startsWith("~") || /[$`*?[\]{}\n\r]/u.test(word)) return
       targets.push(word)
     }
   }

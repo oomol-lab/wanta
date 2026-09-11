@@ -139,7 +139,7 @@
 - **Capabilities sync across three places**: the tools configuration in `config.ts` (current state:
   no disable table, all built-in tools enabled), permission (agent-level + root-level), and the
   `system-prompt.ts` prompt. Changing any capability policy means changing all three together.
-- **Permission `"ask"` must be verified against the UI**: `permission.asked` /
+- **Built-in OpenCode permission `"ask"` must be verified against the UI**: `permission.asked` /
   `permission.v2.asked` are first handled by the ChatService main-process local access policy;
   Default Access treats bash as a normal working channel, auto-approving ordinary shell commands,
   scripts, project checks, data processing, simple output filtering, ordinary file reads/writes, and
@@ -187,7 +187,9 @@
   outcome categories—never commands, resources, or paths—and are included in `/bug-report`
   runtime metadata. Standard bounded project dependency operations are automatic, so do not
   reintroduce the obsolete project-dependency task grant or its renderer action.
-  New ask rules must be verified end to end: pending-permission queries, event push, auto-approve
+  ACP requests bypass this classifier and retain native options and grants;
+  Link business authorization remains enforced in managed tool entry points.
+  New built-in ask rules must be verified end to end: pending-permission queries, event push, auto-approve
   dedup, and reply.
   Ordinary dependency command lists (`&&`, semicolons/newlines, and existing bounded
   `head`/`tail` filters) are evaluated per step, so installation followed by ordinary

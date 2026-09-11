@@ -40,6 +40,19 @@ export function permissionTargetLabel(target: string): { name: string; location?
 }
 
 export function permissionPresentation(request: ChatPermissionRequest): PermissionPresentation {
+  if (request.nativeOptions) {
+    return {
+      title: "permissionPrompt.unknownTitle",
+      description: "permissionPrompt.nativeBody",
+      allow: "permissionPrompt.run",
+      targets: request.resources,
+      command: permissionCommand(request),
+      grantPatterns: [],
+      caution: false,
+      detailsOpen: true,
+      recovery: false,
+    }
+  }
   const kind = permissionRequestKind(request)
   const reason = request.wanta?.promptReason
   const command = kind === "command" ? permissionCommand(request) : undefined

@@ -66,6 +66,8 @@ export interface PermissionResponseAgentInput {
   sessionId: string
   requestId: string
   reply: ChatPermissionReply
+  /** Exact native permission option selected by the user. */
+  optionId?: string
   /** Advisory rejection explanation, forwarded by runtimes with native support. */
   message?: string
 }
@@ -171,6 +173,7 @@ const permissionResponseInputSchema = z.object({
   sessionId: z.string().min(1),
   requestId: z.string().min(1),
   reply: permissionReplySchema,
+  optionId: z.string().optional(),
   message: z.string().optional(),
 })
 

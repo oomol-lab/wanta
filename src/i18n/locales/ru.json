@@ -957,6 +957,8 @@
   "chat.questionFallbackLabel": "Вопрос {index}",
   "chat.permissionModePicker": "Режим доступа",
   "chat.permissionModeDefault": "Доступ по умолчанию",
+  "permissionPrompt.nativeBody": "Агент запрашивает разрешение. Ваш выбор будет передан непосредственно агенту.",
+  "chat.permissionModeNativeDescription": "Используется собственный режим разрешений и политика одобрения агента.",
   "chat.permissionModeDefaultDescription": "Автоматически выполняет повседневные операции; запрашивает подтверждение для конфиденциальных данных и распознанных высокорисковых действий",
   "chat.permissionModeFullAccess": "Полный доступ",
   "chat.permissionModeFullAccessDescription": "Пропускает подтверждения для локальных высокорисковых команд, путей вне проекта и действий браузера в рамках задачи",

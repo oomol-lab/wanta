@@ -1580,8 +1580,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   )
 
   const handleAnswerPermission = React.useCallback(
-    (requestId: string, reply: ChatPermissionReply): Promise<void> =>
-      activeChatSessionId ? answerPermission(activeChatSessionId, requestId, reply) : Promise.resolve(),
+    (requestId: string, reply: ChatPermissionReply, optionId?: string): Promise<void> =>
+      activeChatSessionId ? answerPermission(activeChatSessionId, requestId, reply, optionId) : Promise.resolve(),
     [activeChatSessionId, answerPermission],
   )
 

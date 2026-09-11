@@ -75,11 +75,13 @@ function PermissionModeIcon({ mode, active = false }: { mode: AgentPermissionMod
  */
 export function PermissionModePicker({
   disabled,
+  nativePermissions = false,
   modes,
   value,
   onSelect,
 }: {
   disabled: boolean
+  nativePermissions?: boolean
   modes?: readonly AgentPermissionMode[]
   value: AgentPermissionMode
   onSelect: (mode: AgentPermissionMode) => void
@@ -169,7 +171,9 @@ export function PermissionModePicker({
             const active = value === mode
             const highlighted = index === activeIndex
             const label = permissionModeLabel(mode, t)
-            const description = permissionModeDescription(mode, t)
+            const description = nativePermissions
+              ? t("chat.permissionModeNativeDescription")
+              : permissionModeDescription(mode, t)
             return (
               <button
                 key={mode}

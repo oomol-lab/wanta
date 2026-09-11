@@ -20,17 +20,14 @@ The target split is:
 
 Agent-native behavior is not expected to be identical. Host capability
 identity, business safety, and result semantics are expected to be identical.
-For local interactive permissions, Wanta also owns the user-visible decision:
-the same normalized operation, permission mode, and host context must produce
-the same allow/prompt/deny result for every adapter. Native sandboxes remain a
-defense-in-depth execution boundary and may fail an operation they cannot
-support, but they do not define a separate Wanta approval experience.
-The built-in OpenCode behavior before BYOA is the Default Access compatibility
-floor: adapter normalization must not introduce a new prompt for an operation
-that the same host policy previously treated as ordinary. Shared behavior may
-become more permissive for first-party capabilities, but only existing
-sensitive-resource, credential, and consequential-operation boundaries may
-make it stricter.
+Local interactive permissions belong to the selected external agent. Wanta
+projects supported modes through ACP and displays the native approval options,
+then returns the exact selected option ID. It does not apply its local-access
+classifier, auto-answer native requests, or store grants for ACP sessions.
+This includes native requests to execute managed Link CLI or host MCP tools.
+The built-in OpenCode kernel continues to use Wanta's local-access policy.
+Link identity and business authorization remain enforced at capability entry
+points, independently of the agent's local permission mode.
 
 ## Runtime-context contract
 
@@ -81,9 +78,14 @@ accepts only contract-declared capability search, Connector apps/run/schema/sear
 bounded file upload/download, and the explicitly enabled Open Flow read, Draft,
 run, and publish operations. Project switching, Flow deletion/rollback/cancel,
 browser-opening commands, and unrecognized OO operations remain unavailable.
-Loaded Skill instructions keep Connector work on that managed CLI. The shared
-permission classifier—not an adapter-specific rule—decides whether a command is
-safe to run without a redundant approval card.
+Loaded Skill instructions keep Connector work on that managed CLI. Native agents decide whether the managed command needs approval; Wanta forwards
+their requests unchanged. OpenCode uses its existing host command classifier.
+
+## Built-in OpenCode local-access policy
+
+The following command classification rules apply only to the built-in kernel.
+ACP agents use their native local policy; the managed Link guard remains active
+at its business execution boundary.
 
 Shell setup is classified by its operation: a plain `export NAME=value`
 assignment is ordinary local work only when it does not involve protected
@@ -155,8 +157,8 @@ No partial execution or approval occurs: the original call is approved as a whol
 Literal directory changes establish scope only on their success path; a failed
 or piped cd does not prove a cleanup target. Unknown deletion targets, variable
 cleanup, and unsupported cleanup control flow still require confirmation.
-A shell permission with no command cannot be automatically approved. ACP requests
-preserve explicit command cwd, otherwise using the native session directory.
+A built-in shell permission with no command cannot be automatically approved.
+ACP requests preserve command metadata for display without host classification.
 
 ## Kernel contract
 

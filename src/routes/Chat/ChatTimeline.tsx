@@ -371,7 +371,7 @@ interface ChatTimelineProps {
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
   onTurnOutputAvailable: (selection: TurnOutputSelection) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
-  onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>
+  onAnswerPermission: (requestId: string, reply: ChatPermissionReply, optionId?: string) => Promise<void>
   onRejectQuestion: (requestId: string) => Promise<void>
   questionDrafts: QuestionDraftStore
   onViewBilling?: () => void
@@ -447,7 +447,8 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     [providers],
   )
   const answerPermissionSafely = React.useCallback(
-    (requestId: string, reply: ChatPermissionReply): Promise<void> => onAnswerPermission(requestId, reply),
+    (requestId: string, reply: ChatPermissionReply, optionId?: string): Promise<void> =>
+      onAnswerPermission(requestId, reply, optionId),
     [onAnswerPermission],
   )
   const activeAssistantMessageId =
@@ -621,6 +622,13 @@ export const ChatTimeline = React.memo(function ChatTimeline({
               <PermissionRequiredCard
                 request={request}
                 busy={status === "submitted"}
+                onSelectNativeOption={(requestId, option) =>
+                  answerPermissionSafely(
+                    requestId,
+                    option.kind === "allow_once" ? "once" : option.kind === "allow_always" ? "always" : "reject",
+                    option.optionId,
+                  )
+                }
                 onAllowOnce={(requestId) => answerPermissionSafely(requestId, "once")}
                 onAllowForSession={(requestId) => answerPermissionSafely(requestId, "always")}
                 onReject={(requestId) => answerPermissionSafely(requestId, "reject")}

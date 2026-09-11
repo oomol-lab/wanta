@@ -1070,12 +1070,12 @@ export const enMessages = {
   "chat.permissionDependencyBoundaryDescription":
     "Wanta wants to run a dependency operation:\n{command}\nIts target project, installation scope, or package source is outside the automatic-approval boundary.",
   "chat.permissionRequiredAllowOnce": "Allow this step",
-  "chat.permissionRequiredAllowSession": "Allow in this chat",
-  "chat.permissionRequiredAllowCommandSession": "Allow this command in this chat",
-  "chat.permissionRequiredAllowProjectDevSession": "Allow project dev commands in this chat",
-  "chat.permissionRequiredAllowPythonDependenciesTask": "Allow these Python dependencies for this task",
-  "chat.permissionRequiredAllowPathSession": "Allow this folder in this chat",
-  "chat.permissionRequiredAllowEditSession": "Allow this path in this chat",
+  "chat.permissionRequiredAllowSession": "Remember this permission in this conversation",
+  "chat.permissionRequiredAllowCommandSession": "Allow this command again in this conversation",
+  "chat.permissionRequiredAllowProjectDevSession": "Allow project build and check commands in this conversation",
+  "chat.permissionRequiredAllowPythonDependenciesTask": "Allow these tools for this task",
+  "chat.permissionRequiredAllowPathSession": "Allow this folder again in this conversation",
+  "chat.permissionRequiredAllowEditSession": "Allow changes at this path in this conversation",
   "chat.permissionRequiredReject": "Cancel this step",
   "chat.permissionSubmitFailed": "Couldn't send the permission response. Try again.",
   "artifacts.title": "Artifacts",
@@ -1990,4 +1990,46 @@ export const enMessages = {
   "aria.expandConnections": "Expand connections panel",
   "aria.collapseConnections": "Collapse connections panel",
   ...skillsMessages.en,
+  "permissionPrompt.unknownTitle": "Run an operation on your computer?",
+  "permissionPrompt.unknownBody":
+    "Wanta cannot yet confirm exactly what this operation will change. Review the details before continuing.",
+  "permissionPrompt.editTitle": "Allow changes to these files?",
+  "permissionPrompt.editBody":
+    "This operation can change existing file contents. Check the affected locations before allowing it.",
+  "permissionPrompt.accessTitle": "Allow access to these locations?",
+  "permissionPrompt.accessBody":
+    "Check that these files or folders are needed for your task. This request does not establish read-only access.",
+  "permissionPrompt.networkTitle": "Allow this network operation?",
+  "permissionPrompt.networkBody":
+    "Check the destination and operation details before continuing. This request does not establish what data may be sent.",
+  "permissionPrompt.installTitle": "Install tools for this task?",
+  "permissionPrompt.installBody":
+    "Wanta requests installation of the tools below. The command and installation location are available in the details.",
+  "permissionPrompt.dependencyTitle": "Allow changes to installed tools?",
+  "permissionPrompt.dependencyBody":
+    "This operation may install, remove or update tools. Its source or installation scope needs your review.",
+  "permissionPrompt.sensitiveTitle": "Allow access to potentially private data?",
+  "permissionPrompt.sensitiveBody":
+    "These resources may contain login information or personal data. Only allow access if it is needed for your task.",
+  "permissionPrompt.broadTitle": "Allow access to a wider area?",
+  "permissionPrompt.broadBody":
+    "This request covers a broad area of your computer and may include files you did not select for this task.",
+  "permissionPrompt.highRiskTitle": "Allow an operation with significant consequences?",
+  "permissionPrompt.highRiskBody":
+    "Wanta flagged this operation for review but cannot summarize its full effects. Check the details before allowing it.",
+  "permissionPrompt.deleteTitle": "Delete these files or folders?",
+  "permissionPrompt.deleteBody":
+    "This command deletes the listed targets directly instead of moving them to Trash. Deleted contents may be unrecoverable.",
+  "permissionPrompt.recoveryTitle": "This step could not continue",
+  "permissionPrompt.recoveryBody":
+    "Wanta could not deliver permission for this step. You can retry sending it or cancel this step.",
+  "permissionPrompt.run": "Allow this operation",
+  "permissionPrompt.access": "Allow this access",
+  "permissionPrompt.edit": "Allow changes",
+  "permissionPrompt.install": "Install and continue",
+  "permissionPrompt.delete": "Delete files",
+  "permissionPrompt.retry": "Retry this step",
+  "permissionPrompt.targets": "Affected items",
+  "permissionPrompt.details": "View operation details",
+  "permissionPrompt.scope": "This choice also allows the following scope; it is not limited to a single execution:",
 } as const

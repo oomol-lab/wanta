@@ -13,7 +13,9 @@ import {
 import { commandRequiresConfirmation } from "./command-risk.ts"
 import {
   dependencyCommandRequiresConfirmation,
-  isDependencyMutationCommand,
+  dependencyCommandChangesScope,
+  protectedPipInstallOptions,
+  pipOptionName,
   isPythonDependencyMutationCommand,
 } from "./dependency-policy.ts"
 import {
@@ -294,47 +296,9 @@ export function isOoCliPermissionRequest(request: ChatPermissionRequest): boolea
 
 const pythonPackageRequirementPattern =
   /^([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)(?:\[[A-Za-z0-9._-]+(?:,[A-Za-z0-9._-]+)*\])?(?:(?:===|==|~=|!=|<=|>=|<|>)[A-Za-z0-9*+.!_-]+(?:,(?:===|==|~=|!=|<=|>=|<|>)[A-Za-z0-9*+.!_-]+)*)?$/u
-const protectedPipInstallOptions = new Set([
-  "-c",
-  "-e",
-  "-f",
-  "-i",
-  "-r",
-  "-t",
-  "--break-system-packages",
-  "--build-constraint",
-  "--config-file",
-  "--constraint",
-  "--default-index",
-  "--editable",
-  "--extra-index-url",
-  "--find-links",
-  "--group",
-  "--index",
-  "--index-url",
-  "--prefix",
-  "--requirement",
-  "--requirements-from-script",
-  "--root",
-  "--target",
-  "--trusted-host",
-  "--user",
-])
 
 function canonicalPythonPackageName(value: string): string {
   return value.toLowerCase().replace(/[._-]+/gu, "-")
-}
-
-function pipOptionName(word: string): string {
-  if (!word.startsWith("--")) {
-    for (const shortOption of ["-c", "-e", "-f", "-i", "-r", "-t"]) {
-      if (word.startsWith(shortOption) && word !== shortOption) {
-        return shortOption
-      }
-    }
-  }
-  const separator = word.indexOf("=")
-  return separator >= 0 ? word.slice(0, separator) : word
 }
 
 function managedPythonPackageNames(words: readonly string[]): string[] | null {
@@ -1079,7 +1043,7 @@ export function permissionRequestNeedsDefaultPrompt(
   }
   if (kind === "command") {
     const command = commandWithoutHereDocumentBodies(commandText(request))
-    return isDependencyMutationCommand(command)
+    return dependencyCommandChangesScope(command)
   }
   // Broad non-sensitive reads are consequence-free. Keep confirmation for edits whose requested
   // scope is itself a home/system root; destructive shell commands are already gated above.

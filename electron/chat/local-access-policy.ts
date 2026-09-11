@@ -100,6 +100,7 @@ export function localAccessPromptReason(
   const scope = permissionScope(request, context)
   if (permissionRequestHasSensitiveResource(request, scope)) return "sensitive_resource"
   if (isHighRiskPermissionRequest(request, scope)) return "high_risk_command"
+  if (permissionRequestIsSelectedProjectEnvWrite(request, scope)) return "project_environment_write"
   if (permissionRequestHasBroadResource(request)) return "broad_resource"
   if (permissionRequestNeedsDefaultPrompt(request, scope)) return "dependency_mutation"
   return "unclassified_request"
@@ -250,6 +251,20 @@ function evaluateBaselineLocalAccessRequest(
     return { type: "allow", reason: "bounded_cleanup", kind, highRisk }
   }
   if (highRisk) {
+    // Reuse the existing sequence parser only for proven cleanup composition.
+    // Each smaller request must independently pass all boundaries; no shell is executed here.
+    const steps = command ? scopedCommandSequence(command, commandCwd) : undefined
+    if (
+      steps?.every(
+        (step) =>
+          evaluateBaselineLocalAccessRequest(
+            { ...request, resources: [], save: undefined, metadata: { command: step.command, cwd: step.cwd } },
+            { ...context, commandCwd: step.cwd, sessionGrants: undefined },
+          ).type === "allow",
+      )
+    ) {
+      return { type: "allow", reason: "bounded_cleanup", kind, highRisk }
+    }
     return { type: "prompt", kind, highRisk }
   }
   // OOMOL's bundled `oo` CLI is a first-party working channel. A parser miss
@@ -258,12 +273,13 @@ function evaluateBaselineLocalAccessRequest(
   // commands continue below, where credential, sensitive-resource, high-risk,
   // dependency, and project boundaries have already been applied.
   if (
-    (context.taskProcessRoot &&
+    !permissionRequestNeedsDefaultPrompt(request, scope) &&
+    ((context.taskProcessRoot &&
       (isTaskScopedPythonDependencyInstallRequest(request, context.taskProcessRoot, processCwd) ||
         isStandardRegistryNodeDependencyInstallRequest(request, context.taskProcessRoot, processCwd))) ||
-    (context.trustedProjectRoot &&
-      (isProjectScopedPythonDependencyInstallRequest(request, context.trustedProjectRoot, projectCwd) ||
-        isStandardRegistryNodeDependencyInstallRequest(request, context.trustedProjectRoot, projectCwd)))
+      (context.trustedProjectRoot &&
+        (isProjectScopedPythonDependencyInstallRequest(request, context.trustedProjectRoot, projectCwd) ||
+          isStandardRegistryNodeDependencyInstallRequest(request, context.trustedProjectRoot, projectCwd))))
   ) {
     return { type: "allow", reason: "trusted_dependency", kind, highRisk }
   }
@@ -284,26 +300,6 @@ function evaluateBaselineLocalAccessRequest(
     return { type: "prompt", kind, highRisk }
   }
   if (permissionRequestNeedsDefaultPrompt(request, scope)) {
-    // The full request has already passed credential, sensitive-resource, and
-    // consequential-operation checks. A dependency chain needs no extra prompt
-    // when every step independently qualifies under the same policy.
-    const steps = command ? scopedCommandSequence(command, commandCwd) : undefined
-    if (
-      steps?.every(
-        (step) =>
-          evaluateBaselineLocalAccessRequest(
-            {
-              ...request,
-              resources: [],
-              save: undefined,
-              metadata: { command: step.command, ...(step.cwd ? { cwd: step.cwd } : {}) },
-            },
-            { ...context, commandCwd: step.cwd, sessionGrants: undefined },
-          ).type === "allow",
-      )
-    ) {
-      return { type: "allow", reason: "trusted_dependency", kind, highRisk }
-    }
     return { type: "prompt", kind, highRisk }
   }
   if (context.trustedProjectRoot && projectPermissionRequestInsideRoot(request, context.trustedProjectRoot)) {

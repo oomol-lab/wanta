@@ -6,6 +6,9 @@ import type { DetectedResponseLanguage } from "./response-language.ts"
 import { appLocales } from "../app-locale.ts"
 import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../knowledge/common.ts"
 
+const ordinaryDependencyGuidance =
+  "- Ordinary dependency installation follows the default command policy; variables, unproven cwd, command lists, and multiline scripts are not confirmation reasons by themselves. Prefer the task-private environment. Explicit global/user/system installation, destination overrides, external requirements inputs, alternate sources, and existing protected operations still require approval. This is not an execution sandbox."
+
 const declinedToolGuidance =
   "- Cancelling a tool call rejects the whole call, not just one operation within it. Do not repeat or repackage it without new authorization. Unless the user asked to stop, continue independent work or a different approach within the original authorization that omits the rejected side effects. If that is not possible or authorization is unclear, report completed work and what remains blocked."
 
@@ -194,6 +197,7 @@ export function buildPermissionModeSystem(mode: AgentPermissionMode | undefined,
     "- Wanta may pause only for consequential boundaries such as protected private data, broad edit scopes, deleting `/tmp` or `/var/tmp` themselves, and destructive deletion that is not managed scratch or an exact well-known generated project root, global/system dependency changes, alternate package sources, privilege escalation, git push/reset --hard/clean, deletion-enabled rsync, Docker volume pruning, Helm uninstall, publishing/deployment, or infrastructure mutations. Read-only dry runs of git push and rsync do not require confirmation. Unrelated temporary directories are not automatically approved for recursive deletion. Standard project-local Node.js dependency operations with no source override are approved automatically when they target the task directory or current project — including a proven permission-request cwd, `cd`, or the package manager's project-directory option — including lockfile-driven operations with no package argument. Direct Python packages are approved in the exact task-private or selected-project virtual-environment interpreter (directly or through `uv pip --python`), including relative interpreters when the proven cwd is that root. These bounded dependency operations are approved regardless of package name, size, or runtime; unfamiliar ordinary flags, Node.js/Python package runners, inert log redirects, `git restore` of named files, and named `docker rm`/`rmi` are not confirmation boundaries. A `.env` file inside the selected project may be read automatically; writing it still pauses.",
     "- Do not ask the user to approve ordinary local tool calls or switch modes. If Wanta pauses for a protected operation, ask only for that specific operation.",
     declinedToolGuidance,
+    ordinaryDependencyGuidance,
   ]
   if (browserAvailable) {
     lines.push(
@@ -229,6 +233,7 @@ export function buildExternalPermissionModeSystem(
     "Permission mode for this turn: Default Access with Wanta's shared approval policy and the external agent's native enforcement.",
     "- Use local tools normally when they are useful; do not ask for conversational confirmation before the native runtime requests it.",
     declinedToolGuidance,
+    ordinaryDependencyGuidance,
     "- Wanta applies the same local permission policy to every agent. Ordinary shell, file, project, and managed-output operations are approved automatically; only protected or consequential boundaries should interrupt the user.",
     "- Wanta-managed business capabilities separately enforce their own confirmation, identity, and data-safety rules.",
   ]

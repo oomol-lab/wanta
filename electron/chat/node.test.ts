@@ -532,8 +532,8 @@ test("active run snapshots track permission waits and completion", async () => {
     properties: {
       action: "bash",
       id: "permission-1",
-      resources: ["npm install"],
-      metadata: { command: "npm install" },
+      resources: ["npm install -g cowsay"],
+      metadata: { command: "npm install -g cowsay" },
       sessionID: "session-1",
     },
   })
@@ -3468,8 +3468,8 @@ test("full access mode propagates to active task subagents and clears their pare
     id: "permission-1",
     sessionId: "child-session",
     action: "bash",
-    resources: ["npm install"],
-    metadata: { command: "npm install" },
+    resources: ["npm install -g cowsay"],
+    metadata: { command: "npm install -g cowsay" },
   }
   bridge.getPendingPermissions.mockImplementation(async (sessionId: string) =>
     sessionId === "child-session" ? [childPermission] : [],
@@ -3499,8 +3499,8 @@ test("full access mode propagates to active task subagents and clears their pare
       id: "permission-2",
       sessionID: "child-session",
       action: "bash",
-      resources: ["npm install another-package"],
-      metadata: { command: "npm install another-package" },
+      resources: ["npm install -g cowsay another-package"],
+      metadata: { command: "npm install -g cowsay another-package" },
     },
   })
   await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
@@ -3673,8 +3673,8 @@ test("forgetSession clears session-scoped permission state", async () => {
       id: "permission-1",
       sessionID: "session-1",
       action: "bash",
-      resources: ["npm install"],
-      metadata: { command: "npm install" },
+      resources: ["npm install -g cowsay"],
+      metadata: { command: "npm install -g cowsay" },
     },
   })
 
@@ -3722,8 +3722,8 @@ test("permission mode persistence failures roll back the runtime mode", async ()
       id: "permission-1",
       sessionID: "session-1",
       action: "bash",
-      resources: ["npm install"],
-      metadata: { command: "npm install" },
+      resources: ["npm install -g cowsay"],
+      metadata: { command: "npm install -g cowsay" },
     },
   })
 
@@ -4338,8 +4338,8 @@ test("default command approvals still prompt unsafe package mutations", async ()
       id: "permission-3",
       sessionID: "session-1",
       action: "bash",
-      resources: ["npm install"],
-      metadata: { command: "npm install" },
+      resources: ["npm install -g cowsay"],
+      metadata: { command: "npm install -g cowsay" },
     },
   })
 
@@ -5416,4 +5416,36 @@ test("draft save rejects a stale owner after persistence completes", async () =>
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test("ordinary dependency scripts auto-reply without a user-facing permission card", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "Check the PDF" })
+  const commands = [
+    'PROC=/work/task\npython3 -m venv "$PROC/.wanta-python" && "$PROC/.wanta-python/bin/python" -m pip install -q pypdf && "$PROC/.wanta-python/bin/python" - <<\'PY\'\nfrom pypdf import PdfReader\nprint(42)\nPY',
+    "ROOT=/work/task\npnpm --dir \"$ROOT\" add lodash && node <<'JS'\nconsole.log(42)\nJS",
+  ]
+  for (const [index, command] of commands.entries()) {
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: {
+        id: `dependency-${index}`,
+        sessionID: "session-1",
+        action: "bash",
+        resources: [command],
+        metadata: { command },
+      },
+    })
+  }
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === commands.length)
+  expect(bridge.answerPermission.mock.calls).toEqual([
+    ["session-1", "dependency-0", "once"],
+    ["session-1", "dependency-1", "once"],
+  ])
+  expect(events.some((event) => event.event === "permissionAsked")).toBe(false)
+  expect(bridge.promptStreaming).toHaveBeenCalledTimes(1)
+  service.dispose()
 })

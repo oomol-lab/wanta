@@ -92,6 +92,10 @@ export function permissionPresentation(request: ChatPermissionRequest): Permissi
     result.title = "permissionPrompt.broadTitle"
     result.description = "permissionPrompt.broadBody"
     result.allow = "permissionPrompt.access"
+  } else if (reason === "project_environment_write") {
+    result.title = "permissionPrompt.editTitle"
+    result.description = "permissionPrompt.editBody"
+    result.allow = "permissionPrompt.edit"
   } else {
     const deletion = permissionDeletionTargets(command)
     if (deletion) {

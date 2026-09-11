@@ -83,11 +83,13 @@ describe("permission presentation", () => {
   it("preserves the host's classification of a project environment edit", () => {
     const view = permissionPresentation(
       request("printf 'FOO=1' > /project/.env", {
-        wanta: { promptReason: "unclassified_request" },
+        wanta: { promptReason: "project_environment_write" },
       }),
     )
     expect(view.caution).toBe(false)
-    expect(view.title).toBe("permissionPrompt.unknownTitle")
+    expect(view.title).toBe("permissionPrompt.editTitle")
+    expect(view.allow).toBe("permissionPrompt.edit")
+    expect(view.detailsOpen).toBe(false)
   })
   it("shows folder grants including broader saved patterns", () => {
     const view = permissionPresentation({

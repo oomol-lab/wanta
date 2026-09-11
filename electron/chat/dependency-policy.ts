@@ -6,6 +6,45 @@ import {
   unwrappedShellCommandWords,
 } from "./shell-syntax.ts"
 
+export const protectedPipInstallOptions = new Set([
+  "-c",
+  "-e",
+  "-f",
+  "-i",
+  "-r",
+  "-t",
+  "--break-system-packages",
+  "--build-constraint",
+  "--config-file",
+  "--constraint",
+  "--default-index",
+  "--editable",
+  "--extra-index-url",
+  "--find-links",
+  "--group",
+  "--index",
+  "--index-url",
+  "--prefix",
+  "--requirement",
+  "--requirements-from-script",
+  "--root",
+  "--target",
+  "--trusted-host",
+  "--user",
+])
+
+export function pipOptionName(word: string): string {
+  if (!word.startsWith("--")) {
+    for (const shortOption of ["-c", "-e", "-f", "-i", "-r", "-t"]) {
+      if (word.startsWith(shortOption) && word !== shortOption) {
+        return shortOption
+      }
+    }
+  }
+  const separator = word.indexOf("=")
+  return separator >= 0 ? word.slice(0, separator) : word
+}
+
 const nodePackageSpecPattern = /^[A-Za-z0-9*+.!<>=~^_-]+$/u
 const nodePackageManagers = new Set(["bun", "npm", "pnpm", "yarn"])
 const nodeDependencyVerbs = new Set([
@@ -20,7 +59,6 @@ const nodeDependencyVerbs = new Set([
   "update",
   "upgrade",
 ])
-const nodeInstallVerbs = new Set(["add", "i", "install", "link"])
 const pythonDependencyVerbs = new Set(["add", "install", "remove", "uninstall"])
 const pipxDependencyVerbs = new Set([
   "inject",
@@ -359,9 +397,9 @@ function packageSpecifiersAfter(
   return specifiers
 }
 
-function segmentIsGlobalNodeInstall(words: readonly string[]): boolean {
+function segmentIsGlobalNodeMutation(words: readonly string[]): boolean {
   const operation = nodeDependencyOperation(words)
-  if (!operation || !nodeInstallVerbs.has(operation.verb)) {
+  if (!operation) {
     return false
   }
   if (operation.manager === "yarn" && nodeManagerCommand(words)?.value.toLowerCase() === "global") {
@@ -554,7 +592,7 @@ export function canonicalRegistryNodePackageName(specifier: string): string | un
 export function dependencyCommandRequiresConfirmation(command: string): boolean {
   return parsedCommandSegments(command).some(
     (words) =>
-      segmentIsGlobalNodeInstall(words) || segmentPublishesPackage(words) || segmentUsesAlternatePackageSource(words),
+      segmentIsGlobalNodeMutation(words) || segmentPublishesPackage(words) || segmentUsesAlternatePackageSource(words),
   )
 }
 
@@ -566,4 +604,23 @@ export function isDependencyMutationCommand(command: string): boolean {
 
 export function isPythonDependencyMutationCommand(command: string): boolean {
   return parsedCommandSegments(command).some((words) => Boolean(pythonDependencyOperation(words)))
+}
+
+/** Explicit dependency destination/input changes; parser misses are ordinary commands. */
+export function dependencyCommandChangesScope(command: string): boolean {
+  return parsedCommandSegments(command).some((words) => {
+    const name = shellCommandName(words[0])
+    if (nodeDependencyOperation(words)) {
+      return words.some((word) =>
+        ["--global-folder", "--modules-dir", "--store-dir", "--virtual-store-dir"].includes(optionName(word)),
+      )
+    }
+    if (!pythonDependencyOperation(words)) return false
+    if (name === "pipx") return true
+    if (name === "uv" && nextCliWord(words, 1, pythonOptionsWithValue)?.value === "tool") return true
+    return words.some((word) => {
+      const option = pipOptionName(word)
+      return protectedPipInstallOptions.has(option) || option === "--system"
+    })
+  })
 }

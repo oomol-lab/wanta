@@ -52,6 +52,27 @@ export interface ManagedPythonDependencyInstall {
   packages: string[]
 }
 
+// Recognize only a complete, literal deletion command. Compound commands,
+// expansion, unknown options and scripts must keep the uncertain presentation.
+export function permissionDeletionTargets(command: string | undefined): string[] | undefined {
+  if (!command || hasUnsafeShellSyntax(command)) return
+  const words = shellWords(command)
+  if (!words || !["rm", "/bin/rm", "/usr/bin/rm"].includes(words[0] ?? "")) return
+  const targets: string[] = []
+  let optionsEnded = false
+  for (const word of words.slice(1)) {
+    if (!optionsEnded && word === "--") {
+      optionsEnded = true
+    } else if (!optionsEnded && word.startsWith("-")) {
+      if (!/^-[rfdiIvPR]+$/u.test(word) && !["--recursive", "--force", "--dir", "--verbose"].includes(word)) return
+    } else {
+      if (!word || word.startsWith("~") || /[$`*?[\]{}\n\r]/u.test(word)) return
+      targets.push(word)
+    }
+  }
+  return targets.length ? targets : undefined
+}
+
 export function permissionAction(request: ChatPermissionRequest): string {
   return request.action.trim().toLowerCase()
 }

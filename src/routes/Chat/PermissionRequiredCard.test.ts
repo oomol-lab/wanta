@@ -34,8 +34,8 @@ describe("PermissionRequiredCard", () => {
       sessionId: "session-1",
     })
 
-    expect(html).toContain("需要运行本地命令")
-    expect(html).not.toContain("需要确认高风险命令")
+    expect(html).toContain("运行电脑上的一项操作？")
+    expect(html).not.toContain("允许执行可能造成较大影响的操作？")
   })
 
   it("keeps global package installation in the high-risk presentation", () => {
@@ -47,7 +47,7 @@ describe("PermissionRequiredCard", () => {
       sessionId: "session-1",
     })
 
-    expect(html).toContain("需要确认高风险命令")
+    expect(html).toContain("允许执行可能造成较大影响的操作？")
   })
 
   it("does not offer task-scoped Python approval when the request also accesses sensitive data", () => {
@@ -61,9 +61,9 @@ describe("PermissionRequiredCard", () => {
       sessionId: "session-1",
     })
 
-    expect(html).toContain("需要确认私密数据访问")
-    expect(html).toContain("允许本次操作")
-    expect(html).not.toContain("本次任务允许这些 Python 依赖")
+    expect(html).toContain("允许访问可能包含私密信息的内容？")
+    expect(html).toContain("允许这次访问")
+    expect(html).not.toContain("在本次任务中允许安装这些工具")
   })
 
   it("explains protected Python dependency operations as scope boundaries", () => {
@@ -75,8 +75,8 @@ describe("PermissionRequiredCard", () => {
       sessionId: "session-1",
     })
 
-    expect(html).toContain("需要安装 Python 依赖")
-    expect(html).toContain("目标范围或依赖来源超出了自动批准边界")
+    expect(html).toContain("允许更改已安装的工具？")
+    expect(html).toContain("核对工具来源和安装范围")
   })
 
   it("explains broad local access instead of presenting a generic path prompt", () => {
@@ -88,8 +88,8 @@ describe("PermissionRequiredCard", () => {
       wanta: { promptReason: "broad_resource" },
     })
 
-    expect(html).toContain("需要确认大范围访问")
-    expect(html).toContain("可能包含与当前任务无关的文件")
+    expect(html).toContain("允许访问更大范围的文件？")
+    expect(html).toContain("可能包含你没有为本次任务选择的文件")
   })
 
   it("distinguishes an automatic-reply failure from a high-risk operation", () => {
@@ -102,9 +102,9 @@ describe("PermissionRequiredCard", () => {
       wanta: { automaticReplyFailed: true, promptReason: "automatic_reply_failed" },
     })
 
-    expect(html).toContain("自动批准未完成")
-    expect(html).toContain("不表示操作本身被判定为高风险")
-    expect(html).not.toContain("需要确认高风险命令")
+    expect(html).toContain("这一步暂时未能继续")
+    expect(html).toContain("未能成功传递这一步的执行许可")
+    expect(html).not.toContain("允许执行可能造成较大影响的操作？")
   })
 
   it("treats selected-project env writes as ordinary edits, not private data", () => {
@@ -116,9 +116,9 @@ describe("PermissionRequiredCard", () => {
       wanta: { promptReason: "unclassified_request" },
     })
 
-    expect(html).toContain("需要修改文件")
-    expect(html).toContain("本会话内允许此路径")
-    expect(html).not.toContain("需要确认私密数据访问")
+    expect(html).toContain("允许修改这些文件？")
+    expect(html).toContain("在这个对话中允许修改此位置的文件")
+    expect(html).not.toContain("允许访问可能包含私密信息的内容？")
   })
 
   it("does not present a selected-project env shell write as high risk", () => {
@@ -131,9 +131,9 @@ describe("PermissionRequiredCard", () => {
       wanta: { promptReason: "unclassified_request" },
     })
 
-    expect(html).toContain("需要运行本地命令")
-    expect(html).not.toContain("需要确认高风险命令")
-    expect(html).not.toContain("需要确认私密数据访问")
+    expect(html).toContain("运行电脑上的一项操作？")
+    expect(html).not.toContain("允许执行可能造成较大影响的操作？")
+    expect(html).not.toContain("允许访问可能包含私密信息的内容？")
   })
 
   it("explains an unbounded Node dependency operation as a policy boundary", () => {
@@ -146,7 +146,7 @@ describe("PermissionRequiredCard", () => {
       wanta: { promptReason: "dependency_mutation" },
     })
 
-    expect(html).toContain("需要确认依赖操作")
-    expect(html).toContain("目标项目、安装范围或依赖来源不在自动批准边界内")
+    expect(html).toContain("允许更改已安装的工具？")
+    expect(html).toContain("核对工具来源和安装范围")
   })
 })

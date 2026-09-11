@@ -1,4 +1,5 @@
 import type { ComposerDraftRecord } from "../../../electron/chat/common.ts"
+import type { ComposerAction } from "./composer-state.ts"
 
 import { afterEach, expect, test, vi } from "vitest"
 import { ComposerDrafts } from "./composer-draft-store.ts"
@@ -63,6 +64,104 @@ test("successful submission cannot clear edits made after it started", async () 
   expect(binding.getSnapshot().draft).toBe("second")
   drafts.consume("new", binding.getSnapshot())
   expect(binding.getSnapshot().draft).toBe("")
+})
+
+test.each<ComposerAction>([
+  { type: "set-draft-selection", selection: { start: 0, end: 0 } },
+  { type: "set-draft-selection", selection: { start: 5, end: 5 } },
+  { type: "set-dismissed-trigger-key", key: "palette" },
+  { type: "set-draft", draft: "first", selection: { start: 0, end: 0 } },
+])("successful submission clears text after a UI-only update: $type $selection", async (action) => {
+  const save = vi.fn().mockResolvedValue(undefined)
+  const drafts = new ComposerDrafts(async () => ({}), save)
+  await drafts.initialize()
+  const binding = drafts.binding("session")
+  binding.dispatch({ type: "set-draft", draft: "first", selection: { start: 5, end: 5 } })
+  const submitted = binding.getSnapshot()
+  binding.dispatch(action)
+  drafts.consume("session", submitted)
+  await drafts.flush()
+  expect(binding.getSnapshot().draft).toBe("")
+  expect(save).toHaveBeenLastCalledWith("session", null)
+})
+
+test("successful submission preserves updated preferences while clearing sent content", async () => {
+  const drafts = new ComposerDrafts(
+    async () => ({}),
+    async () => {},
+  )
+  await drafts.initialize()
+  const binding = drafts.binding("new")
+  binding.dispatch({ type: "set-draft", draft: "first", selection: { start: 5, end: 5 } })
+  const submitted = binding.getSnapshot()
+  const preferences = { agentKind: "opencode" as const, permissionMode: "default" as const, knowledgeBaseIds: [] }
+  drafts.preferences("new", preferences)
+  binding.dispatch({ type: "set-draft-selection", selection: { start: 0, end: 0 } })
+  drafts.consume("new", submitted)
+  expect(binding.getSnapshot()).toMatchObject({ draft: "", preferences })
+  await drafts.flush()
+})
+
+test("editing away and back or undoing a clear creates a new draft even with identical text", async () => {
+  const drafts = new ComposerDrafts(
+    async () => ({}),
+    async () => {},
+  )
+  await drafts.initialize()
+  const binding = drafts.binding("session")
+  binding.dispatch({ type: "set-draft", draft: "first", selection: { start: 5, end: 5 } })
+  const submitted = binding.getSnapshot()
+  binding.dispatch({ type: "set-draft", draft: "second", selection: { start: 6, end: 6 } })
+  binding.dispatch({ type: "set-draft", draft: "first", selection: { start: 5, end: 5 } })
+  binding.dispatch({ type: "set-draft-selection", selection: { start: 0, end: 0 } })
+  drafts.consume("session", submitted)
+  expect(binding.getSnapshot().draft).toBe("first")
+  const resubmitted = binding.getSnapshot()
+  const undo = binding.clear()
+  undo()
+  drafts.consume("session", resubmitted)
+  expect(binding.getSnapshot().draft).toBe("first")
+  await drafts.flush()
+})
+
+test.each<ComposerAction>([
+  { type: "add-attachments", attachments: [attachment] },
+  { type: "add-context-mention", mention: { kind: "skill", id: "new-skill", name: "New skill" } },
+  { type: "remove-command" },
+])("successful submission preserves new content after $type and a cursor update", async (action) => {
+  const drafts = new ComposerDrafts(
+    async () => ({ session: { ...initialComposerState(), command: "bug-report" as const, dismissedTriggerKey: null } }),
+    async () => {},
+  )
+  await drafts.initialize()
+  const binding = drafts.binding("session")
+  binding.dispatch({ type: "set-draft", draft: "first", selection: { start: 5, end: 5 } })
+  const submitted = binding.getSnapshot()
+  binding.dispatch(action)
+  binding.dispatch({ type: "set-draft-selection", selection: { start: 0, end: 0 } })
+  const edited = binding.getSnapshot()
+  drafts.consume("session", submitted)
+  expect(binding.getSnapshot()).toBe(edited)
+  await drafts.flush()
+})
+
+test("successful submission preserves an import started while sending and its eventual attachment", async () => {
+  const drafts = new ComposerDrafts(
+    async () => ({}),
+    async () => {},
+  )
+  await drafts.initialize()
+  const binding = drafts.binding("session")
+  binding.dispatch({ type: "set-draft", draft: "first", selection: { start: 5, end: 5 } })
+  const submitted = binding.getSnapshot()
+  const finish = binding.beginImport()
+  binding.dispatch({ type: "set-draft-selection", selection: { start: 0, end: 0 } })
+  drafts.consume("session", submitted)
+  expect(binding.getSnapshot().pendingImports).toBe(1)
+  finish([attachment])
+  drafts.consume("session", submitted)
+  expect(binding.getSnapshot().attachments).toEqual([attachment])
+  await drafts.flush()
 })
 
 test("undo preserves interrupted imports even when the restored draft has no other content", async () => {

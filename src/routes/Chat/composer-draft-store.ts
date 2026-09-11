@@ -32,6 +32,7 @@ export class ComposerDrafts {
   private failedKeys = new Set<string>()
   private timers = new Map<string, ReturnType<typeof setTimeout>>()
   private bindings = new Map<string, ComposerDraftBinding>()
+  private contentVersions = new WeakMap<ComposerState, symbol>()
   constructor(
     privateLoad: () => Promise<Record<string, ComposerDraftRecord>>,
     privateSave: (key: string, value: ComposerDraftRecord | null) => Promise<void>,
@@ -104,10 +105,20 @@ export class ComposerDrafts {
     for (const key of this.timers.keys()) this.persist(key, true)
     return this.queue
   }
+  private contentVersion(state: ComposerState): symbol {
+    let version = this.contentVersions.get(state)
+    if (!version) {
+      version = Symbol()
+      this.contentVersions.set(state, version)
+    }
+    return version
+  }
   preferences(key: string, preferences: ComposerDraftPreferences) {
     const current = this.entries.get(key)
     if (!current || JSON.stringify(current.preferences) === JSON.stringify(preferences)) return
-    this.entries.set(key, { ...current, preferences })
+    const next = { ...current, preferences }
+    this.contentVersions.set(next, this.contentVersion(current))
+    this.entries.set(key, next)
     this.persist(key)
     this.emit()
   }
@@ -125,7 +136,8 @@ export class ComposerDrafts {
     return true
   }
   consume(key: string, submitted: ComposerState | undefined) {
-    if (this.entries.get(key) === submitted) this.clear(key)
+    const current = this.entries.get(key)
+    if (current && submitted && this.contentVersion(current) === this.contentVersion(submitted)) this.clear(key)
   }
   clear(key: string) {
     const previous = this.entries.get(key)
@@ -173,7 +185,17 @@ export class ComposerDrafts {
       },
       dispatch: (action) => {
         const current = this.entries.get(key)!
-        this.entries.set(key, composerReducer(current, action))
+        const next = composerReducer(current, action)
+        // Cursor and palette updates do not create a new unsent message. Keep a
+        // version per content edit so editing away and back still protects it.
+        if (
+          action.type === "set-draft-selection" ||
+          action.type === "set-dismissed-trigger-key" ||
+          (action.type === "set-draft" && action.draft === current.draft)
+        ) {
+          this.contentVersions.set(next, this.contentVersion(current))
+        }
+        this.entries.set(key, next)
         this.persist(key, action.type !== "set-draft" && action.type !== "set-draft-selection")
         this.emit()
       },

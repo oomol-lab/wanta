@@ -2299,5 +2299,6 @@
   "teams.localSkillsComplete": "Todas instaladas en este dispositivo",
   "teams.skillsCredentialNote": "Se comparte la lista de habilidades, pero no las credenciales de conexión personales.",
   "teams.browseSkillsTitle": "Ver habilidades recomendadas",
-  "teams.browseSkillsDescription": "Descubre habilidades para los servicios conectados del equipo e instálalas en este dispositivo."
+  "teams.browseSkillsDescription": "Descubre habilidades para los servicios conectados del equipo e instálalas en este dispositivo.",
+  "teams.sharedSkillsGroup": "Compartidas por el equipo"
 }

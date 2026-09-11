@@ -2299,5 +2299,6 @@
   "teams.localSkillsComplete": "Toutes installées sur cet appareil",
   "teams.skillsCredentialNote": "La liste est partagée, mais pas les identifiants de connexion personnels.",
   "teams.browseSkillsTitle": "Voir les compétences recommandées",
-  "teams.browseSkillsDescription": "Découvrez des compétences pour les services connectés de l’équipe et installez-les sur cet appareil."
+  "teams.browseSkillsDescription": "Découvrez des compétences pour les services connectés de l’équipe et installez-les sur cet appareil.",
+  "teams.sharedSkillsGroup": "Partagées par l’équipe"
 }

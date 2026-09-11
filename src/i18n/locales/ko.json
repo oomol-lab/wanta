@@ -2299,5 +2299,6 @@
   "teams.localSkillsComplete": "이 기기에 모두 설치됨",
   "teams.skillsCredentialNote": "스킬 목록은 공유되지만 개인 연결 인증 정보는 공유되지 않습니다.",
   "teams.browseSkillsTitle": "추천 스킬 보기",
-  "teams.browseSkillsDescription": "팀에 연결된 서비스의 스킬을 찾아 이 기기에 설치할 수 있습니다."
+  "teams.browseSkillsDescription": "팀에 연결된 서비스의 스킬을 찾아 이 기기에 설치할 수 있습니다.",
+  "teams.sharedSkillsGroup": "팀 공유"
 }

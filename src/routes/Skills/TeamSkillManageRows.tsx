@@ -519,6 +519,7 @@ export const TeamSkillManageRow = React.memo(function TeamSkillManageRow({
 })
 
 export const TeamSkillRecommendationRow = React.memo(function TeamSkillRecommendationRow({
+  compact = false,
   selectionOnly = false,
   addBusy,
   installBusy,
@@ -533,6 +534,7 @@ export const TeamSkillRecommendationRow = React.memo(function TeamSkillRecommend
   addBusy: boolean
   installBusy: boolean
   actionsDisabled: boolean
+  compact?: boolean
   selectionOnly?: boolean
   canManage: boolean
   onAdd: (recommendation: ProviderSkillRecommendation, options: { installRuntime: boolean }) => Promise<void>
@@ -556,11 +558,13 @@ export const TeamSkillRecommendationRow = React.memo(function TeamSkillRecommend
       title={recommendation.package.displayName}
       description={teamSkillListDescription(skillDescription)}
       badges={
-        selectionOnly ? undefined : (
+        selectionOnly || compact ? undefined : (
           <>
-            <Badge variant="secondary" className="shrink-0">
-              {t("teams.skillManageRecommended")}
-            </Badge>
+            {!compact ? (
+              <Badge variant="secondary" className="shrink-0">
+                {t("teams.skillManageRecommended")}
+              </Badge>
+            ) : null}
             <Badge variant="outline" className="shrink-0">
               {getPublicSkillInstallStateLabel(recommendation.installState, t)}
             </Badge>
@@ -568,7 +572,7 @@ export const TeamSkillRecommendationRow = React.memo(function TeamSkillRecommend
         )
       }
       meta={
-        selectionOnly ? undefined : (
+        selectionOnly || compact ? undefined : (
           <div className="min-w-0 truncate" title={recommendation.packageName}>
             {recommendation.providerDisplayName} · {recommendation.packageName} · {recommendation.skillId}
           </div>
@@ -576,6 +580,9 @@ export const TeamSkillRecommendationRow = React.memo(function TeamSkillRecommend
       }
       actions={
         <>
+          {compact && !selectionOnly && !canInstallRuntime ? (
+            <Badge variant="outline">{getPublicSkillInstallStateLabel(recommendation.installState, t)}</Badge>
+          ) : null}
           {!selectionOnly && opensManagement ? (
             <Button type="button" variant="ghost" size="sm" onClick={openManagedSkill}>
               {t("skills.installedManage")}

@@ -2299,5 +2299,6 @@
   "teams.localSkillsComplete": "すべてインストール済み",
   "teams.skillsCredentialNote": "スキル一覧は共有されますが、個人の接続認証情報は共有されません。",
   "teams.browseSkillsTitle": "おすすめスキルを見る",
-  "teams.browseSkillsDescription": "チームの接続済みサービスに対応するスキルを探し、このデバイスにインストールできます。"
+  "teams.browseSkillsDescription": "チームの接続済みサービスに対応するスキルを探し、このデバイスにインストールできます。",
+  "teams.sharedSkillsGroup": "チーム共有"
 }

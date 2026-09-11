@@ -2299,5 +2299,6 @@
   "teams.localSkillsComplete": "本機已全部安裝",
   "teams.skillsCredentialNote": "共用技能清單，不共用個人連線憑證。",
   "teams.browseSkillsTitle": "查看推薦技能",
-  "teams.browseSkillsDescription": "根據團隊已連線的服務探索技能，可安裝到本機使用。"
+  "teams.browseSkillsDescription": "根據團隊已連線的服務探索技能，可安裝到本機使用。",
+  "teams.sharedSkillsGroup": "團隊共用"
 }

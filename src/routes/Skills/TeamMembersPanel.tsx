@@ -17,12 +17,14 @@ import { cn } from "@/lib/utils"
 export { AddMemberDialog, CreateTeamDialog, TeamProfileSettingsPanel } from "./TeamMemberDialogs.tsx"
 
 export function TeamMemberAccessButton({
+  showAvatars = true,
   canManage,
   members,
   membersComplete,
   membersLoading,
   onOpen,
 }: {
+  showAvatars?: boolean
   canManage: boolean
   members: MemberView[]
   membersComplete: boolean
@@ -44,7 +46,7 @@ export function TeamMemberAccessButton({
       aria-label={t("teams.memberAccessAriaLabel", { count: countLabel, label })}
       onClick={onOpen}
     >
-      {membersLoading ? (
+      {!showAvatars ? null : membersLoading ? (
         <MemberAvatarStackSkeleton />
       ) : members.length > 0 ? (
         <MemberAvatarStack members={members} />

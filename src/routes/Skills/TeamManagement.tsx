@@ -82,6 +82,7 @@ export function TeamManagementRoute({
   const [busyAction, setBusyAction] = React.useState<BusyAction | null>(null)
   const [addMemberOpen, setAddMemberOpen] = React.useState(false)
   const [addMemberError, setAddMemberError] = React.useState<string | null>(null)
+  const [skillActionsContainer, setSkillActionsContainer] = React.useState<HTMLDivElement | null>(null)
   const [activeTab, setActiveTab] = React.useState<TeamPageTab>("skills")
   const [managedSkillId, setManagedSkillId] = React.useState<string | null>(null)
   const [selectedPackage, setSelectedPackage] = React.useState<PublicSkillPackage | null>(null)
@@ -335,23 +336,31 @@ export function TeamManagementRoute({
                     }}
                     className="min-h-0 min-w-0 gap-0"
                   >
-                    <TabsList variant="line" className="w-full shrink-0 justify-start border-b">
-                      <TabsTrigger className="flex-none px-4" value="skills">
-                        {t("teams.skillGuideTitle")}
-                      </TabsTrigger>
-                      <TabsTrigger className="flex-none px-4" value="members">
-                        {t("teams.membersTab")}
-                      </TabsTrigger>
-                      {canManage ? (
-                        <TabsTrigger className="flex-none px-4" value="settings">
-                          {t("teams.settingsTab")}
+                    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b">
+                      <TabsList variant="line" className="shrink-0 justify-start">
+                        <TabsTrigger className="flex-none px-4" value="skills">
+                          {t("nav.skills")}
                         </TabsTrigger>
-                      ) : null}
-                    </TabsList>
+                        <TabsTrigger className="flex-none px-4" value="members">
+                          {t("teams.membersTab")}
+                        </TabsTrigger>
+                        {canManage ? (
+                          <TabsTrigger className="flex-none px-4" value="settings">
+                            {t("teams.settingsTab")}
+                          </TabsTrigger>
+                        ) : null}
+                      </TabsList>
+                      <div
+                        ref={setSkillActionsContainer}
+                        hidden={visibleTab !== "skills" || Boolean(managedSkill || selectedPackage)}
+                        className="pb-1"
+                      />
+                    </div>
                     <TabsContent value="skills" className="min-h-0 overflow-hidden pt-3">
                       <div hidden={Boolean(managedSkill || selectedPackage)} className="h-full min-h-0">
                         {selectedTeamSkills ? (
                           <TeamSkillGuidePanel
+                            actionsContainer={skillActionsContainer}
                             busyAction={busyAction}
                             runtimeInventoryLoading={skillInventory.isInitialLoading}
                             groupById={skillGroupById}

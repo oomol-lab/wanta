@@ -144,6 +144,9 @@ test("team settings and members stay inline, and member addition uses one focuse
     />,
   )
   try {
+    expect(view.container.querySelector('[role="tablist"]')?.parentElement?.textContent).toContain(
+      "teams.skillManageMarket",
+    )
     await clickText(view.container, "teams.settingsTab")
     expect(view.container.querySelector("#edit-team-name")).not.toBeNull()
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0)
@@ -205,7 +208,7 @@ test("switching teams clears settings and member dialog; revoked management righ
       />,
     )
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0)
-    expect(view.container.querySelector('[role="tab"][data-state="active"]')?.textContent).toBe("teams.skillGuideTitle")
+    expect(view.container.querySelector('[role="tab"][data-state="active"]')?.textContent).toBe("nav.skills")
     expect(view.container.textContent).toContain("Team B")
   } finally {
     await view.unmount()
@@ -216,7 +219,7 @@ test("empty teams show recommendations directly, while addition links without in
   const props = paneProps()
   const view = await mount(<TeamSkillManagePanel {...props} />)
   try {
-    expect(view.container.textContent).toContain("teams.skillGuideEmptyTitle")
+    expect(view.container.textContent).toContain("teams.skillManageRecommended")
     expect(view.container.textContent).toContain("Suggested skill")
     await clickText(view.container, "teams.addSkillsTitle")
     expect(view.container.textContent).toContain("Suggested skill")
@@ -256,7 +259,11 @@ test("install missing includes only configured skills and waits for local invent
     expect(view.container.textContent).not.toContain("teams.skillManageInstallMissingAll")
     await view.render(<TeamSkillManagePanel {...props} />)
     expect(view.container.textContent).toContain("Configured skill")
-    expect(view.container.textContent).not.toContain("Suggested skill")
+    expect([...view.container.querySelectorAll("h2")].map((node) => node.textContent)).toEqual([
+      "teams.sharedSkillsGroup",
+      "teams.skillManageRecommended",
+    ])
+    expect(view.container.textContent).toContain("Suggested skill")
     await clickText(view.container, "teams.skillManageInstallMissingAll")
     expect(props.onInstallRuntimeSkills).toHaveBeenCalledExactlyOnceWith([
       { packageName: "oo-configured", skillName: "configured" },
@@ -303,7 +310,7 @@ test("ordinary members can discover and install recommendations without changing
     })
     expect(props.onAddRecommendation).not.toHaveBeenCalled()
     expect(props.teamSkills.addSkill).not.toHaveBeenCalled()
-    expect(view.container.textContent).toContain("teams.skillGuideEmptyTitle")
+    expect(view.container.textContent).toContain("teams.skillManageRecommended")
   } finally {
     await view.unmount()
   }

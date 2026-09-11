@@ -437,6 +437,7 @@ export const skillsMessages = {
     "teams.skillsCredentialNote": "共享技能清单，不共享个人连接凭据。",
     "teams.browseSkillsTitle": "查看推荐技能",
     "teams.browseSkillsDescription": "根据团队已连接的服务发现技能，可安装到本机使用。",
+    "teams.sharedSkillsGroup": "团队共享",
   },
   en: {
     "nav.skills": "Skills",
@@ -906,5 +907,6 @@ export const skillsMessages = {
     "teams.browseSkillsTitle": "Browse recommended skills",
     "teams.browseSkillsDescription":
       "Discover skills for the team’s connected services and install them on this device.",
+    "teams.sharedSkillsGroup": "Shared by the team",
   },
 } as const

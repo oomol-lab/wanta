@@ -97,18 +97,6 @@ export function TeamSwitcherPanel({
                     teams={teams}
                   />
                 </DropdownMenu>
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <TeamMemberAccessButton
-                    canManage={canManage}
-                    members={members}
-                    membersComplete={membersComplete}
-                    membersLoading={membersLoading}
-                    onOpen={onOpenMembers}
-                  />
-                  <span className="oo-text-caption-compact text-muted-foreground">
-                    · {t(teamRoleLabelKey(getTeamRole(selectedTeam)))}
-                  </span>
-                </div>
               </>
             ) : (
               <div className="oo-text-caption min-w-0 truncate text-muted-foreground">{t("teams.selectTeam")}</div>
@@ -116,7 +104,22 @@ export function TeamSwitcherPanel({
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-wrap gap-2 sm:justify-end">
+        <div className="flex min-w-0 flex-wrap items-center gap-3 sm:justify-end">
+          {selectedTeam ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <TeamMemberAccessButton
+                showAvatars={false}
+                canManage={canManage}
+                members={members}
+                membersComplete={membersComplete}
+                membersLoading={membersLoading}
+                onOpen={onOpenMembers}
+              />
+              <span className="oo-text-caption-compact text-muted-foreground">
+                · {t(teamRoleLabelKey(getTeamRole(selectedTeam)))}
+              </span>
+            </div>
+          ) : null}
           {selectedTeam && canManage ? (
             <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onAddMember}>
               <UserPlusIcon className="size-3.5" />
@@ -238,7 +241,7 @@ export function TeamManagementSkeleton() {
               </div>
             </div>
           </div>
-          <div className="flex min-w-0 flex-wrap gap-2 sm:justify-end">
+          <div className="flex min-w-0 flex-wrap items-center gap-3 sm:justify-end">
             <Skeleton className="h-[var(--oo-control-height-compact)] w-full rounded-md sm:w-24" />
             <Skeleton className="h-[var(--oo-control-height-compact)] w-full rounded-md sm:w-28" />
           </div>

@@ -1108,6 +1108,13 @@ test.each(["policy", "user"] as const)(
         expect.stringContaining("environment_dump"),
       )
       expect(events.some((event) => event.event === "permissionAsked")).toBe(false)
+    } else {
+      expect(bridge.answerPermission).toHaveBeenCalledWith(
+        "session-1",
+        "permission-1",
+        "reject",
+        expect.stringContaining("The user declined this entire tool call"),
+      )
     }
     bridge.getMessages.mockResolvedValue([
       { id: userMessageId, role: "user", createdAt: 1, parts: [] },
@@ -1136,61 +1143,69 @@ test.each(["policy", "user"] as const)(
   },
 )
 
-test("a final response after policy feedback completes even when idle preceded the permission acknowledgement", async () => {
-  vi.useFakeTimers()
-  const bridge = createBridgeAgent()
-  const service = new ChatServiceImpl(bridge.agent)
-  const events = captureServiceEvents(service)
-  service.startEventBridge()
-  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "validate" })
-  const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
-  bridge.emit({
-    type: "message.updated",
-    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
-  })
-  let acknowledge!: () => void
-  bridge.answerPermission.mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        acknowledge = resolve
-      }),
-  )
-  bridge.emit({
-    type: "permission.v2.asked",
-    properties: {
-      id: "permission-1",
-      sessionID: "session-1",
-      action: "bash",
-      resources: ["printenv"],
-      tool: { messageID: "assistant-1", callID: "call-1" },
-    },
-  })
-  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
-  await vi.advanceTimersByTimeAsync(90_000)
-  expect(service.hasActiveGeneration()).toBe(true)
-  expect(bridge.getMessages).not.toHaveBeenCalled()
-  bridge.getMessages.mockResolvedValue([
-    { id: userMessageId, role: "user", createdAt: 1, parts: [] },
-    {
-      id: "assistant-1",
-      role: "assistant",
-      createdAt: 2,
-      finishReason: "tool-calls",
-      parts: [{ kind: "tool", partId: "part-1", callId: "call-1", status: "error" }],
-    },
-    { id: "final", role: "assistant", createdAt: 3, completedAt: 4, finishReason: "stop", parts: [] },
-  ])
-  vi.useRealTimers()
-  acknowledge()
-  await waitForCondition(() => !service.hasActiveGeneration())
-  expect(events.some((event) => event.event === "messageError")).toBe(false)
-  expect(events.findLast((event) => event.event === "turnOutcome")?.data).toMatchObject({
-    kind: "completed",
-    messageId: "final",
-  })
-  expect(bridge.promptStreaming).toHaveBeenCalledTimes(1)
-  service.dispose()
-})
+test.each(["policy", "user"] as const)(
+  "a final response after %s feedback completes even when idle preceded the permission acknowledgement",
+  async (source) => {
+    vi.useFakeTimers()
+    const bridge = createBridgeAgent()
+    const service = new ChatServiceImpl(bridge.agent)
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+    await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "validate" })
+    const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    let acknowledge!: () => void
+    bridge.answerPermission.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          acknowledge = resolve
+        }),
+    )
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: {
+        id: "permission-1",
+        sessionID: "session-1",
+        action: "bash",
+        resources: [source === "policy" ? "printenv" : "rm -rf /tmp/unowned-profile"],
+        tool: { messageID: "assistant-1", callID: "call-1" },
+      },
+    })
+    const userReply =
+      source === "user"
+        ? service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "reject" })
+        : undefined
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await vi.advanceTimersByTimeAsync(90_000)
+    expect(service.hasActiveGeneration()).toBe(true)
+    expect(bridge.getMessages).not.toHaveBeenCalled()
+    bridge.getMessages.mockResolvedValue([
+      { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 2,
+        finishReason: "tool-calls",
+        parts: [{ kind: "tool", partId: "part-1", callId: "call-1", status: "error" }],
+      },
+      { id: "final", role: "assistant", createdAt: 3, completedAt: 4, finishReason: "stop", parts: [] },
+    ])
+    vi.useRealTimers()
+    acknowledge()
+    await userReply
+    await waitForCondition(() => !service.hasActiveGeneration())
+    expect(events.some((event) => event.event === "messageError")).toBe(false)
+    expect(events.findLast((event) => event.event === "turnOutcome")?.data).toMatchObject({
+      kind: "completed",
+      messageId: "final",
+    })
+    expect(bridge.promptStreaming).toHaveBeenCalledTimes(1)
+    service.dispose()
+  },
+)
 
 test("idle while awaiting approval has no completion deadline and resumes verification after reply", async () => {
   vi.useFakeTimers()

@@ -64,7 +64,7 @@ export function permissionPresentation(request: ChatPermissionRequest): Permissi
       ]),
     ],
     caution: highRisk || sensitive || reason === "broad_resource",
-    detailsOpen: true,
+    detailsOpen: false,
     recovery,
   }
   if (canRepeat && !recovery) {
@@ -109,7 +109,6 @@ export function permissionPresentation(request: ChatPermissionRequest): Permissi
       result.description = "permissionPrompt.installBody"
       result.allow = "permissionPrompt.install"
       result.targets = [...new Set([...result.targets, ...install.packages])]
-      result.detailsOpen = false
     } else if (reason === "dependency_mutation" || isPythonDependencyPermissionRequest(request)) {
       result.title = "permissionPrompt.dependencyTitle"
       result.description = "permissionPrompt.dependencyBody"
@@ -117,12 +116,10 @@ export function permissionPresentation(request: ChatPermissionRequest): Permissi
       result.title = "permissionPrompt.editTitle"
       result.description = "permissionPrompt.editBody"
       result.allow = "permissionPrompt.edit"
-      result.detailsOpen = !result.targets.length
     } else if (kind === "path") {
       result.title = "permissionPrompt.accessTitle"
       result.description = "permissionPrompt.accessBody"
       result.allow = "permissionPrompt.access"
-      result.detailsOpen = !result.targets.length
     } else if (kind === "network") {
       result.title = "permissionPrompt.networkTitle"
       result.description = "permissionPrompt.networkBody"

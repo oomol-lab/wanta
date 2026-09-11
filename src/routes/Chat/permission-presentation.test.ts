@@ -24,7 +24,7 @@ describe("permission presentation", () => {
   it("shows every literal deletion target and the original command", () => {
     const command = 'rm -rf -- "/Users/me/old reports" /Users/me/report.pdf'
     const view = permissionPresentation(request(command))
-    expect(view).toMatchObject({ title: "permissionPrompt.deleteTitle", command, caution: true, detailsOpen: true })
+    expect(view).toMatchObject({ title: "permissionPrompt.deleteTitle", command, caution: true, detailsOpen: false })
     expect(view.targets).toEqual(["/Users/me/old reports", "/Users/me/report.pdf"])
     expect(view.repeat).toBeUndefined()
   })
@@ -44,7 +44,7 @@ describe("permission presentation", () => {
   ])("does not claim to understand an ambiguous command: %s", (command) => {
     const view = permissionPresentation(request(command))
     expect(view.title).not.toBe("permissionPrompt.deleteTitle")
-    expect(view.detailsOpen).toBe(true)
+    expect(view.detailsOpen).toBe(false)
     expect(view.command).toBe(command)
   })
   it("preserves all resources for broad or sensitive requests", () => {

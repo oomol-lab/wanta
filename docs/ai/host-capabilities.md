@@ -115,6 +115,15 @@ project output roots remain eligible for automatic cleanup, including proven cwd
 forms. Agents should put disposable intermediates in the supplied task process
 directory. This policy does not add filesystem scans or automatic backups.
 
+Process-directory guidance asks agents to create fresh, uniquely named temporary
+resources and avoid optional cleanup or broad process termination as task prerequisites.
+Necessary cleanup stays separate from generation and validation; ordinary commands
+can still be combined. Cancelling a permission request rejects the entire call.
+Default Access guidance permits independent work or a different approach only within
+the original authorization and without the rejected side effects, unless the user
+asked to stop. OpenCode also receives this explanation in its user-rejection reply;
+ACP keeps its native permission-option response without an injected follow-up turn.
+
 Default Access is a permissive guard against common consequential mistakes, not
 a sandbox for arbitrary scripts. Ordinary dependency command lists reuse the
 same per-step policy: `&&`, semicolon/newline separators, and existing bounded

@@ -1755,6 +1755,7 @@ function buildProcessSystem(processDir: string | undefined): string | undefined 
   return [
     "Intermediate process file contract for this turn:",
     `- Use this exact directory for temporary scripts, raw service responses, debug logs, scratch data, and other implementation files that help you complete the task but are not the user-facing deliverable: ${processDir}`,
+    "- Create a fresh, uniquely named subdirectory for temporary resources such as browser profiles. Avoid making optional cleanup of old resources or broad process termination a prerequisite for the task. Keep necessary cleanup separate from generation and validation; ordinary commands may still be combined.",
     "- Do not put final deliverables in this process directory.",
     "- Do not put process files in the artifact directory unless the user explicitly asked for source code or scripts as the deliverable.",
     "- When a task needs third-party Python modules, create and use this task-private virtual environment instead of the system Python:",

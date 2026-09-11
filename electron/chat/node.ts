@@ -3329,7 +3329,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.addSessionPermissionGrant(sessionId, request)
       }
     }
-    if (!isExternal && reply !== "reject") {
+    // Host previews need approved paths even when the native agent owns grants.
+    if (reply !== "reject") {
       this.rememberTrustedPermissionResources(req.sessionId, request)
     }
     this.forgetPendingPermissionRequest(sourceSessionId, req.requestId)

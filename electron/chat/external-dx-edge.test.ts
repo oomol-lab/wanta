@@ -1473,3 +1473,43 @@ for (const kind of ["codex", "claude-code", "grok"] as const) {
     })
   }
 }
+
+for (const kind of ["codex", "claude-code", "grok"] as const) {
+  test(`${kind}: native approvals enable host previews without approving future agent requests`, async () => {
+    const { service, adapters } = createHarness([kind])
+    const adapter = adapters.get(kind)!
+    const sessionId = mintExternalSessionId(kind)
+    await service.sendMessage(sendRequest(sessionId, "inspect files"))
+    for (const optionKind of ["allow_once", "allow_always", "reject_once", "reject_always"] as const) {
+      const attachment = await createProbeAttachment()
+      const requestId = `preview-${optionKind}`
+      const nativeOptions = [{ optionId: optionKind, name: optionKind, kind: optionKind }]
+      adapter.askPermission(sessionId, requestId, { action: "file.read", resources: [attachment.path], nativeOptions })
+      await assert.rejects(service.getLocalArtifactPreview({ path: attachment.path }), /not available/)
+      const response = { sessionId, requestId, reply: "once" as const, optionId: optionKind }
+      if (optionKind === "allow_once") {
+        vi.spyOn(adapter, "send").mockRejectedValueOnce(new Error("native delivery failed"))
+        await assert.rejects(service.answerPermission(response), /native delivery failed/)
+        await assert.rejects(service.getLocalArtifactPreview({ path: attachment.path }), /not available/)
+      }
+      await service.answerPermission(response)
+      if (optionKind.startsWith("allow")) {
+        const preview = await service.getLocalArtifactPreview({ path: attachment.path })
+        assert.equal(preview.text, "probe")
+        const responsesBefore = adapter.permissionResponses.length
+        adapter.askPermission(sessionId, `${requestId}-again`, {
+          action: "file.read",
+          resources: [attachment.path],
+          nativeOptions,
+        })
+        assert.equal((await service.getPendingPermissions(sessionId)).length, 1)
+        assert.equal(adapter.permissionResponses.length, responsesBefore)
+        await service.answerPermission({ ...response, requestId: `${requestId}-again` })
+      } else {
+        await assert.rejects(service.getLocalArtifactPreview({ path: attachment.path }), /not available/)
+      }
+    }
+    adapter.completeAssistantTurn(sessionId, "preview-done", "done")
+    await waitForTurnCompletion(service)
+  })
+}

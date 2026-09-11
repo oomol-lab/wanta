@@ -105,7 +105,10 @@ External agents build on `electron/agent/external/`:
   requests, is shown with the agent's original option labels. The selected
   `optionId` is validated against the pending native request and returned
   unchanged. Wanta never auto-approves, rejects by local policy, or records a
-  session grant for an external request. Native `allow_always` and
+  session grant for an external request. After a successful native approval,
+  Wanta remembers the approved resource paths for host previews and local-file
+  actions; this does not auto-approve subsequent native permission requests.
+  Native `allow_always` and
   `reject_always` retain their native scopes. Invalid options and replies from
   another session fail without settling the pending request.
   Normalized legacy replies map `once` to `allow_once`, `always` to

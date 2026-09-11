@@ -1,13 +1,13 @@
 import type { ChatPermissionRequest } from "../../../electron/chat/common.ts"
 import type { MessageKey } from "@/i18n/i18n"
 
-import { hasUnsafeShellSyntax, shellWords } from "../../../electron/chat/shell-syntax.ts"
 import {
   isHighRiskPermissionRequest,
   isLikelyProjectDevCommandRequest,
   isPythonDependencyPermissionRequest,
   managedPythonDependencyInstall,
   permissionCommand,
+  permissionDeletionTargets,
   permissionRequestHasSensitiveResource,
   permissionRequestKind,
 } from "./permission-request.ts"
@@ -37,27 +37,6 @@ export function permissionTargetLabel(target: string): { name: string; location?
     name,
     location: segments.length ? `${segments.length > 2 ? "… / " : ""}${segments.slice(-2).join(" / ")}` : undefined,
   }
-}
-
-// Recognize only a complete, literal deletion command. Compound commands,
-// expansion, unknown options and scripts must keep the uncertain presentation.
-function deletionTargets(command: string | undefined): string[] | undefined {
-  if (!command || hasUnsafeShellSyntax(command)) return
-  const words = shellWords(command)
-  if (!words || !["rm", "/bin/rm", "/usr/bin/rm"].includes(words[0] ?? "")) return
-  const targets: string[] = []
-  let optionsEnded = false
-  for (const word of words.slice(1)) {
-    if (!optionsEnded && word === "--") {
-      optionsEnded = true
-    } else if (!optionsEnded && word.startsWith("-")) {
-      if (!/^-[rfdiIvPR]+$/u.test(word) && !["--recursive", "--force", "--dir", "--verbose"].includes(word)) return
-    } else {
-      if (!word || /[$`*?[\]{}\n\r]/u.test(word)) return
-      targets.push(word)
-    }
-  }
-  return targets.length ? targets : undefined
 }
 
 export function permissionPresentation(request: ChatPermissionRequest): PermissionPresentation {
@@ -114,7 +93,7 @@ export function permissionPresentation(request: ChatPermissionRequest): Permissi
     result.description = "permissionPrompt.broadBody"
     result.allow = "permissionPrompt.access"
   } else {
-    const deletion = deletionTargets(command)
+    const deletion = permissionDeletionTargets(command)
     if (deletion) {
       result.title = "permissionPrompt.deleteTitle"
       result.description = "permissionPrompt.deleteBody"

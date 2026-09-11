@@ -512,16 +512,16 @@
     "other": "{{count}} system recommendations"
   },
   "teams.skillManageInstallMissingAll": {
-    "one": "Sync team Skills {{count}}",
-    "other": "Sync team Skills {{count}}"
+    "one": "Install missing skills ({{count}})",
+    "other": "Install missing skills ({{count}})"
   },
   "teams.skillManageInstallMissingSuccess": {
-    "one": "{{count}} team Skill synced.",
-    "other": "{{count}} team Skills synced."
+    "one": "Installed {{count}} skill.",
+    "other": "Installed {{count}} skills."
   },
   "teams.skillManageInstallMissingFailed": {
-    "one": "{{count}} team Skill sync failed: {{error}}",
-    "other": "{{count}} team Skill syncs failed: {{error}}"
+    "one": "Failed to install {{count}} skill: {{error}}",
+    "other": "Failed to install {{count}} skills: {{error}}"
   },
   "teams.skillManageLinkAll": {
     "one": "Set all {{count}} as team recommendations",

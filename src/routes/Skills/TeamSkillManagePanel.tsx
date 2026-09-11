@@ -4,8 +4,9 @@ import type { UseTeamSkills } from "@/hooks/useTeamSkills"
 import type { ListPublicSkillPackagesInput } from "@/lib/skills-catalog-client"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations"
 
-import { ChevronDownIcon, PackageIcon, RefreshCwIcon } from "lucide-react"
+import { ArrowRightIcon, ArrowLeftIcon, CheckIcon, MonitorIcon, PlusIcon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
+import { createPortal } from "react-dom"
 import {
   createTeamSkillPackageSet,
   teamSkillPackageLinked,
@@ -32,7 +33,6 @@ import { useTeamSkillRemoval } from "./use-team-skill-removal.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppI18n } from "@/i18n"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -44,17 +44,18 @@ import {
 } from "@/lib/skills-catalog-client"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
-import { isNearScrollBottom } from "@/routes/Skills/skill-route-model"
+import { getTeamSkillRuntimeStatus, isNearScrollBottom } from "@/routes/Skills/skill-route-model"
 
 type TeamSkillManageTab = "market" | "recommendations"
 
 export { TeamSkillManageLoadingSkeleton, RuntimeSkillRemoveConfirmDialog } from "./TeamSkillManageRows.tsx"
 
 export function TeamSkillManagePanel({
+  actionsContainer,
   busyAction,
+  runtimeInventoryLoading = false,
   groupById,
   onAddRecommendation,
-  onAddRecommendationBatch,
   onAddMarketPackage,
   onInstallRuntimeSkill,
   onInstallRuntimeSkills,
@@ -66,6 +67,8 @@ export function TeamSkillManagePanel({
   providerRecommendationsTotalCount = 0,
   providerRecommendations,
 }: {
+  actionsContainer?: HTMLElement | null
+  runtimeInventoryLoading?: boolean
   busyAction: BusyAction | null
   groupById: ReadonlyMap<string, ManagedSkillGroup>
   onAddRecommendation: (
@@ -97,10 +100,19 @@ export function TeamSkillManagePanel({
   )
   const skillRemoval = useTeamSkillRemoval({ teamSkills })
   const busyConfigId = skillRemoval.busySkillId
-  const [activeTab, setActiveTab] = React.useState<TeamSkillManageTab>("recommendations")
-  const [recommendationSourceFilter, setRecommendationSourceFilter] = React.useState<
-    "all" | "configured" | "recommended"
-  >("all")
+  const [catalogTab, setActiveTab] = React.useState<TeamSkillManageTab>("recommendations")
+  const [addingSkills, setAddingSkills] = React.useState(false)
+  const adding = addingSkills
+  const activeTab = adding ? catalogTab : "recommendations"
+  const addBackRef = React.useRef<HTMLButtonElement>(null)
+  const addButtonRef = React.useRef<HTMLButtonElement>(null)
+  const wasAddingRef = React.useRef(false)
+  React.useEffect(() => {
+    if (adding) addBackRef.current?.focus()
+    else if (wasAddingRef.current) addButtonRef.current?.focus()
+    wasAddingRef.current = adding
+  }, [adding])
+  const recommendationSourceFilter = adding ? "recommended" : "all"
   const [searchQuery, setSearchQuery] = React.useState("")
   const [marketExactPackage, setMarketExactPackage] = React.useState<PublicSkillPackage | null>(null)
   const [marketExactLoading, setMarketExactLoading] = React.useState(false)
@@ -115,14 +127,14 @@ export function TeamSkillManagePanel({
   )
   const recommendedTeamSkills = recommendedPlan.linkable
   const normalizedQuery = searchQuery.trim().toLowerCase()
-  const marketQuery = activeTab === "market" ? searchQuery.trim() : ""
+  const marketQuery = adding && activeTab === "market" ? searchQuery.trim() : ""
   const loadMarket = React.useCallback(
     (input: ListPublicSkillPackagesInput) =>
       marketQuery ? searchPublicSkillPackages({ ...input, query: marketQuery }) : listPublicSkillPackages(input),
     [marketQuery],
   )
   const { catalog: marketCatalog, loadPage: loadMarketPackages } = useSkillCatalog({
-    enabled: activeTab === "market",
+    enabled: adding && activeTab === "market",
     load: loadMarket,
     debounceMs: marketQuery ? 300 : 0,
   })
@@ -146,10 +158,14 @@ export function TeamSkillManagePanel({
       }),
     [teamSkills.skills, recommendationSourceFilter, recommendedTeamSkills],
   )
-  const recommendationSourceIncludesSystem = recommendationSourceFilter !== "configured"
+  const recommendationSourceIncludesSystem = true
   const installableRecommendedSkills = React.useMemo(
-    () => buildInstallableTeamRecommendationSkills({ groupById, items: allRecommendationItems }),
-    [allRecommendationItems, groupById],
+    () =>
+      buildInstallableTeamRecommendationSkills({
+        groupById,
+        items: adding ? allRecommendationItems : allRecommendationItems.filter((item) => item.type === "configured"),
+      }),
+    [adding, allRecommendationItems, groupById],
   )
   const marketPackages = React.useMemo(
     () => mergeMarketPackages(marketExactPackage, marketCatalog.items),
@@ -159,7 +175,10 @@ export function TeamSkillManagePanel({
   const marketLoadingMore = marketCatalog.status === "loading-more"
   const canLoadMoreMarket =
     activeTab === "market" && Boolean(marketCatalog.next) && !marketLoading && !marketLoadingMore
-  const shouldInstallRecommendedBatch = installableRecommendedSkills.length > 1
+  const installedCount = teamSkills.skills.filter((skill) => {
+    const status = getTeamSkillRuntimeStatus(groupById, skill).state
+    return status === "installed-same" || status === "installed-modified" || status === "installed-version-mismatch"
+  }).length
   const hasRecommendationItems = allRecommendationItems.length > 0
   const showInitialRecommendationSkeleton =
     providerRecommendationsLoading && recommendationSourceIncludesSystem && !hasRecommendationItems
@@ -174,7 +193,7 @@ export function TeamSkillManagePanel({
 
   React.useEffect(() => {
     setActiveTab("recommendations")
-    setRecommendationSourceFilter("all")
+    setAddingSkills(false)
     setSearchQuery("")
     setMarketExactPackage(null)
     setMarketExactLoading(false)
@@ -266,8 +285,61 @@ export function TeamSkillManagePanel({
   const skillListClassName = "min-h-0 overflow-y-auto bg-background pb-3"
   const marketListClassName = "min-h-0 flex-1 overflow-y-auto bg-background pb-3"
 
+  const actions = (
+    <div className="flex flex-wrap items-center gap-2">
+      {teamSkills.canManage ? (
+        <Button
+          ref={addButtonRef}
+          size="sm"
+          disabled={Boolean(busyAction) || !teamSkills.apiEnabled || !teamSkills.hasLoaded || Boolean(teamSkills.error)}
+          onClick={() => {
+            setAddingSkills(true)
+            changeActiveTab("recommendations")
+          }}
+        >
+          <PlusIcon data-icon="inline-start" />
+          {t("teams.addSkillsTitle")}
+        </Button>
+      ) : null}
+      <Button
+        ref={teamSkills.canManage ? undefined : addButtonRef}
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          setAddingSkills(true)
+          changeActiveTab("market")
+        }}
+      >
+        {t("teams.skillManageMarket")}
+        <ArrowRightIcon data-icon="inline-end" />
+      </Button>
+    </div>
+  )
   const content = (
-    <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)] gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {adding ? (
+        <div className="flex shrink-0 flex-col items-start gap-2">
+          <Button
+            ref={addBackRef}
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setAddingSkills(false)
+              changeActiveTab("recommendations")
+            }}
+          >
+            <ArrowLeftIcon data-icon="inline-start" />
+            {t("teams.backToSkills")}
+          </Button>
+          <p className="oo-text-caption text-muted-foreground">
+            {t(teamSkills.canManage ? "teams.addSkillsDescription" : "teams.browseSkillsDescription")}
+          </p>
+        </div>
+      ) : actionsContainer ? (
+        createPortal(actions, actionsContainer)
+      ) : (
+        <div className="flex shrink-0 justify-end">{actions}</div>
+      )}
       {!teamSkills.apiEnabled ? (
         <TeamSkillDialogEmpty
           className={emptyStateClassName}
@@ -289,157 +361,65 @@ export function TeamSkillManagePanel({
             </Button>
           </div>
         </div>
-      ) : teamSkills.loading && !teamSkills.hasLoaded ? (
+      ) : (teamSkills.loading && !teamSkills.hasLoaded) || runtimeInventoryLoading ? (
         <TeamSkillManageLoadingSkeleton inline />
       ) : (
-        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-0">
-          <div
-            className={cn(
-              "flex min-w-0 flex-wrap items-center justify-between gap-2",
-              "border-b border-[var(--oo-divider)] px-3 py-3",
-            )}
-          >
-            <div className="max-w-full min-w-0 overflow-x-auto">
+        <div
+          className={cn(
+            "grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)]",
+            !adding && teamSkills.skills.length === 0 ? "gap-0" : "gap-3",
+          )}
+        >
+          {adding ? (
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
               <ToggleGroup
                 type="single"
                 variant="outline"
                 size="sm"
                 value={activeTab}
-                aria-label={t("teams.skillManageTitle")}
-                className="w-max"
+                aria-label={t(teamSkills.canManage ? "teams.addSkillsTitle" : "teams.browseSkillsTitle")}
                 onValueChange={(value) => {
-                  if (value === "recommendations" || value === "market") {
-                    changeActiveTab(value)
-                  }
+                  if (value === "recommendations" || value === "market") changeActiveTab(value)
                 }}
               >
-                <ToggleGroupItem value="recommendations">
-                  <span>{t("teams.skillManageRecommendations")}</span>
-                  {installableRecommendedSkills.length > 0 ? (
-                    <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
-                  ) : null}
-                  <span className="oo-text-caption-compact text-muted-foreground">{allRecommendationItems.length}</span>
-                </ToggleGroupItem>
-                <ToggleGroupItem value="market">
-                  <span>{t("teams.skillManageMarket")}</span>
-                </ToggleGroupItem>
+                <ToggleGroupItem value="recommendations">{t("teams.skillManageRecommended")}</ToggleGroupItem>
+                <ToggleGroupItem value="market">{t("teams.skillManageMarket")}</ToggleGroupItem>
               </ToggleGroup>
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:min-w-80 sm:flex-row sm:items-center sm:justify-end">
               <SearchField
-                className="min-w-0 flex-1"
+                className="min-w-0 sm:max-w-sm sm:flex-1"
                 inputClassName="h-[var(--oo-control-height-compact)]"
-                placeholder={
+                placeholder={t(
                   activeTab === "recommendations"
-                    ? t("teams.skillManageSearchRecommendations")
-                    : t("teams.skillManageSearchMarket")
-                }
+                    ? "teams.skillManageSearchRecommendations"
+                    : "teams.skillManageSearchMarket",
+                )}
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.currentTarget.value)}
               />
-              {activeTab === "recommendations" ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="max-w-36 min-w-28 justify-between px-2"
-                    >
-                      <span className="min-w-0 truncate">
-                        {recommendationSourceFilter === "configured"
-                          ? t("teams.skillManageConfigured")
-                          : recommendationSourceFilter === "recommended"
-                            ? t("teams.skillManageRecommended")
-                            : t("teams.skillManageSourceAll")}
-                      </span>
-                      <ChevronDownIcon className="size-3.5 text-muted-foreground" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={() => setRecommendationSourceFilter("all")}>
-                      {t("teams.skillManageSourceAll")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => setRecommendationSourceFilter("configured")}>
-                      {t("teams.skillManageConfigured")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => setRecommendationSourceFilter("recommended")}>
-                      {t("teams.skillManageRecommended")}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : null}
-              {activeTab === "recommendations" &&
-              teamSkills.canManage &&
-              recommendationSourceIncludesSystem &&
-              (installableRecommendedSkills.length > 1 || recommendedTeamSkills.length > 1) ? (
-                <div className="inline-flex max-w-full items-center justify-end">
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="min-w-0 shrink rounded-r-none"
-                    disabled={Boolean(busyAction)}
-                    onClick={() =>
-                      shouldInstallRecommendedBatch
-                        ? onInstallRuntimeSkills(installableRecommendedSkills)
-                        : onAddRecommendationBatch(recommendedTeamSkills, { installRuntime: false })
-                    }
-                  >
-                    {busyAction === "installSkillBatch" || busyAction === "addSkillBatch" ? (
-                      <RefreshCwIcon className="size-3.5 animate-spin" />
-                    ) : (
-                      <PackageIcon className="size-3.5" />
-                    )}
-                    <span className="truncate">
-                      {shouldInstallRecommendedBatch
-                        ? t("teams.skillManageInstallMissingAll", {
-                            count: installableRecommendedSkills.length,
-                          })
-                        : t("teams.skillManageLinkAll", { count: recommendedTeamSkills.length })}
-                    </span>
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="-ml-px w-[var(--oo-control-height-compact)] rounded-l-none border-l border-primary-foreground/25 px-0"
-                        disabled={Boolean(busyAction)}
-                        aria-label={t("teams.skillManageMoreActions")}
-                      >
-                        <ChevronDownIcon className="size-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {installableRecommendedSkills.length > 0 ? (
-                        <DropdownMenuItem
-                          onSelect={() =>
-                            void onAddRecommendationBatch(recommendedTeamSkills, { installRuntime: true })
-                          }
-                        >
-                          {t("teams.skillManageAddInstallAll", { count: recommendedTeamSkills.length })}
-                        </DropdownMenuItem>
-                      ) : null}
-                      <DropdownMenuItem
-                        onSelect={() => void onAddRecommendationBatch(recommendedTeamSkills, { installRuntime: false })}
-                      >
-                        {t("teams.skillManageLinkAll", { count: recommendedTeamSkills.length })}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              ) : activeTab === "recommendations" &&
-                (!teamSkills.canManage || !recommendationSourceIncludesSystem || recommendedTeamSkills.length <= 1) &&
-                installableRecommendedSkills.length > 1 ? (
+            </div>
+          ) : teamSkills.skills.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-muted/50 px-3 py-2.5">
+              <span className="oo-text-caption flex items-center gap-2 text-muted-foreground">
+                <MonitorIcon className="size-4" />
+                {t("teams.localSkillsCount", { installed: installedCount, total: teamSkills.skills.length })}
+              </span>
+              {installableRecommendedSkills.length > 0 ? (
                 <TeamInstallMissingButton
                   busy={busyAction === "installSkillBatch"}
                   count={installableRecommendedSkills.length}
                   disabled={Boolean(busyAction)}
                   onClick={() => onInstallRuntimeSkills(installableRecommendedSkills)}
                 />
+              ) : installedCount === teamSkills.skills.length ? (
+                <span className="oo-text-caption flex items-center gap-1.5 text-muted-foreground">
+                  <CheckIcon className="size-4" />
+                  {t("teams.localSkillsComplete")}
+                </span>
               ) : null}
             </div>
-          </div>
+          ) : (
+            <div />
+          )}
           {activeTab === "recommendations" ? (
             showInitialRecommendationSkeleton ? (
               <div className={skillListClassName}>
@@ -448,22 +428,21 @@ export function TeamSkillManagePanel({
             ) : allRecommendationItems.length === 0 ? (
               <TeamSkillDialogEmpty
                 className={emptyStateClassName}
-                title={
-                  recommendationSourceFilter === "recommended"
-                    ? t("teams.skillManageRecommendedEmptyTitle")
-                    : recommendationSourceFilter === "configured"
-                      ? t("teams.skillGuideEmptyTitle")
-                      : t("teams.skillManageRecommendationsEmptyTitle")
+                title={t("teams.skillManageRecommendationsEmptyTitle")}
+                action={
+                  !adding ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setAddingSkills(true)
+                        setSearchQuery("")
+                      }}
+                    >
+                      {t("teams.browseSkillsTitle")}
+                    </Button>
+                  ) : undefined
                 }
-                description={
-                  recommendationSourceFilter === "recommended"
-                    ? t("teams.skillManageRecommendedEmpty")
-                    : recommendationSourceFilter === "configured"
-                      ? teamSkills.canManage
-                        ? t("teams.skillGuideEmptyCreatorDescription")
-                        : t("teams.skillGuideEmptyDescription")
-                      : t("teams.skillManageRecommendationsEmptyDescription")
-                }
+                description={t("teams.skillManageRecommendationsEmptyDescription")}
               />
             ) : recommendationItems.length === 0 ? (
               <TeamSkillDialogEmpty
@@ -473,44 +452,54 @@ export function TeamSkillManagePanel({
               />
             ) : (
               <div className={skillListClassName}>
-                {recommendationItems.map((item) =>
-                  item.type === "configured" ? (
-                    <TeamSkillManageRow
-                      key={item.id}
-                      busy={busyConfigId === item.skill.id || busyAction === "installSkillBatch"}
-                      actionsDisabled={Boolean(busyAction)}
-                      canManage={teamSkills.canManage}
-                      groupById={groupById}
-                      installBusy={
-                        busyAction === `installSkill:${item.skill.packageName}:${item.skill.skillName}` ||
-                        busyAction === "installSkillBatch"
-                      }
-                      skill={item.skill}
-                      onInstallRuntime={onInstallRuntimeSkill}
-                      onOpenManagedSkill={onOpenManagedSkill}
-                      onRemove={skillRemoval.open}
-                    />
-                  ) : (
-                    <TeamSkillRecommendationRow
-                      key={item.id}
-                      addBusy={
-                        busyAction === "addSkillBatch" ||
-                        busyAction === `addSkill:${item.recommendation.packageName}:${item.recommendation.skillId}`
-                      }
-                      installBusy={
-                        busyAction === "installSkillBatch" ||
-                        busyAction === `installSkill:${item.recommendation.packageName}:${item.recommendation.skillId}`
-                      }
-                      actionsDisabled={Boolean(busyAction)}
-                      canManage={teamSkills.canManage}
-                      recommendation={item.recommendation}
-                      onAdd={onAddRecommendation}
-                      onInstallRuntime={onInstallRuntimeSkill}
-                      onOpenManagedSkill={onOpenManagedSkill}
-                      onOpenPackageDetail={onOpenPackageDetail}
-                    />
-                  ),
-                )}
+                {recommendationItems.map((item, index) => (
+                  <React.Fragment key={item.id}>
+                    {index === 0 || recommendationItems[index - 1]?.type !== item.type ? (
+                      <h2 className="oo-text-label py-2 text-muted-foreground">
+                        {t(item.type === "configured" ? "teams.sharedSkillsGroup" : "teams.skillManageRecommended")}
+                      </h2>
+                    ) : null}
+                    {item.type === "configured" ? (
+                      <TeamSkillManageRow
+                        key={item.id}
+                        busy={busyConfigId === item.skill.id || busyAction === "installSkillBatch"}
+                        actionsDisabled={Boolean(busyAction)}
+                        canManage={teamSkills.canManage}
+                        groupById={groupById}
+                        installBusy={
+                          busyAction === `installSkill:${item.skill.packageName}:${item.skill.skillName}` ||
+                          busyAction === "installSkillBatch"
+                        }
+                        skill={item.skill}
+                        onInstallRuntime={onInstallRuntimeSkill}
+                        onOpenManagedSkill={onOpenManagedSkill}
+                        onRemove={skillRemoval.open}
+                      />
+                    ) : (
+                      <TeamSkillRecommendationRow
+                        key={item.id}
+                        addBusy={
+                          busyAction === "addSkillBatch" ||
+                          busyAction === `addSkill:${item.recommendation.packageName}:${item.recommendation.skillId}`
+                        }
+                        installBusy={
+                          busyAction === "installSkillBatch" ||
+                          busyAction ===
+                            `installSkill:${item.recommendation.packageName}:${item.recommendation.skillId}`
+                        }
+                        actionsDisabled={Boolean(busyAction)}
+                        canManage={adding && teamSkills.canManage}
+                        compact
+                        selectionOnly={adding && teamSkills.canManage}
+                        recommendation={item.recommendation}
+                        onAdd={onAddRecommendation}
+                        onInstallRuntime={onInstallRuntimeSkill}
+                        onOpenManagedSkill={onOpenManagedSkill}
+                        onOpenPackageDetail={onOpenPackageDetail}
+                      />
+                    )}
+                  </React.Fragment>
+                ))}
                 {showRecommendationProgress ? (
                   <div className="oo-text-caption border-t border-[var(--oo-divider)] px-3 py-2 text-muted-foreground">
                     {t("skills.teamRecommendationsResolving", {
@@ -561,6 +550,7 @@ export function TeamSkillManagePanel({
                       canManage={teamSkills.canManage}
                       groupById={groupById}
                       linked={teamSkillPackageLinked(linkedPackageKeys, pkg.name)}
+                      selectionOnly={teamSkills.canManage}
                       pkg={pkg}
                       onAdd={onAddMarketPackage}
                       onInstallRuntime={onInstallRuntimeSkill}
@@ -583,6 +573,9 @@ export function TeamSkillManagePanel({
           )}
         </div>
       )}
+      {!adding ? (
+        <p className="oo-text-caption-compact shrink-0 text-muted-foreground">{t("teams.skillsCredentialNote")}</p>
+      ) : null}
     </div>
   )
 

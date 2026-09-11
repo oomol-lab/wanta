@@ -10,6 +10,7 @@ import { SkillListRow } from "./SkillListRow.tsx"
 import {
   canInstallProviderRecommendationRuntime,
   canOpenManagedProviderRecommendation,
+  teamSkillListDescription,
   teamRuntimeStatusLabel,
   teamRuntimeStatusTone,
   providerRecommendationSkillDescription,
@@ -29,7 +30,14 @@ import {
   ConfirmDialogHeader,
   ConfirmDialogTitle,
 } from "@/components/ui/confirm-dialog"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Empty, EmptyHeader, EmptyContent, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
@@ -62,7 +70,7 @@ export function TeamInstallMissingButton({
   const { t } = useAppI18n()
 
   return (
-    <Button type="button" size="sm" className={className} disabled={disabled} onClick={onClick}>
+    <Button type="button" variant="outline" size="sm" className={className} disabled={disabled} onClick={onClick}>
       {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
       <span className="truncate">{t("teams.skillManageInstallMissingAll", { count })}</span>
     </Button>
@@ -137,29 +145,27 @@ function TeamSkillManageRowSkeleton({
 }
 
 export function TeamSkillDialogEmpty({
+  action,
   className,
   description,
   title,
 }: {
+  action?: React.ReactNode
   className?: string
   description: string
   title: string
 }) {
   return (
-    <div
-      className={cn(
-        "grid min-h-36 place-items-center rounded-md border border-dashed bg-muted/20 px-4 py-8 text-center",
-        className,
-      )}
-    >
-      <div className="grid max-w-md justify-items-center gap-2">
-        <div className="grid size-10 place-items-center rounded-md border bg-background text-muted-foreground">
-          <PackageIcon className="size-5" />
-        </div>
-        <div className="oo-text-label text-foreground">{title}</div>
-        <p className="oo-text-caption text-muted-foreground">{description}</p>
-      </div>
-    </div>
+    <Empty className={className}>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <PackageIcon />
+        </EmptyMedia>
+        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyDescription>{description}</EmptyDescription>
+      </EmptyHeader>
+      {action ? <EmptyContent>{action}</EmptyContent> : null}
+    </Empty>
   )
 }
 
@@ -204,6 +210,7 @@ export function TeamSkillPackageListSkeleton() {
 }
 
 export const TeamSkillMarketRow = React.memo(function TeamSkillMarketRow({
+  selectionOnly = false,
   busyAction,
   canManage,
   groupById,
@@ -215,6 +222,7 @@ export const TeamSkillMarketRow = React.memo(function TeamSkillMarketRow({
   pkg,
 }: {
   busyAction: BusyAction | null
+  selectionOnly?: boolean
   canManage: boolean
   groupById: ReadonlyMap<string, ManagedSkillGroup>
   linked: boolean
@@ -245,26 +253,30 @@ export const TeamSkillMarketRow = React.memo(function TeamSkillMarketRow({
       icon={<TeamSkillIconFrame icon={pkg.icon} />}
       showTrailingDivider
       title={pkg.displayName}
-      description={skillDescription}
+      description={teamSkillListDescription(skillDescription)}
       badges={
-        <>
-          {linked ? <Badge variant="secondary">{t("teams.skillManageConfigured")}</Badge> : null}
-          <Badge variant="outline">{getPublicSkillInstallStateLabel(installState, t)}</Badge>
-        </>
+        selectionOnly ? undefined : (
+          <>
+            {linked ? <Badge variant="secondary">{t("teams.skillManageConfigured")}</Badge> : null}
+            <Badge variant="outline">{getPublicSkillInstallStateLabel(installState, t)}</Badge>
+          </>
+        )
       }
       meta={
-        <div className="min-w-0 truncate" title={skillLine}>
-          {skillLine}
-        </div>
+        selectionOnly ? undefined : (
+          <div className="min-w-0 truncate" title={skillLine}>
+            {skillLine}
+          </div>
+        )
       }
       actions={
         <>
-          {primarySkill && opensManagement ? (
+          {!selectionOnly && primarySkill && opensManagement ? (
             <Button type="button" variant="ghost" size="sm" onClick={() => onOpenManagedSkill(primarySkill.name)}>
               {t("skills.installedManage")}
             </Button>
           ) : null}
-          {canInstallRuntime && targetSkillName ? (
+          {!selectionOnly && canInstallRuntime && targetSkillName ? (
             <Button
               type="button"
               variant="outline"
@@ -279,6 +291,7 @@ export const TeamSkillMarketRow = React.memo(function TeamSkillMarketRow({
           {!linked && canManage && canLink ? (
             <Button
               type="button"
+              variant={selectionOnly ? "outline" : "default"}
               size="sm"
               disabled={disabled || addBusy}
               onClick={() => void onAdd(pkg, { installRuntime: false, skillName: primarySkill?.name })}
@@ -290,7 +303,9 @@ export const TeamSkillMarketRow = React.memo(function TeamSkillMarketRow({
         </>
       }
       onSelect={
-        primarySkill && opensManagement ? () => onOpenManagedSkill(primarySkill.name) : () => onOpenPackageDetail(pkg)
+        !selectionOnly && primarySkill && opensManagement
+          ? () => onOpenManagedSkill(primarySkill.name)
+          : () => onOpenPackageDetail(pkg)
       }
     />
   )
@@ -325,10 +340,12 @@ function TeamConfiguredSkillActionsMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-          <Link2OffIcon className="size-4" />
-          {t("teams.skillManageRemovePackage")}
-        </DropdownMenuItem>
+        <DropdownMenuGroup>
+          <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+            <Link2OffIcon className="size-4" />
+            {t("teams.skillManageRemovePackage")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -470,30 +487,18 @@ export const TeamSkillManageRow = React.memo(function TeamSkillManageRow({
       icon={<TeamSkillIconFrame icon={skill.icon} />}
       showTrailingDivider
       title={skill.displayName}
-      description={skill.description}
-      badges={
+      description={teamSkillListDescription(skill.description)}
+      actions={
         <>
-          <Badge variant="secondary" className="shrink-0">
-            {t("teams.skillManageConfigured")}
-          </Badge>
           <Badge className={cn("shrink-0", getSkillRowStatusBadgeClassName(runtimeTone))} variant="outline">
             {teamRuntimeStatusLabel(runtimeStatus.state, t)}
           </Badge>
-        </>
-      }
-      meta={
-        <div className="min-w-0 truncate" title={`${skill.packageName} · ${skill.skillName} · ${skill.version}`}>
-          {skill.packageName} · {skill.skillName} · {skill.version}
-        </div>
-      }
-      actions={
-        <>
           {runtimeInstallable ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              disabled={installBusy}
+              disabled={actionsDisabled || installBusy}
               onClick={() => onInstallRuntime(skill)}
             >
               {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
@@ -514,6 +519,8 @@ export const TeamSkillManageRow = React.memo(function TeamSkillManageRow({
 })
 
 export const TeamSkillRecommendationRow = React.memo(function TeamSkillRecommendationRow({
+  compact = false,
+  selectionOnly = false,
   addBusy,
   installBusy,
   actionsDisabled,
@@ -527,6 +534,8 @@ export const TeamSkillRecommendationRow = React.memo(function TeamSkillRecommend
   addBusy: boolean
   installBusy: boolean
   actionsDisabled: boolean
+  compact?: boolean
+  selectionOnly?: boolean
   canManage: boolean
   onAdd: (recommendation: ProviderSkillRecommendation, options: { installRuntime: boolean }) => Promise<void>
   onInstallRuntime: (skill: { packageName: string; skillName: string }) => void
@@ -547,30 +556,39 @@ export const TeamSkillRecommendationRow = React.memo(function TeamSkillRecommend
       icon={<TeamSkillIconFrame icon={recommendation.package.icon} />}
       showTrailingDivider
       title={recommendation.package.displayName}
-      description={skillDescription}
+      description={teamSkillListDescription(skillDescription)}
       badges={
-        <>
-          <Badge variant="secondary" className="shrink-0">
-            {t("teams.skillManageRecommended")}
-          </Badge>
-          <Badge variant="outline" className="shrink-0">
-            {getPublicSkillInstallStateLabel(recommendation.installState, t)}
-          </Badge>
-        </>
+        selectionOnly || compact ? undefined : (
+          <>
+            {!compact ? (
+              <Badge variant="secondary" className="shrink-0">
+                {t("teams.skillManageRecommended")}
+              </Badge>
+            ) : null}
+            <Badge variant="outline" className="shrink-0">
+              {getPublicSkillInstallStateLabel(recommendation.installState, t)}
+            </Badge>
+          </>
+        )
       }
       meta={
-        <div className="min-w-0 truncate" title={recommendation.packageName}>
-          {recommendation.providerDisplayName} · {recommendation.packageName} · {recommendation.skillId}
-        </div>
+        selectionOnly || compact ? undefined : (
+          <div className="min-w-0 truncate" title={recommendation.packageName}>
+            {recommendation.providerDisplayName} · {recommendation.packageName} · {recommendation.skillId}
+          </div>
+        )
       }
       actions={
         <>
-          {opensManagement ? (
+          {compact && !selectionOnly && !canInstallRuntime ? (
+            <Badge variant="outline">{getPublicSkillInstallStateLabel(recommendation.installState, t)}</Badge>
+          ) : null}
+          {!selectionOnly && opensManagement ? (
             <Button type="button" variant="ghost" size="sm" onClick={openManagedSkill}>
               {t("skills.installedManage")}
             </Button>
           ) : null}
-          {canInstallRuntime ? (
+          {!selectionOnly && canInstallRuntime ? (
             <Button
               type="button"
               variant="outline"
@@ -587,6 +605,7 @@ export const TeamSkillRecommendationRow = React.memo(function TeamSkillRecommend
           {canManage ? (
             <Button
               type="button"
+              variant={selectionOnly ? "outline" : "default"}
               size="sm"
               disabled={menuBusy || addBusy}
               onClick={() => void onAdd(recommendation, { installRuntime: false })}
@@ -597,7 +616,9 @@ export const TeamSkillRecommendationRow = React.memo(function TeamSkillRecommend
           ) : null}
         </>
       }
-      onSelect={opensManagement ? openManagedSkill : () => onOpenPackageDetail(recommendation.package)}
+      onSelect={
+        !selectionOnly && opensManagement ? openManagedSkill : () => onOpenPackageDetail(recommendation.package)
+      }
     />
   )
 })

@@ -512,16 +512,16 @@
     "other": "{{count}} recomendaciones del sistema"
   },
   "teams.skillManageInstallMissingAll": {
-    "one": "Sincronizar {{count}} Skill del equipo",
-    "other": "Sincronizar {{count}} Skills del equipo"
+    "one": "Instalar habilidades que faltan ({{count}})",
+    "other": "Instalar habilidades que faltan ({{count}})"
   },
   "teams.skillManageInstallMissingSuccess": {
-    "one": "{{count}} Skill del equipo sincronizada.",
-    "other": "{{count}} Skills del equipo sincronizadas."
+    "one": "{{count}} Skill instalado.",
+    "other": "{{count}} Skills instalados."
   },
   "teams.skillManageInstallMissingFailed": {
-    "one": "Falló la sincronización de {{count}} Skill del equipo: {{error}}",
-    "other": "Falló la sincronización de {{count}} Skills del equipo: {{error}}"
+    "one": "No se pudo instalar {{count}} Skill: {{error}}",
+    "other": "No se pudieron instalar {{count}} Skills: {{error}}"
   },
   "teams.skillManageLinkAll": {
     "one": "Establecer {{count}} como recomendación del equipo",

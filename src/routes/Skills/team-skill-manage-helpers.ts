@@ -242,3 +242,8 @@ function getInstallableRecommendedSkill(
     ? { packageName: recommendation.packageName, skillName: recommendation.skillId }
     : null
 }
+
+/** Keep agent routing instructions in the detail view, not in the team list. */
+export function teamSkillListDescription(description: string | undefined): string | undefined {
+  return description?.split(/\bUse this skill\b/i, 1)[0]?.trim() || undefined
+}

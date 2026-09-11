@@ -226,12 +226,20 @@ export type LocalPermissionPromptReason =
   | "project_environment_write"
   | "sensitive_resource"
   | "unclassified_request"
+export interface NativePermissionOption {
+  optionId: string
+  name: string
+  kind: "allow_once" | "allow_always" | "reject_once" | "reject_always"
+}
+
 export interface ChatPermissionRequest {
   id: string
   sessionId: string
   action: string
   resources: string[]
   save?: string[]
+  /** Original choices from the native agent; Wanta only displays and forwards them. */
+  nativeOptions?: NativePermissionOption[]
   metadata?: Record<string, unknown>
   /** Wanta-owned presentation context. Never accepted as policy input from OpenCode. */
   wanta?: {
@@ -259,6 +267,7 @@ export interface AnswerPermissionRequest {
   sessionId: string
   requestId: string
   reply: ChatPermissionReply
+  optionId?: string
 }
 export interface SetChatPermissionModeRequest {
   sessionId: string

@@ -957,6 +957,8 @@
   "chat.questionFallbackLabel": "質問 {index}",
   "chat.permissionModePicker": "アクセスモード",
   "chat.permissionModeDefault": "デフォルトアクセス",
+  "permissionPrompt.nativeBody": "エージェントが承認を求めています。選択はエージェントに直接送信されます。",
+  "chat.permissionModeNativeDescription": "エージェント固有の権限モードと承認ポリシーを使用します。",
   "chat.permissionModeDefaultDescription": "日常的な操作は自動的に実行し、機密データや高リスクと判断された操作については確認を求めます",
   "chat.permissionModeFullAccess": "フルアクセス",
   "chat.permissionModeFullAccessDescription": "ローカルの高リスクコマンド、プロジェクト外のパス、タスク内のブラウザ操作の確認をスキップします",

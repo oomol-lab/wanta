@@ -30,6 +30,7 @@ async function mount(initial = request, once = vi.fn().mockResolvedValue(undefin
   cleanups.push(() => act(() => root.unmount()))
   const always = vi.fn().mockResolvedValue(undefined)
   const reject = vi.fn().mockResolvedValue(undefined)
+  const native = vi.fn().mockResolvedValue(undefined)
   async function render(value = initial, busy = false) {
     await act(async () => {
       root.render(
@@ -42,6 +43,7 @@ async function mount(initial = request, once = vi.fn().mockResolvedValue(undefin
             onAllowOnce={once}
             onAllowForSession={always}
             onReject={reject}
+            onSelectNativeOption={native}
           />
         </I18nContext.Provider>,
       )
@@ -53,7 +55,7 @@ async function mount(initial = request, once = vi.fn().mockResolvedValue(undefin
     if (!match) throw new Error(`Missing button: ${text}`)
     return match
   }
-  return { host, render, once, always, reject, button }
+  return { host, render, once, always, reject, native, button }
 }
 
 describe("permission card decisions", () => {
@@ -119,4 +121,22 @@ describe("permission card decisions", () => {
     await act(async () => card.button("查看操作详情").click())
     expect(card.host.textContent).toContain("/Users/me/Downloads/reports")
   })
+})
+
+it("renders native labels and forwards exact options without host grant controls", async () => {
+  const nativeOptions = [
+    { optionId: "agent-scope", name: "Allow entire tool", kind: "allow_always" as const },
+    { optionId: "agent-project", name: "Allow this project", kind: "allow_always" as const },
+    { optionId: "deny", name: "Never allow", kind: "reject_always" as const },
+  ]
+  const card = await mount({ ...request, action: "Read protected file", nativeOptions })
+  expect(card.host.querySelector('[role="checkbox"]')).toBeNull()
+  expect(card.host.textContent).toContain("Read protected file")
+  await act(async () => card.button("Allow this project").click())
+  expect(card.native).toHaveBeenCalledExactlyOnceWith("one", nativeOptions[1])
+  expect(card.once).not.toHaveBeenCalled()
+  expect(card.always).not.toHaveBeenCalled()
+  await card.render({ ...request, id: "two", nativeOptions })
+  await act(async () => card.button("Never allow").click())
+  expect(card.native).toHaveBeenLastCalledWith("two", nativeOptions[2])
 })

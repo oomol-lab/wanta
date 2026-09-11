@@ -346,7 +346,7 @@ test("local access policy allows ordinary commands and Link business CLI in defa
   )
 })
 
-test("OpenCode, Claude, and ACP agents auto-approve Link business CLI", () => {
+test("the built-in classifier auto-approves Link business CLI", () => {
   const command =
     'oo connector run "posthog" --action "list_projects" --data \'{}\' --json --team "OOMOL-Internal" 2>&1 | head -100'
   const requests = [
@@ -364,7 +364,6 @@ test("OpenCode, Claude, and ACP agents auto-approve Link business CLI", () => {
   for (const request of requests.slice(1)) {
     assert.deepEqual(
       evaluateLocalAccessRequest(request, {
-        isExternalSession: true,
         linkRuntime: "oomol",
         permissionMode: "default",
       }),
@@ -373,7 +372,7 @@ test("OpenCode, Claude, and ACP agents auto-approve Link business CLI", () => {
   }
 })
 
-test("OpenCode, Claude, and ACP agents auto-approve every pure managed OO operation", () => {
+test("the built-in classifier auto-approves every pure managed OO operation", () => {
   const commands = [
     'BUN_BE_BUN=1 oo file upload "/Users/example/Library/Application Support/LarkShell/input.png" --json',
     'oo file download "https://example.com/a" ./artifacts',
@@ -391,7 +390,6 @@ test("OpenCode, Claude, and ACP agents auto-approve every pure managed OO operat
     for (const [index, request] of requests.entries()) {
       assert.deepEqual(
         evaluateLocalAccessRequest(request, {
-          isExternalSession: index > 0,
           linkRuntime: "oomol",
           permissionMode: "default",
         }),
@@ -406,7 +404,6 @@ test("OOCLI parity preserves hard denials while allowing ordinary compound Link 
   for (const command of ["oo auth login", "oo connector logout", "oo connector apps --connector-token secret"]) {
     assert.equal(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), {
-        isExternalSession: true,
         linkRuntime: "oomol",
         permissionMode: "default",
       }).type,
@@ -421,7 +418,6 @@ test("OOCLI parity preserves hard denials while allowing ordinary compound Link 
   ]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), {
-        isExternalSession: true,
         linkRuntime: "oomol",
         permissionMode: "default",
       }),
@@ -436,13 +432,12 @@ test("OOCLI parity preserves hard denials while allowing ordinary compound Link 
           command: 'oo connector run "posthog" --action "list_projects" --json | cat ~/.ssh/id_rsa',
         },
       }),
-      { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
+      { linkRuntime: "oomol", permissionMode: "default" },
     ),
     { type: "prompt", kind: "command", highRisk: true },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector apps --json | head -20" } }), {
-      isExternalSession: true,
       permissionMode: "default",
     }),
     { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
@@ -450,23 +445,20 @@ test("OOCLI parity preserves hard denials while allowing ordinary compound Link 
 
   const posthogJsonFilter =
     'oo connector run "posthog" --action "run_query" --data \'{"query":{"kind":"HogQLQuery"}}\' --json --team "OOMOL-Internal" 2>&1 | python3 -c "import sys,json; data=json.load(sys.stdin); print(len(data[\'results\']))"'
-  for (const isExternalSession of [false, true]) {
-    assert.deepEqual(
-      evaluateLocalAccessRequest(permission({ metadata: { command: posthogJsonFilter } }), {
-        ...(isExternalSession ? { isExternalSession: true } : {}),
-        linkRuntime: "oomol",
-        permissionMode: "default",
-      }),
-      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
-    )
-  }
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: posthogJsonFilter } }), {
+      linkRuntime: "oomol",
+      permissionMode: "default",
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+  )
 })
 
 test("safe OOCLI classification is agent-independent even without an active Link runtime", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({ metadata: { command: "oo connector run gmail --action send_email --json" } }),
-      { isExternalSession: true, linkRuntime: "none", permissionMode: "default" },
+      { linkRuntime: "none", permissionMode: "default" },
     ),
     { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
   )
@@ -474,7 +466,7 @@ test("safe OOCLI classification is agent-independent even without an active Link
   assert.equal(
     evaluateLocalAccessRequest(
       permission({ metadata: { command: "oo connector run gmail --action send_email --json" } }),
-      { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
+      { linkRuntime: "oomol", permissionMode: "default" },
     ).type,
     "allow",
   )
@@ -484,19 +476,19 @@ test("safe OOCLI classification is agent-independent even without an active Link
         metadata: { command: "oo connector apps --json" },
         resources: ["/Users/example/.ssh/id_rsa"],
       }),
-      { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
+      { linkRuntime: "oomol", permissionMode: "default" },
     ),
     { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
   )
 })
 
-test("external agents auto-approve Wanta host MCP dispatch without weakening native local permissions", () => {
+test("the built-in classifier treats host-tool metadata as ordinary local dispatch", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({ action: "permission", metadata: { toolCallId: "call-1", wantaHostTool: "call_action" } }),
-      { isExternalSession: true, permissionMode: "default" },
+      { permissionMode: "default" },
     ),
-    { type: "allow", reason: "wanta_host_tool", kind: "local", highRisk: false },
+    { type: "allow", reason: "default_local", kind: "local", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(
@@ -510,13 +502,12 @@ test("external agents auto-approve Wanta host MCP dispatch without weakening nat
           },
         },
       }),
-      { isExternalSession: true, permissionMode: "default" },
+      { permissionMode: "default" },
     ),
     { type: "allow", reason: "default_local", kind: "local", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "permission", metadata: { rawInput: { tool: "call_action" } } }), {
-      isExternalSession: true,
       permissionMode: "default",
     }),
     { type: "allow", reason: "default_local", kind: "local", highRisk: false },
@@ -1711,89 +1702,85 @@ test("local access policy keeps project dev grants compatible but prompts unsafe
   )
 })
 
-// External (BYOA) sessions use the same Wanta policy as the built-in kernel.
-// Native CLIs retain their sandbox/enforcement boundary; Wanta owns whether an
-// interactive request interrupts the user.
+// Classifier normalization coverage for the built-in kernel only.
+// ACP requests bypass this classifier in ChatService.
 
 const EXTERNAL_ROOT = path.join("/tmp", "wanta-agent-external", "claude-code", "uuid-1")
 
-test("external sessions auto-approve ordinary file writes like OpenCode", () => {
+test("the built-in policy auto-approves ordinary file writes", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "Write", resources: [path.join(EXTERNAL_ROOT, "hello.txt")] }), {
       permissionMode: "default",
-      isExternalSession: true,
     }),
     { type: "allow", reason: "default_local", kind: "edit", highRisk: false },
   )
 })
 
-test("external sessions auto-approve trusted-project edits like OpenCode", () => {
+test("the built-in policy auto-approves trusted-project edits", () => {
   const projectRoot = path.join("/tmp", "my-project")
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "Edit", resources: [path.join(projectRoot, "src", "index.ts")] }), {
       permissionMode: "default",
-      isExternalSession: true,
+
       trustedProjectRoot: projectRoot,
     }),
     { type: "allow", reason: "trusted_project", kind: "edit", highRisk: false },
   )
 })
 
-test("external sessions auto-approve ordinary commands like OpenCode", () => {
+test("the built-in policy auto-approves ordinary commands", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "Bash", metadata: { command: "echo hi > ~/anywhere" } }), {
       permissionMode: "default",
-      isExternalSession: true,
     }),
     { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
 
-test("external Bash metadata cannot change the shared ordinary-command decision reason", () => {
+test("Bash metadata cannot change the shared ordinary-command decision reason", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({
         action: "Bash",
         metadata: { command: "echo hi", rawInput: { server: "wanta_link", tool: "call_action" } },
       }),
-      { permissionMode: "default", isExternalSession: true },
+      { permissionMode: "default" },
     ),
     { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
 
-test("external sessions share OpenCode full-access auto-approval", () => {
+test("normalized local requests share OpenCode full-access auto-approval", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "Bash", metadata: { command: "echo hi" } }), {
       permissionMode: "full_access",
-      isExternalSession: true,
     }),
     { type: "allow", reason: "full_access", kind: "command", highRisk: false },
   )
 })
 
-test("external sessions honor the user's explicit session grants", () => {
+test("normalized local requests honor the user's explicit session grants", () => {
   const request = permission({ action: "Write", resources: [path.join(EXTERNAL_ROOT, "hello.txt")] })
   const grant = localAccessGrantForRequest(request)
   assert.ok(grant)
   assert.deepEqual(
     evaluateLocalAccessRequest(request, {
       permissionMode: "default",
-      isExternalSession: true,
+
       sessionGrants: [grant],
     }),
     { type: "allow", reason: "session_grant", kind: "edit", highRisk: false },
   )
 })
 
-test("external session grants cannot cross sensitive or high-risk boundaries", () => {
+test("built-in session grants cannot cross sensitive or high-risk boundaries", () => {
   const sensitive = permission({ action: "Read", resources: ["/Users/someone/.aws/credentials"] })
   const sensitiveGrant = localAccessGrantForRequest(sensitive)
   assert.ok(sensitiveGrant)
   assert.deepEqual(
     evaluateLocalAccessRequest(sensitive, {
       permissionMode: "default",
-      isExternalSession: true,
+
       sessionGrants: [sensitiveGrant],
     }),
     { type: "prompt", kind: "local", highRisk: false },
@@ -1805,24 +1792,23 @@ test("external session grants cannot cross sensitive or high-risk boundaries", (
   assert.deepEqual(
     evaluateLocalAccessRequest(highRisk, {
       permissionMode: "default",
-      isExternalSession: true,
+
       sessionGrants: [highRiskGrant],
     }),
     { type: "prompt", kind: "command", highRisk: true },
   )
 })
 
-test("external sessions with no project context share OpenCode default-local behavior", () => {
+test("normalized local requests with no project context share OpenCode default-local behavior", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "Write", resources: ["/tmp/anywhere.txt"] }), {
       permissionMode: "default",
-      isExternalSession: true,
     }),
     { type: "allow", reason: "default_local", kind: "edit", highRisk: false },
   )
 })
 
-test("BYOA never makes the pre-BYOA OpenCode local-operation floor stricter", () => {
+test("the built-in classifier preserves ordinary operations and protected boundaries", () => {
   const root = path.join("/tmp", "permission-parity-project")
   const processRoot = path.join("/tmp", "wanta-process", "turn-1")
   const cases = [
@@ -1891,41 +1877,33 @@ test("BYOA never makes the pre-BYOA OpenCode local-operation floor stricter", ()
       trustedProjectRoot: root,
     }
     const builtInDecision = evaluateLocalAccessRequest(item.request, shared)
-    const externalDecision = evaluateLocalAccessRequest(item.request, { ...shared, isExternalSession: true })
-    assert.deepEqual(
-      externalDecision,
-      builtInDecision,
-      `BYOA decision diverged for ${item.request.action}: ${item.request.metadata?.command ?? item.request.resources.join(" ")}`,
-    )
-    if (item.ordinary) assert.equal(builtInDecision.type, "allow")
+    assert.equal(builtInDecision.type, item.ordinary ? "allow" : "prompt")
   }
 })
 
-test("skill launch assignments preserve shared adapter permissions and consequential boundaries", () => {
+test("skill launch assignments preserve built-in permissions and consequential boundaries", () => {
   const prefix = 'export PATH="/managed/agent/bin:$PATH"; cd /tmp; '
   const runner =
     'BUN_BE_BUN=1 oo "/managed/skills/gpt-image-2/scripts/run_image.js" --mode edit --prompt "Edit the tablecloth" --image /tmp/input.png --out-dir /tmp/result'
-  for (const isExternalSession of [false, true]) {
-    const context = { permissionMode: "default" as const, isExternalSession, linkRuntime: "oomol" as const }
-    assert.deepEqual(evaluateLocalAccessRequest(permission({ metadata: { command: prefix + runner } }), context), {
-      type: "allow",
-      reason: "default_command",
-      kind: "command",
-      highRisk: false,
-    })
-    for (const suffix of ["; git push origin main", "; cat ~/.ssh/id_rsa", "; rm -rf /Users/example/Documents"]) {
-      assert.equal(
-        evaluateLocalAccessRequest(permission({ metadata: { command: prefix + runner + suffix } }), context).type,
-        "prompt",
-      )
-    }
-    assert.deepEqual(evaluateLocalAccessRequest(permission({ metadata: { command: prefix + "printenv" } }), context), {
-      type: "deny",
-      reason: "environment_dump",
-      kind: "command",
-      highRisk: false,
-    })
+  const context = { permissionMode: "default" as const, linkRuntime: "oomol" as const }
+  assert.deepEqual(evaluateLocalAccessRequest(permission({ metadata: { command: prefix + runner } }), context), {
+    type: "allow",
+    reason: "default_command",
+    kind: "command",
+    highRisk: false,
+  })
+  for (const suffix of ["; git push origin main", "; cat ~/.ssh/id_rsa", "; rm -rf /Users/example/Documents"]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command: prefix + runner + suffix } }), context).type,
+      "prompt",
+    )
   }
+  assert.deepEqual(evaluateLocalAccessRequest(permission({ metadata: { command: prefix + "printenv" } }), context), {
+    type: "deny",
+    reason: "environment_dump",
+    kind: "command",
+    highRisk: false,
+  })
 })
 
 test("automatic denials carry specific metadata without command values", () => {
@@ -1999,19 +1977,17 @@ test("dependency decisions are stable across tools, variables, scripts and adapt
     "npm publish",
     "sudo pip install pypdf",
   ]
-  for (const isExternalSession of [false, true]) {
-    const context = { permissionMode: "default" as const, taskProcessRoot: root, isExternalSession }
-    for (const command of ordinary)
-      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "allow", command)
-    for (const protectedCommand of protectedCommands) {
-      for (const command of [
-        protectedCommand,
-        `echo ready && ${protectedCommand}`,
-        `npm install lodash; ${protectedCommand}`,
-        `bash -c '${protectedCommand}'`,
-      ])
-        assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "prompt", command)
-    }
+  const context = { permissionMode: "default" as const, taskProcessRoot: root }
+  for (const command of ordinary)
+    assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "allow", command)
+  for (const protectedCommand of protectedCommands) {
+    for (const command of [
+      protectedCommand,
+      `echo ready && ${protectedCommand}`,
+      `npm install lodash; ${protectedCommand}`,
+      `bash -c '${protectedCommand}'`,
+    ])
+      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "prompt", command)
   }
 })
 
@@ -2079,15 +2055,13 @@ test("explicit dependency destinations stay inside task or project across adapte
     "/usr/bin/env -C/work/other npm install --prefix . lodash",
     "bash -c 'cd /work/other; npm install --prefix . lodash'",
   ]
-  for (const isExternalSession of [false, true]) {
-    for (const [commands, expected] of [
-      [allowed, "allow"],
-      [protectedCommands, "prompt"],
-    ] as const) {
-      for (const command of commands) {
-        const request = permission({ metadata: { command } })
-        assert.equal(evaluateLocalAccessRequest(request, { ...scope, isExternalSession }).type, expected, command)
-      }
+  for (const [commands, expected] of [
+    [allowed, "allow"],
+    [protectedCommands, "prompt"],
+  ] as const) {
+    for (const command of commands) {
+      const request = permission({ metadata: { command } })
+      assert.equal(evaluateLocalAccessRequest(request, { ...scope }).type, expected, command)
     }
   }
 })
@@ -2102,65 +2076,57 @@ test("dynamic dependency verbs and option names prompt without resolving shell v
     'ACTION=install\nuv pip "$ACTION" pypdf',
     'MODULE=pip\npython3 -m "$MODULE" install --user pypdf',
   ]
-  for (const isExternalSession of [false, true]) {
-    for (const command of commands) {
-      assert.equal(
-        evaluateLocalAccessRequest(permission({ metadata: { command } }), {
-          permissionMode: "default",
-          isExternalSession,
-        }).type,
-        "prompt",
-        command,
-      )
-    }
-    for (const command of [
-      'PROC=/work/task\n"$PROC/.wanta-python/bin/python" -m pip install pypdf',
-      'ROOT=/work/task\npnpm --dir "$ROOT" add lodash',
-      'python3 report.py --"$FIELD"',
-    ]) {
-      assert.equal(
-        evaluateLocalAccessRequest(permission({ metadata: { command } }), {
-          permissionMode: "default",
-          isExternalSession,
-        }).type,
-        "allow",
-        command,
-      )
-    }
+  for (const command of commands) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+      }).type,
+      "prompt",
+      command,
+    )
+  }
+  for (const command of [
+    'PROC=/work/task\n"$PROC/.wanta-python/bin/python" -m pip install pypdf',
+    'ROOT=/work/task\npnpm --dir "$ROOT" add lodash',
+    'python3 report.py --"$FIELD"',
+  ]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+      }).type,
+      "allow",
+      command,
+    )
   }
 })
 
 test("Windows rooted and UNC dependency destinations keep platform and containment", () => {
-  for (const isExternalSession of [false, true]) {
-    const driveScope = {
-      permissionMode: "default" as const,
-      trustedProjectRoot: String.raw`C:\work\project`,
-      commandCwd: String.raw`C:\outside`,
-      isExternalSession,
-    }
-    for (const directory of [String.raw`\work\project`, "/work/project"]) {
-      const command = `cd '${directory}' && npm install --prefix . lodash`
-      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), driveScope).type, "allow", command)
-    }
-    const uncScope = {
-      permissionMode: "default" as const,
-      trustedProjectRoot: String.raw`\\server\share\Project`,
-      taskProcessRoot: String.raw`\\server\share\Task`,
-      isExternalSession,
-    }
-    for (const command of [
-      String.raw`npm install --prefix '\\SERVER\SHARE\project' lodash`,
-      "npm install --prefix //SERVER/SHARE/project lodash",
-      String.raw`uv pip install --python '\\SERVER\SHARE\project\.venv\Scripts\python.exe' pypdf`,
-      "uv pip install --python //SERVER/SHARE/task/.wanta-python/Scripts/python.exe pypdf",
-    ])
-      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), uncScope).type, "allow", command)
-    for (const command of [
-      "npm install --prefix //server/share/project-other lodash",
-      "npm install --prefix //server/other/Project lodash",
-      "uv pip install --python //server/share/Project/bin/python pypdf",
-      "uv pip install --python //server/other/Project/.venv/Scripts/python.exe pypdf",
-    ])
-      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), uncScope).type, "prompt", command)
+  const driveScope = {
+    permissionMode: "default" as const,
+    trustedProjectRoot: String.raw`C:\work\project`,
+    commandCwd: String.raw`C:\outside`,
   }
+  for (const directory of [String.raw`\work\project`, "/work/project"]) {
+    const command = `cd '${directory}' && npm install --prefix . lodash`
+    assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), driveScope).type, "allow", command)
+  }
+  const uncScope = {
+    permissionMode: "default" as const,
+    trustedProjectRoot: String.raw`\\server\share\Project`,
+    taskProcessRoot: String.raw`\\server\share\Task`,
+  }
+  for (const command of [
+    String.raw`npm install --prefix '\\SERVER\SHARE\project' lodash`,
+    "npm install --prefix //SERVER/SHARE/project lodash",
+    String.raw`uv pip install --python '\\SERVER\SHARE\project\.venv\Scripts\python.exe' pypdf`,
+    "uv pip install --python //SERVER/SHARE/task/.wanta-python/Scripts/python.exe pypdf",
+  ])
+    assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), uncScope).type, "allow", command)
+  for (const command of [
+    "npm install --prefix //server/share/project-other lodash",
+    "npm install --prefix //server/other/Project lodash",
+    "uv pip install --python //server/share/Project/bin/python pypdf",
+    "uv pip install --python //server/other/Project/.venv/Scripts/python.exe pypdf",
+  ])
+    assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), uncScope).type, "prompt", command)
 })

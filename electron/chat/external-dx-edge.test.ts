@@ -215,12 +215,17 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   }
 
   /** Surface a native permission request through the contract event channel. */
-  public askPermission(sessionId: string, requestId: string): ChatPermissionRequest {
+  public askPermission(
+    sessionId: string,
+    requestId: string,
+    details: Partial<ChatPermissionRequest> = {},
+  ): ChatPermissionRequest {
     const request: ChatPermissionRequest = {
       id: requestId,
       sessionId,
       action: "read_file",
       resources: [`/Users/example/.ssh/${requestId}`],
+      ...details,
     }
     this.nativePendingPermissionIds.add(requestId)
     this.emit({ event: "permissionAsked", data: { sessionId, request } })
@@ -1358,7 +1363,7 @@ test("external turns receive the same Wanta team and Link identity instead of fa
   assert.match(codex.prompts[0]?.system ?? "", /Current-turn Wanta Link workspace: team "OOMOL-Internal"/)
   assert.match(codex.prompts[0]?.system ?? "", /--team "OOMOL-Internal"/)
   assert.match(codex.prompts[0]?.system ?? "", /Team-configured skills for the active workspace/)
-  assert.match(codex.prompts[0]?.system ?? "", /Default Access with Wanta's shared approval policy/)
+  assert.match(codex.prompts[0]?.system ?? "", /approval decisions belong to the external agent runtime/)
   assert.match(codex.prompts[0]?.system ?? "", /application interface language: Simplified Chinese/)
 
   codex.completeAssistantTurn(sessionId, "reply", "done")
@@ -1414,3 +1419,97 @@ test("late external tool results remain in history without advancing the replace
   assert.ok(oldMessage?.parts.some((part) => part.kind === "tool" && part.output === "late historical output"))
   await service.stopGeneration(sessionId)
 })
+
+for (const kind of ["codex", "claude-code", "grok"] as const) {
+  for (const mode of ["default", "full_access"] as const) {
+    test(`${kind} ${mode}: native requests bypass host allow/deny rules and grants`, async () => {
+      const { service, events, adapters } = createHarness([kind])
+      const adapter = adapters.get(kind)!
+      const sessionId = mintExternalSessionId(kind)
+      await service.sendMessage(sendRequest(sessionId, "work", { permissionMode: mode }))
+      const nativeOptions = [
+        { optionId: "native-once", name: "Run once", kind: "allow_once" as const },
+        { optionId: "native-always", name: "Remember in agent", kind: "allow_always" as const },
+        { optionId: "native-no", name: "Never allow", kind: "reject_always" as const },
+      ]
+      for (const [index, details] of [
+        { action: "bash", metadata: { command: "echo hello" } },
+        { action: "bash", metadata: { command: "printenv OO_API_KEY" } },
+        { action: "bash", metadata: { command: "oo connector apps --json" } },
+        { action: "wanta_browser", metadata: { wantaHostTool: "browser_read" } },
+      ].entries()) {
+        adapter.askPermission(sessionId, `native-${index}`, { ...details, nativeOptions, resources: [] })
+      }
+      await waitForCondition(
+        () => events.filter((event) => event.event === "permissionAsked").length === 4,
+        "native requests",
+      )
+      assert.equal((await service.getPendingPermissions(sessionId)).length, 4)
+      assert.equal(adapter.permissionResponses.length, 0)
+      await assert.rejects(
+        service.answerPermission({ sessionId, requestId: "native-0", reply: "once", optionId: "invented" }),
+        /Unknown native permission option/,
+      )
+      assert.equal((await service.getPendingPermissions(sessionId)).length, 4)
+      await service.answerPermission({ sessionId, requestId: "native-0", reply: "once", optionId: "native-always" })
+      assert.equal(adapter.permissionResponses[0]?.optionId, "native-always")
+      assert.equal(adapter.permissionResponses[0]?.reply, "always")
+      adapter.askPermission(sessionId, "repeat", {
+        action: "bash",
+        metadata: { command: "echo hello" },
+        resources: [],
+        nativeOptions,
+      })
+      assert.equal((await service.getPendingPermissions(sessionId)).length, 4)
+      assert.equal(adapter.permissionResponses.length, 1)
+      await service.answerPermission({ sessionId, requestId: "repeat", reply: "once", optionId: "native-no" })
+      assert.equal(adapter.permissionResponses[1]?.reply, "reject")
+      assert.equal(adapter.permissionResponses[1]?.optionId, "native-no")
+      for (const request of await service.getPendingPermissions(sessionId)) {
+        await service.answerPermission({ sessionId, requestId: request.id, reply: "once", optionId: "native-once" })
+      }
+      adapter.completeAssistantTurn(sessionId, "done", "done")
+      await waitForTurnCompletion(service)
+    })
+  }
+}
+
+for (const kind of ["codex", "claude-code", "grok"] as const) {
+  test(`${kind}: native approvals enable host previews without approving future agent requests`, async () => {
+    const { service, adapters } = createHarness([kind])
+    const adapter = adapters.get(kind)!
+    const sessionId = mintExternalSessionId(kind)
+    await service.sendMessage(sendRequest(sessionId, "inspect files"))
+    for (const optionKind of ["allow_once", "allow_always", "reject_once", "reject_always"] as const) {
+      const attachment = await createProbeAttachment()
+      const requestId = `preview-${optionKind}`
+      const nativeOptions = [{ optionId: optionKind, name: optionKind, kind: optionKind }]
+      adapter.askPermission(sessionId, requestId, { action: "file.read", resources: [attachment.path], nativeOptions })
+      await assert.rejects(service.getLocalArtifactPreview({ path: attachment.path }), /not available/)
+      const response = { sessionId, requestId, reply: "once" as const, optionId: optionKind }
+      if (optionKind === "allow_once") {
+        vi.spyOn(adapter, "send").mockRejectedValueOnce(new Error("native delivery failed"))
+        await assert.rejects(service.answerPermission(response), /native delivery failed/)
+        await assert.rejects(service.getLocalArtifactPreview({ path: attachment.path }), /not available/)
+      }
+      await service.answerPermission(response)
+      if (optionKind.startsWith("allow")) {
+        const preview = await service.getLocalArtifactPreview({ path: attachment.path })
+        assert.equal(preview.text, "probe")
+        const responsesBefore = adapter.permissionResponses.length
+        adapter.askPermission(sessionId, `${requestId}-again`, {
+          action: "file.read",
+          resources: [attachment.path],
+          nativeOptions,
+        })
+        assert.equal((await service.getPendingPermissions(sessionId)).length, 1)
+        assert.equal(adapter.permissionResponses.length, responsesBefore)
+        await service.answerPermission({ ...response, requestId: `${requestId}-again` })
+      } else {
+        await assert.rejects(service.getLocalArtifactPreview({ path: attachment.path }), /not available/)
+      }
+    }
+    adapter.completeAssistantTurn(sessionId, "preview-done", "done")
+    await waitForTurnCompletion(service)
+  })
+}

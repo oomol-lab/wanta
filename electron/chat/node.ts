@@ -1280,6 +1280,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     emit: (event: string, data: unknown) => Promise<void>,
     request: ChatPermissionRequest,
   ): boolean {
+    // Native agents own every local approval, including host-tool transport prompts.
+    // Link authorization is enforced at the capability entry point, not here.
+    if (externalAgentKindForSessionId(request.sessionId) !== undefined) return false
     const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
     const projectRoot = this.trustedAccess.projectRoot(request.sessionId)
     const activeGenerationId = this.generations.get(displaySessionId)?.id
@@ -1292,12 +1295,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             processRoot: activeTurn.diagnosticEvidenceRoot ?? activeTurn.processRoot,
           }
         : undefined
-    // Keyed off the session id's kind, so a malformed external id still fails
-    // closed (prompt) instead of falling through to the kernel's defaults.
-    // Proven cwd comes from request metadata (`cwd` / `workingDirectory`).
-    // Do not treat the selected project as commandCwd for BYOA: unscoped
-    // `npm install` with only trustedProjectRoot must still prompt.
-    const isExternalSession = externalAgentKindForSessionId(request.sessionId) !== undefined
     const decision = evaluateLocalAccessRequest(request, {
       activeGenerationId,
       linkRuntime: this.activeLinkRuntime,
@@ -1306,10 +1303,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       ...(taskProcessRoot ? { taskProcessRoot } : {}),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
       ...(diagnosticRoots ? { diagnosticRoots } : {}),
-      ...(isExternalSession ? { isExternalSession } : {}),
     })
-    // External sessions answer through their own adapter; only a session with
-    // no backend at all falls through to the manual card.
+    // A session without a backend falls through to the manual card.
     if (!this.chatBackendFor(request.sessionId)) {
       return false
     }
@@ -3305,25 +3300,37 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
     const sourceSessionId = request.sessionId
-    // Both adapters answer once natively; Wanta retains the bounded session grant.
-    await this.trackPermissionReply(
-      request,
-      req.reply === "reject" ? { source: "user", ...request.tool } : undefined,
-      () =>
-        backend.send({
-          type: "permission-response",
-          sessionId: sourceSessionId,
-          requestId: req.requestId,
-          reply: req.reply,
-          ...(req.reply === "reject" ? { message: permissionRejectionMessage({ source: "user" }) } : {}),
-        }),
+    const isExternal = externalAgentKindForSessionId(sourceSessionId) !== undefined
+    const nativeOption =
+      req.optionId === undefined ? undefined : request.nativeOptions?.find((option) => option.optionId === req.optionId)
+    if (req.optionId !== undefined && (!isExternal || !nativeOption)) {
+      throw new Error("Unknown native permission option")
+    }
+    const reply = nativeOption
+      ? nativeOption.kind === "allow_once"
+        ? "once"
+        : nativeOption.kind === "allow_always"
+          ? "always"
+          : "reject"
+      : req.reply
+    // External grants remain in the native runtime. Only OpenCode uses host grants.
+    await this.trackPermissionReply(request, reply === "reject" ? { source: "user", ...request.tool } : undefined, () =>
+      backend.send({
+        type: "permission-response",
+        sessionId: sourceSessionId,
+        requestId: req.requestId,
+        reply,
+        ...(req.optionId !== undefined ? { optionId: req.optionId } : {}),
+        ...(reply === "reject" ? { message: permissionRejectionMessage({ source: "user" }) } : {}),
+      }),
     )
-    if (req.reply === "always") {
+    if (!isExternal && reply === "always") {
       for (const sessionId of sessionIds) {
         this.addSessionPermissionGrant(sessionId, request)
       }
     }
-    if (req.reply !== "reject" && request) {
+    // Host previews need approved paths even when the native agent owns grants.
+    if (reply !== "reject") {
       this.rememberTrustedPermissionResources(req.sessionId, request)
     }
     this.forgetPendingPermissionRequest(sourceSessionId, req.requestId)

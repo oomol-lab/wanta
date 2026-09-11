@@ -97,7 +97,12 @@ export interface UseChat {
   ) => Promise<void>
   stop: (sessionId: string) => Promise<void>
   answerQuestion: (sessionId: string, requestId: string, answers: string[][]) => Promise<void>
-  answerPermission: (sessionId: string, requestId: string, reply: ChatPermissionReply) => Promise<void>
+  answerPermission: (
+    sessionId: string,
+    requestId: string,
+    reply: ChatPermissionReply,
+    optionId?: string,
+  ) => Promise<void>
   rejectQuestion: (sessionId: string, requestId: string) => Promise<void>
   questionDrafts: QuestionDraftStore
   permissionMode: AgentPermissionMode
@@ -386,9 +391,14 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
   )
 
   const replyPermissionRequest = React.useCallback(
-    async (sessionId: string, requestId: string, reply: ChatPermissionReply): Promise<void> => {
+    async (sessionId: string, requestId: string, reply: ChatPermissionReply, optionId?: string): Promise<void> => {
       const operation = ownership.capture(sessionId)
-      await chatService.invoke("answerPermission", { sessionId, requestId, reply })
+      await chatService.invoke("answerPermission", {
+        sessionId,
+        requestId,
+        reply,
+        ...(optionId !== undefined ? { optionId } : {}),
+      })
       if (!ownership.isCurrent(sessionId, operation)) return
       removePendingPermission(sessionId, requestId)
     },
@@ -1087,14 +1097,14 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
   )
 
   const answerPermission = React.useCallback(
-    async (sessionId: string, requestId: string, reply: ChatPermissionReply) => {
+    async (sessionId: string, requestId: string, reply: ChatPermissionReply, optionId?: string) => {
       const operation = ownership.capture(sessionId)
       setGlobalError(null)
       clearSessionError(sessionId)
       setStatus(sessionId, "streaming")
       setActivity(sessionId, { sessionId, phase: "thinking" })
       try {
-        await replyPermissionRequest(sessionId, requestId, reply)
+        await replyPermissionRequest(sessionId, requestId, reply, optionId)
       } catch (err) {
         if (!ownership.isCurrent(sessionId, operation)) throw err
         reportRendererHandledError("chat", "answerPermission invoke failed", err)

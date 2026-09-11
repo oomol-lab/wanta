@@ -150,6 +150,15 @@ export const permissionRequestSchema = z.object({
   action: z.string(),
   resources: z.array(z.string()),
   save: z.array(z.string()).optional(),
+  nativeOptions: z
+    .array(
+      z.object({
+        optionId: z.string(),
+        name: z.string(),
+        kind: z.enum(["allow_once", "allow_always", "reject_once", "reject_always"]),
+      }),
+    )
+    .optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   wanta: z
     .object({

@@ -25,7 +25,6 @@ import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { evaluateLocalAccessRequest } from "../../chat/local-access-policy.ts"
 import { AGENT_PROFILES } from "../contract/profile.ts"
 import { ExternalOoGuardServer } from "../external/oo-guard-server.ts"
 import { AcpAgentAdapter } from "./adapter.ts"
@@ -940,7 +939,7 @@ describe("AcpAgentAdapter", () => {
 
   test.each([
     ["once", "opt-allow-once"],
-    ["always", "opt-allow-once"],
+    ["always", "opt-allow-always"],
     ["reject", "opt-reject-once"],
   ] as const)("permission round trip: reply %s selects %s", async (reply, expectedOptionId) => {
     const harness = await createHarness({
@@ -981,75 +980,67 @@ describe("AcpAgentAdapter", () => {
     expect(harness.fake.permissionResponses).toEqual([{ outcome: { outcome: "selected", optionId: expectedOptionId } }])
   })
 
-  test.each([
-    [undefined, "allow"],
-    ["/work/project", "allow"],
-    ["/work/other", "allow"],
-  ] as const)("permission scope uses explicit cwd or session cwd: %s", async (cwd, decision) => {
-    const harness = await createHarness({
-      prompt: async (turn) => {
-        await turn.requestPermission(
-          {
-            toolCallId: "install",
-            kind: "execute",
-            rawInput: { command: "npm install && npm test", ...(cwd ? { cwd } : {}) },
-          },
-          permissionOptions,
-        )
-        return { stopReason: "end_turn" }
-      },
-    })
-    await harness.adapter.send({ ...promptInput(), workingDirectory: "/work/project" })
-    const request = eventData(
-      await harness.waitFor((event) => event.event === "permissionAsked"),
-      "permissionAsked",
-    ).request
-    expect(request.metadata?.cwd).toBe(cwd ?? "/work/project")
-    expect(
-      evaluateLocalAccessRequest(request, {
-        permissionMode: "default",
-        trustedProjectRoot: "/work/project",
-        isExternalSession: true,
-      }).type,
-    ).toBe(decision)
-    await harness.adapter.send({
-      type: "permission-response",
-      sessionId: WANTA_SESSION_ID,
-      requestId: request.id,
-      reply: "once",
-    })
-    await harness.waitFor((event) => event.event === "messageCompleted")
-    expect(harness.fake.permissionResponses).toEqual([{ outcome: { outcome: "selected", optionId: "opt-allow-once" } }])
-  })
+  test.each([undefined, "/work/project", "/work/other"])(
+    "permission scope uses explicit cwd or session cwd: %s",
+    async (cwd) => {
+      const harness = await createHarness({
+        prompt: async (turn) => {
+          await turn.requestPermission(
+            {
+              toolCallId: "install",
+              kind: "execute",
+              rawInput: { command: "npm install && npm test", ...(cwd ? { cwd } : {}) },
+            },
+            permissionOptions,
+          )
+          return { stopReason: "end_turn" }
+        },
+      })
+      await harness.adapter.send({ ...promptInput(), workingDirectory: "/work/project" })
+      const request = eventData(
+        await harness.waitFor((event) => event.event === "permissionAsked"),
+        "permissionAsked",
+      ).request
+      expect(request.metadata?.cwd).toBe(cwd ?? "/work/project")
+      await harness.adapter.send({
+        type: "permission-response",
+        sessionId: WANTA_SESSION_ID,
+        requestId: request.id,
+        reply: "once",
+      })
+      await harness.waitFor((event) => event.event === "messageCompleted")
+      expect(harness.fake.permissionResponses).toEqual([
+        { outcome: { outcome: "selected", optionId: "opt-allow-once" } },
+      ])
+    },
+  )
 
-  test.each([
-    ["node process.js", "allow"],
-    ["rm -rf /work/shared/customer-data", "prompt"],
-    ["printenv", "deny"],
-  ] as const)("real Claude Bash permission payload: %s", async (command, decision) => {
-    const input = { command }
-    const info = toolInfoFromToolUse({ name: "Bash", input, id: "real-bash" })
-    const harness = await createHarness({
-      prompt: async (turn) => {
-        await turn.requestPermission({ ...info, toolCallId: "real-bash", rawInput: input }, permissionOptions)
-        return { stopReason: "end_turn" }
-      },
-    })
-    await harness.adapter.send(promptInput())
-    const asked = await harness.waitFor((event) => event.event === "permissionAsked")
-    const request = eventData(asked, "permissionAsked").request
-    expect(request.action).toBe("bash")
-    expect(evaluateLocalAccessRequest(request, { permissionMode: "default", isExternalSession: true }).type).toBe(
-      decision,
-    )
-    await harness.adapter.send({
-      type: "permission-response",
-      sessionId: WANTA_SESSION_ID,
-      requestId: request.id,
-      reply: "reject",
-    })
-    await harness.waitFor((event) => event.event === "messageCompleted")
-  })
+  test.each(["node process.js", "rm -rf /work/shared/customer-data", "printenv"])(
+    "real Claude Bash permission payload: %s",
+    async (command) => {
+      const input = { command }
+      const info = toolInfoFromToolUse({ name: "Bash", input, id: "real-bash" })
+      const harness = await createHarness({
+        prompt: async (turn) => {
+          await turn.requestPermission({ ...info, toolCallId: "real-bash", rawInput: input }, permissionOptions)
+          return { stopReason: "end_turn" }
+        },
+      })
+      await harness.adapter.send(promptInput())
+      const asked = await harness.waitFor((event) => event.event === "permissionAsked")
+      const request = eventData(asked, "permissionAsked").request
+      expect(request.action).toBe("bash")
+      expect(request.metadata?.rawInput).toEqual(input)
+      expect(request.nativeOptions).toEqual(permissionOptions)
+      await harness.adapter.send({
+        type: "permission-response",
+        sessionId: WANTA_SESSION_ID,
+        requestId: request.id,
+        reply: "reject",
+      })
+      await harness.waitFor((event) => event.event === "messageCompleted")
+    },
+  )
 
   test("partial permission payload retains all live locations including a sensitive fourth file", async () => {
     const locations = ["/work/project/a", "/work/project/b", "/work/project/c", "/work/project/.env"].map((path) => ({
@@ -1075,9 +1066,6 @@ describe("AcpAgentAdapter", () => {
     const request = eventData(asked, "permissionAsked").request
     expect(request.action).toBe("edit")
     expect(request.resources).toEqual(locations.map(({ path }) => path))
-    expect(
-      evaluateLocalAccessRequest(request, { permissionMode: "default", trustedProjectRoot: "/work/project" }).type,
-    ).toBe("prompt")
     await harness.adapter.send({
       type: "permission-response",
       sessionId: WANTA_SESSION_ID,
@@ -1085,6 +1073,41 @@ describe("AcpAgentAdapter", () => {
       reply: "reject",
     })
     await harness.waitFor((event) => event.event === "messageCompleted")
+  })
+
+  test("native permission choices round-trip exact IDs and invalid choices remain retryable", async () => {
+    const nativeOptions = [
+      { optionId: "scope-a", name: "Allow tool", kind: "allow_always" as const },
+      { optionId: "scope-b", name: "Allow project", kind: "allow_always" as const },
+      { optionId: "deny-forever", name: "Never", kind: "reject_always" as const },
+    ]
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        await turn.requestPermission({ toolCallId: "native", title: "Choose scope" }, nativeOptions)
+        return { stopReason: "end_turn" }
+      },
+    })
+    await harness.adapter.send(promptInput())
+    const request = eventData(
+      await harness.waitFor((event) => event.event === "permissionAsked"),
+      "permissionAsked",
+    ).request
+    expect(request.nativeOptions).toEqual(nativeOptions)
+    const response = {
+      type: "permission-response" as const,
+      sessionId: WANTA_SESSION_ID,
+      requestId: request.id,
+      reply: "always" as const,
+    }
+    await expect(harness.adapter.send({ ...response, optionId: "missing" })).rejects.toThrow(
+      "unknown native permission option",
+    )
+    await expect(harness.adapter.send({ ...response, sessionId: "another", optionId: "scope-b" })).rejects.toThrow(
+      "another session",
+    )
+    await harness.adapter.send({ ...response, optionId: "scope-b" })
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    expect(harness.fake.permissionResponses).toEqual([{ outcome: { outcome: "selected", optionId: "scope-b" } }])
   })
 
   test("an allow-once reply cannot silently select a native always rule", async () => {

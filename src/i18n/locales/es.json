@@ -957,6 +957,8 @@
   "chat.questionFallbackLabel": "Pregunta {index}",
   "chat.permissionModePicker": "Modo de acceso",
   "chat.permissionModeDefault": "Acceso predeterminado",
+  "permissionPrompt.nativeBody": "El agente solicita tu autorización. Tu elección se envía directamente al agente.",
+  "chat.permissionModeNativeDescription": "Utiliza el modo de permisos y la política de aprobación propios del agente.",
   "chat.permissionModeDefaultDescription": "Ejecuta automáticamente las operaciones cotidianas; solicita confirmación para datos sensibles o acciones reconocidas de alto riesgo",
   "chat.permissionModeFullAccess": "Acceso completo",
   "chat.permissionModeFullAccessDescription": "Omite las confirmaciones para comandos locales de alto riesgo, rutas fuera del proyecto y acciones del navegador dentro de la tarea",

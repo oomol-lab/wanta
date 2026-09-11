@@ -1,4 +1,4 @@
-import type { ChatPermissionRequest } from "../../../electron/chat/common.ts"
+import type { ChatPermissionRequest, NativePermissionOption } from "../../../electron/chat/common.ts"
 
 import { ChevronDown, FolderLock, RotateCw, ShieldAlert } from "lucide-react"
 import * as React from "react"
@@ -18,6 +18,7 @@ interface PermissionRequiredCardProps {
   onAllowOnce: (requestId: string) => Promise<void>
   onAllowForSession: (requestId: string) => Promise<void>
   onReject: (requestId: string) => Promise<void>
+  onSelectNativeOption?: (requestId: string, option: NativePermissionOption) => Promise<void>
 }
 
 export function PermissionRequiredCard({
@@ -26,12 +27,13 @@ export function PermissionRequiredCard({
   onAllowOnce,
   onAllowForSession,
   onReject,
+  onSelectNativeOption,
 }: PermissionRequiredCardProps) {
   // A new request must never inherit a checked grant or a pending reply.
   return (
     <PermissionCardContent
       key={`${request.sessionId}:${request.id}`}
-      {...{ busy, request, onAllowOnce, onAllowForSession, onReject }}
+      {...{ busy, request, onAllowOnce, onAllowForSession, onReject, onSelectNativeOption }}
     />
   )
 }
@@ -42,6 +44,7 @@ function PermissionCardContent({
   onAllowOnce,
   onAllowForSession,
   onReject,
+  onSelectNativeOption,
 }: PermissionRequiredCardProps) {
   const t = useT()
   const presentation = permissionPresentation(request)
@@ -54,14 +57,17 @@ function PermissionCardContent({
   const disabled = busy || submitting
   const Icon = presentation.caution ? ShieldAlert : presentation.recovery ? RotateCw : FolderLock
   const handleReply = React.useCallback(
-    async (reply: "once" | "always" | "reject"): Promise<void> => {
+    async (reply: "once" | "always" | "reject", option?: NativePermissionOption): Promise<void> => {
       if (disabled || replyInFlight.current) {
         return
       }
       replyInFlight.current = true
       setSubmitting(true)
       try {
-        if (reply === "once") {
+        if (option) {
+          if (!onSelectNativeOption) throw new Error("Native permission handler unavailable")
+          await onSelectNativeOption(request.id, option)
+        } else if (reply === "once") {
           await onAllowOnce(request.id)
         } else if (reply === "always") {
           await onAllowForSession(request.id)
@@ -75,7 +81,7 @@ function PermissionCardContent({
         toast.error(t("chat.permissionSubmitFailed"))
       }
     },
-    [disabled, onAllowForSession, onAllowOnce, onReject, request.id, t],
+    [disabled, onAllowForSession, onAllowOnce, onReject, onSelectNativeOption, request.id, t],
   )
   return (
     <section aria-labelledby={titleId} className="rounded-lg border border-border bg-background p-4 shadow-sm">
@@ -91,9 +97,11 @@ function PermissionCardContent({
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div className="flex min-w-0 flex-col gap-1">
             <h3 id={titleId} className="oo-text-label font-medium">
-              {t(presentation.title)}
+              {request.nativeOptions ? request.action : t(presentation.title)}
             </h3>
-            <p className="oo-text-body break-words text-muted-foreground">{t(presentation.description)}</p>
+            <p className="oo-text-body break-words text-muted-foreground">
+              {t(request.nativeOptions ? "permissionPrompt.nativeBody" : presentation.description)}
+            </p>
           </div>
           {presentation.targets.length > 0 ? (
             <div className="flex min-w-0 flex-col gap-1">
@@ -132,7 +140,7 @@ function PermissionCardContent({
               </div>
             </CollapsibleContent>
           </Collapsible>
-          {presentation.repeat ? (
+          {!request.nativeOptions && presentation.repeat ? (
             <Field orientation="horizontal">
               <Checkbox
                 id={rememberId}
@@ -143,7 +151,7 @@ function PermissionCardContent({
               <FieldLabel htmlFor={rememberId}>{t(presentation.repeat)}</FieldLabel>
             </Field>
           ) : null}
-          {remember && presentation.repeat && presentation.grantPatterns.length > 0 ? (
+          {!request.nativeOptions && remember && presentation.repeat && presentation.grantPatterns.length > 0 ? (
             <div className="flex min-w-0 flex-col gap-1">
               <p className="oo-text-caption text-muted-foreground">{t("permissionPrompt.scope")}</p>
               {presentation.grantPatterns.map((pattern, index) => (
@@ -154,23 +162,53 @@ function PermissionCardContent({
             </div>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              type="button"
-              onClick={() => void handleReply(remember && presentation.repeat ? "always" : "once")}
-              disabled={disabled}
-            >
-              {t(presentation.allow)}
-            </Button>
-            <Button
-              size="sm"
-              type="button"
-              variant="outline"
-              onClick={() => void handleReply("reject")}
-              disabled={disabled}
-            >
-              {t("chat.permissionRequiredReject")}
-            </Button>
+            {request.nativeOptions ? (
+              <>
+                {request.nativeOptions.map((option) => (
+                  <Button
+                    key={option.optionId}
+                    size="sm"
+                    type="button"
+                    variant={option.kind.startsWith("reject") ? "outline" : "default"}
+                    disabled={disabled || !onSelectNativeOption}
+                    onClick={() => void handleReply(option.kind.startsWith("reject") ? "reject" : "once", option)}
+                  >
+                    {option.name}
+                  </Button>
+                ))}
+                {request.nativeOptions.length === 0 ? (
+                  <Button
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    disabled={disabled}
+                    onClick={() => void handleReply("reject")}
+                  >
+                    {t("chat.permissionRequiredReject")}
+                  </Button>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  type="button"
+                  onClick={() => void handleReply(remember && presentation.repeat ? "always" : "once")}
+                  disabled={disabled}
+                >
+                  {t(presentation.allow)}
+                </Button>
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleReply("reject")}
+                  disabled={disabled}
+                >
+                  {t("chat.permissionRequiredReject")}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -957,6 +957,8 @@
   "chat.questionFallbackLabel": "問題 {index}",
   "chat.permissionModePicker": "存取模式",
   "chat.permissionModeDefault": "預設存取",
+  "permissionPrompt.nativeBody": "Agent 請求你的授權。你的選擇將直接傳送給該 Agent。",
+  "chat.permissionModeNativeDescription": "使用該 Agent 原生的權限模式與審批規則。",
   "chat.permissionModeDefaultDescription": "自動執行日常操作；遇到敏感資料或已知高風險動作時會要求確認",
   "chat.permissionModeFullAccess": "完整存取",
   "chat.permissionModeFullAccessDescription": "在任務中略過本機高風險指令、專案外路徑及瀏覽器動作的確認",

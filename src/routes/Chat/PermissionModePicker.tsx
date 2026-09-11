@@ -75,11 +75,13 @@ function PermissionModeIcon({ mode, active = false }: { mode: AgentPermissionMod
  */
 export function PermissionModePicker({
   disabled,
+  nativePermissions = false,
   modes,
   value,
   onSelect,
 }: {
   disabled: boolean
+  nativePermissions?: boolean
   modes?: readonly AgentPermissionMode[]
   value: AgentPermissionMode
   onSelect: (mode: AgentPermissionMode) => void
@@ -169,7 +171,9 @@ export function PermissionModePicker({
             const active = value === mode
             const highlighted = index === activeIndex
             const label = permissionModeLabel(mode, t)
-            const description = permissionModeDescription(mode, t)
+            const description = nativePermissions
+              ? t("chat.permissionModeNativeDescription")
+              : permissionModeDescription(mode, t)
             return (
               <button
                 key={mode}
@@ -203,14 +207,14 @@ export function PermissionModePicker({
                   <PermissionModeIcon mode={mode} active={active} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className={cn("oo-text-label block truncate", active && "font-medium")}>{label}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className={cn("oo-text-label min-w-0 flex-1 truncate", active && "font-medium")}>
+                      {label}
+                    </span>
+                    {active ? <Check className="size-4 shrink-0" aria-hidden /> : null}
+                  </span>
                   <span className="oo-text-caption mt-0.5 block text-muted-foreground">{description}</span>
                 </span>
-                {active ? (
-                  <Check className="mt-0.5 size-4 shrink-0" />
-                ) : (
-                  <span className="size-4 shrink-0" aria-hidden />
-                )}
               </button>
             )
           })}

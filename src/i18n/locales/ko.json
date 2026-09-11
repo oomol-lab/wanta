@@ -957,6 +957,8 @@
   "chat.questionFallbackLabel": "질문 {index}",
   "chat.permissionModePicker": "접근 모드",
   "chat.permissionModeDefault": "기본 접근",
+  "permissionPrompt.nativeBody": "에이전트가 승인을 요청합니다. 선택한 내용은 에이전트에 직접 전달됩니다.",
+  "chat.permissionModeNativeDescription": "에이전트 고유의 권한 모드와 승인 정책을 사용합니다.",
   "chat.permissionModeDefaultDescription": "일상적인 작업은 자동으로 실행하며, 민감한 데이터나 고위험으로 인식된 작업은 확인을 요청합니다",
   "chat.permissionModeFullAccess": "전체 접근",
   "chat.permissionModeFullAccessDescription": "로컬 고위험 명령, 프로젝트 외부 경로, 작업 내 브라우저 작업에 대한 확인을 건너뜁니다",

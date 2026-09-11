@@ -1029,6 +1029,8 @@ export const enMessages = {
   "chat.questionFallbackLabel": "Question {index}",
   "chat.permissionModePicker": "Access mode",
   "chat.permissionModeDefault": "Default access",
+  "permissionPrompt.nativeBody": "The agent requests your approval. Your choice is sent directly to the agent.",
+  "chat.permissionModeNativeDescription": "Uses the agent’s native permission mode and approval policy.",
   "chat.permissionModeDefaultDescription":
     "Automatically runs everyday operations; asks for sensitive data or recognized high-risk actions",
   "chat.permissionModeFullAccess": "Full access",

@@ -42,7 +42,6 @@ export type LocalAccessAllowReason =
   | "session_grant"
   | "trusted_dependency"
   | "trusted_project"
-  | "wanta_host_tool"
 
 export type LocalAccessDecision =
   | {
@@ -65,13 +64,6 @@ export type LocalAccessDecision =
 
 export interface LocalAccessPolicyContext {
   activeGenerationId?: string
-  /**
-   * The request comes from an external (BYOA) agent session. This only affects
-   * transport-specific duplicate approvals (for example Wanta MCP dispatch).
-   * It must never change Wanta's user-visible local permission policy: the
-   * same normalized operation receives the same decision for every agent.
-   */
-  isExternalSession?: boolean
   linkRuntime?: ActiveLinkRuntime
   permissionMode: AgentPermissionMode
   sessionGrants?: readonly SessionPermissionGrant[]
@@ -205,7 +197,7 @@ function evaluateDiagnosticTurnAccess(
 
 function evaluateBaselineLocalAccessRequest(
   request: ChatPermissionRequest,
-  context: Omit<LocalAccessPolicyContext, "isExternalSession">,
+  context: LocalAccessPolicyContext,
 ): LocalAccessDecision {
   const kind = permissionRequestKind(request)
   const scope = permissionScope(request, context)
@@ -216,14 +208,14 @@ function evaluateBaselineLocalAccessRequest(
   const projectCwd = cwdMatchesRoot(commandCwd, context.trustedProjectRoot)
   // The guarded OOCLI fallback is a Wanta-owned Link transport just like the
   // host MCP path. Apply the same narrow command classifier to every adapter
-  // so switching from OpenCode to Claude/Codex does not add a redundant shell
+  // so the built-in kernel does not add a redundant shell
   // approval. Unknown shell composition, sensitive resources, and high-risk
-  // commands continue through the shared Wanta permission flow.
+  // commands continue through the built-in permission flow.
   const denyReason = kind === "command" ? ooCommandDenyReason(command ?? request.resources.join(" ")) : null
   if (denyReason) return { type: "deny", reason: denyReason, kind, highRisk }
   // OO is a first-party Wanta capability channel. Once a request is proven to
   // be a pure managed OO invocation, do not add a shell, upload, download, or
-  // execution confirmation in any adapter. The managed OO guard remains the
+  // execution confirmation in the built-in kernel. The managed OO guard remains the
   // authority for operation admission, workspace identity, paths, URLs, and
   // runtime overrides; invalid calls fail there instead of becoming approvable.
   if (isOoCliPermissionRequest(request)) {
@@ -325,20 +317,6 @@ export function evaluateLocalAccessRequest(
   const diagnostic = evaluateDiagnosticTurnAccess(request, context)
   if (diagnostic) {
     return diagnostic
-  }
-  // This is deliberately the only adapter-specific policy branch, and it can
-  // only make an external-agent decision more permissive. All other requests
-  // go through the baseline that powered the built-in OpenCode experience;
-  // BYOA must never add a prompt or denial for the same normalized operation.
-  // Wanta host MCP tools are transport for the same capability kernel that
-  // OpenCode invokes directly, so a second native-runtime prompt is redundant.
-  if (
-    context.isExternalSession &&
-    isWantaHostToolPermissionRequest(request) &&
-    !permissionRequestHasSensitiveResource(request, permissionScope(request, context)) &&
-    !isHighRiskPermissionRequest(request, permissionScope(request, context))
-  ) {
-    return { type: "allow", reason: "wanta_host_tool", kind: permissionRequestKind(request), highRisk: false }
   }
   return evaluateBaselineLocalAccessRequest(request, context)
 }

@@ -1,10 +1,12 @@
+// @vitest-environment happy-dom
 import type { ModelCatalog } from "../../../electron/models/common.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ComponentProps } from "react"
 
 import * as React from "react"
+import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { ComposerModeControls } from "./ComposerModeControls.tsx"
 import { I18nContext, translate } from "@/i18n/i18n"
 
@@ -138,3 +140,51 @@ describe("ComposerModeControls", () => {
     expect(renderControls({ modelRequired: true })).toContain(t("chat.modelSelectOrConfigure"))
   })
 })
+
+it.each(["opencode", "codex", "claude-code", "grok"] as const)(
+  "%s uses its owner's Full Access selection flow",
+  async (agentKind) => {
+    ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    const host = document.createElement("div")
+    document.body.append(host)
+    const root = createRoot(host)
+    const confirm = vi.fn()
+    const select = vi.fn()
+    try {
+      await React.act(async () =>
+        root.render(
+          React.createElement(
+            I18nContext.Provider,
+            { value: { locale: "en", setLocale: () => undefined, t } },
+            React.createElement(ComposerModeControls, {
+              ...baseProps,
+              agentKind,
+              permissionModes: ["default", "full_access"],
+              onRequestFullAccessPermissionMode: confirm,
+              onSelectPermissionMode: select,
+            }),
+          ),
+        ),
+      )
+      await React.act(async () =>
+        (host.querySelector(`[aria-label="${t("chat.permissionModePicker")}"]`) as HTMLButtonElement).click(),
+      )
+      const option = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((button) =>
+        button.textContent?.includes(t("chat.permissionModeFullAccess")),
+      )
+      expect(option).toBeDefined()
+      if (agentKind !== "opencode") expect(option?.textContent).toContain(t("chat.permissionModeNativeDescription"))
+      await React.act(async () => option!.click())
+      if (agentKind === "opencode") {
+        expect(confirm).toHaveBeenCalledOnce()
+        expect(select).not.toHaveBeenCalled()
+      } else {
+        expect(select).toHaveBeenCalledExactlyOnceWith("full_access")
+        expect(confirm).not.toHaveBeenCalled()
+      }
+    } finally {
+      await React.act(async () => root.unmount())
+      host.remove()
+    }
+  },
+)

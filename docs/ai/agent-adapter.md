@@ -98,63 +98,38 @@ External agents build on `electron/agent/external/`:
   all (Grok 1.0.5 omits `modes` from `session/new`): the agent already runs
   its own default policy and `default` is the only live mode exposed, so the
   projection is a no-op instead of an error.
-- **Native enforcement is agent-side; user-visible approval semantics are
-  host-owned**: an external CLI keeps its sandbox and decides when it needs an
-  interactive native permission response. Every such request is normalized and
-  evaluated by the same Wanta local-access policy used for the built-in kernel.
-  Ordinary operations are answered automatically; protected or consequential
-  boundaries reach the user. Switching agents must not change the decision for
-  the same normalized operation, permission mode, and host context. A
-  non-sensitive, non-high-risk dispatch to a generated `wanta_*` MCP server is
-  also auto-approved at the transport layer: Wanta auto-approves that redundant
-  ACP transport prompt because the call enters the same host-owned capability
-  kernel used directly by OpenCode, where identity, credentials, validation,
-  and auditing are already enforced. Sensitive or high-risk host-tool requests
-  still continue through the shared prompt-or-deny policy.
-  Claude's native Skills and subagents remain owned by Claude inside the ACP
-  bridge; their file, shell, network, and permission operations still reach the
-  same Wanta policy boundary as other external agents.
-  The guarded `oo` CLI Connector path is classified by the same shared command
-  policy for OpenCode, Claude, and ACP agents. A bare OOMOL business command is
-  bound only when all currently running external turns agree on one team;
-  ambiguous or missing workspace identity fails closed. A single `oo` command
-  from an external agent crosses an authenticated loopback execution boundary;
-  Electron main retains the real CLI path and in-memory turn scope, and the
-  boundary accepts only contract-declared capability discovery, connector,
-  bounded file-transfer, and Flow operations. File reads and writes are
-  canonicalized inside the active turn's managed roots; downloads reject local
-  or private-network targets. Flow is OOMOL-only, requires an explicit Project
-  on Project-scoped commands, and keeps project switching, deletion, rollback,
-  cancellation, and browser-opening commands unavailable. Enabled managed OO
-  operations, including file upload/download and Flow run/publish, are
-  first-party capability calls and do not add a user confirmation. The agent
-  never receives the real CLI path or a writable scope file. A single `oo` command
-  receives a fast-path allow when it includes only the shared bounded output
-  suffixes (`head`/`tail` or stderr descriptor duplication). Other ordinary
-  pipelines, sequences, and file redirections fall through to the same
-  baseline local-command policy that applied before BYOA; a parser miss must
-  never make `oo` stricter merely because it is present. Sensitive paths,
-  high-risk operations, credential/configuration overrides, and authentication
-  commands remain protected. Loaded Skills also receive a host execution
-  policy: connected-service work follows the Skill's schema/run workflow through
-  Wanta's managed `oo` command; MCP stays reserved for Wanta-native capabilities.
-  Marketplace virtual connections use the same Connector inventory and
-  `--connection-name` selector as user-managed connections; adapters must not
-  request, synthesize, or persist the server-owned provider credential.
-  Explicit session grants still never cross sensitive-resource or high-risk
-  boundaries. The shared defaults (`default_local` / `default_command`,
-  trusted-project allows, and host-side `full_access`) apply to every adapter.
-  External sessions also register Wanta's stable artifact/process roots with
-  their native runtime so ordinary managed-output writes do not create a
-  redundant sandbox escalation.
-  ACP permission normalization uses the structured tool kind and command input,
-  filling partial requests from the in-memory live tool snapshot. Titles are
-  display text; all resource locations are retained for policy evaluation.
-  Session grants are owned by Wanta for every adapter and cover every resource
-  in a request (several narrow grants may jointly cover a batch). Both `once`
-  and `always` receive native `allow_once`; an agent offering only
-  `allow_always` is cancelled rather than silently widening authorization.
-  Wanta records a new grant only after the reply succeeds.
+- **Native permissions stay agent-owned**: ACP runtimes own their sandbox,
+  local permission modes, approval decisions, and persistent grants. Wanta's
+  local-access classifier is used only by the built-in OpenCode kernel.
+  Every ACP permission request, including managed CLI and host MCP transport
+  requests, is shown with the agent's original option labels. The selected
+  `optionId` is validated against the pending native request and returned
+  unchanged. Wanta never auto-approves, rejects by local policy, or records a
+  session grant for an external request. After a successful native approval,
+  Wanta remembers the approved resource paths for host previews and local-file
+  actions; this does not auto-approve subsequent native permission requests.
+  Native `allow_always` and
+  `reject_always` retain their native scopes. Invalid options and replies from
+  another session fail without settling the pending request.
+  Normalized legacy replies map `once` to `allow_once`, `always` to
+  `allow_always`, and `reject` to a native rejection. They never broaden a
+  one-time approval to an always rule; an unavailable choice is cancelled.
+  Permission modes are projected through ACP and offered only when supported.
+  Selecting native Full Access does not open Wanta's built-in Full Access
+  confirmation dialog. Native mode switching can still reject the request.
+  Claude's Skills and subagents remain owned by Claude inside the ACP bridge.
+- **Host business authorization stays at capability entry points**: the managed
+  `oo` loopback guard and Wanta MCP capability kernel retain identity,
+  workspace, credential isolation, validation, redaction, and auditing.
+  External agents receive the managed CLI descriptor, never the real CLI path
+  or provider credential. Ambiguous workspace scope fails closed. File
+  transfers remain bounded by managed roots and URL checks; Flow remains
+  OOMOL-only with explicit Project scope and the existing operation allowlist.
+  These business checks do not classify unrelated local shell or file tools.
+  External sessions register Wanta artifact/process roots with their native
+  runtime. Prompt context includes Link, team skills, selected context,
+  artifacts, response language, and host-tool contracts, without Wanta's
+  general local-command approval rules.
 - **Transcript persistence**: every emitted event is folded into
   `ExternalTranscriptRecorder` and mirrored to one JSON file per session under
   `<scratchRoot>/<kind>/transcripts/` (atomic replace, debounced writes,
@@ -198,7 +173,7 @@ External agents build on `electron/agent/external/`:
   Display rides the kernel's `userAttachmentStore` record keyed by the
   synthesized user message id.
 - **Host turn context**: Wanta passes the active Link workspace, team skills,
-  selected context, project context, permission guidance, and response-language
+  selected context, project context, native permission ownership, and response-language
   policy through the normalized prompt input. ACP adapters translate
   the dynamic tail into a delimited first text block while transcript display
   preserves the original user text. This remains a guidance transport; Wanta's

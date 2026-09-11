@@ -120,17 +120,16 @@ test("buildPermissionModeSystem describes default access", () => {
   assert.doesNotMatch(prompt, /user has enabled Full Access/)
 })
 
-test("buildExternalPermissionModeSystem describes shared Wanta decisions over native enforcement", () => {
+test("buildExternalPermissionModeSystem leaves local decisions and grants with the native agent", () => {
   const defaultPrompt = buildExternalPermissionModeSystem("default", true)
   const fullAccessPrompt = buildExternalPermissionModeSystem("full_access", true)
 
-  assert.match(defaultPrompt, /Default Access with Wanta's shared approval policy/)
-  assert.match(defaultPrompt, /same local permission policy to every agent/)
-  assert.match(defaultPrompt, /approved automatically/)
-  assert.doesNotMatch(defaultPrompt, /Local permission requests are auto-approved/)
-  assert.match(fullAccessPrompt, /projected onto the external agent's native permission mode when supported/)
-  assert.match(fullAccessPrompt, /external agent runtime remains the enforcement authority/)
-  assert.doesNotMatch(fullAccessPrompt, /Local permission requests are auto-approved/)
+  for (const prompt of [defaultPrompt, fullAccessPrompt]) {
+    assert.match(prompt, /approval decisions belong to the external agent runtime/)
+    assert.match(prompt, /forwards the user's selection without a local approval policy or session grants/)
+    assert.doesNotMatch(prompt, /shared approval policy|approved automatically|Ordinary dependency installation/)
+    assert.match(prompt, /business capabilities enforce their own identity/)
+  }
   assert.match(defaultPrompt, /`wanta_browser` MCP tools/)
   assert.match(defaultPrompt, /sensitive or consequential browser action/)
   assert.match(fullAccessPrompt, /visible integrated browser.*YOLO/)

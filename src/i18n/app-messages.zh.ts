@@ -990,6 +990,8 @@ export const zhCNMessages = {
   "chat.questionFallbackLabel": "问题 {index}",
   "chat.permissionModePicker": "访问模式",
   "chat.permissionModeDefault": "默认访问",
+  "permissionPrompt.nativeBody": "Agent 请求你的授权。你的选择将直接发送给该 Agent。",
+  "chat.permissionModeNativeDescription": "使用该 Agent 原生的权限模式和审批规则。",
   "chat.permissionModeDefaultDescription": "自动执行日常操作，敏感数据或已识别的高风险操作需要确认",
   "chat.permissionModeFullAccess": "完全访问",
   "chat.permissionModeFullAccessDescription": "跳过本地高风险命令、项目外路径及任务内浏览器操作的确认",

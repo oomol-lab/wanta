@@ -422,10 +422,9 @@ function selectPermissionOptionId(
     options.find((option) => option.kind === kind)?.optionId
   switch (reply) {
     case "once":
-    case "always":
-      // Wanta owns session grants. Native always rules can cover an entire
-      // tool, so never broaden a host approval to an agent-maintained rule.
       return byKind("allow_once")
+    case "always":
+      return byKind("allow_always")
     case "reject":
       return byKind("reject_once") ?? byKind("reject_always")
   }
@@ -805,8 +804,14 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     if (!pending) {
       throw new Error(`${this.kind}: unknown permission request ${input.requestId}`)
     }
+    if (pending.wantaSessionId !== input.sessionId) {
+      throw new Error(`${this.kind}: permission request belongs to another session`)
+    }
+    if (input.optionId !== undefined && !pending.options.some((option) => option.optionId === input.optionId)) {
+      throw new Error(`${this.kind}: unknown native permission option ${input.optionId}`)
+    }
     this.pendingAcpPermissions.delete(input.requestId)
-    const optionId = selectPermissionOptionId(pending.options, input.reply)
+    const optionId = input.optionId ?? selectPermissionOptionId(pending.options, input.reply)
     if (optionId === undefined) {
       pending.resolve({ outcome: { outcome: "cancelled" } })
     } else {
@@ -1745,6 +1750,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       id: requestId,
       sessionId: wantaSessionId,
       action,
+      nativeOptions: params.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
       resources: (toolCall.locations ?? []).map((location) => location.path),
       metadata,
     }

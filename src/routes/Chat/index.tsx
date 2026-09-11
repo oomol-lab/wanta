@@ -101,7 +101,7 @@ interface ChatAreaProps {
   onSelectAgentModel?: (modelId?: string) => void
   onSelectAgentEffort?: (effortId?: string) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
-  onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>
+  onAnswerPermission: (requestId: string, reply: ChatPermissionReply, optionId?: string) => Promise<void>
   onRejectQuestion: (requestId: string) => Promise<void>
   questionDrafts: QuestionDraftStore
   onStop: () => Promise<void> | void

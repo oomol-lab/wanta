@@ -9,14 +9,15 @@ import { afterEach, expect, test, vi } from "vitest"
 import { TeamProfileSettingsPanel } from "./TeamMemberDialogs.tsx"
 import { useTeamForms } from "./use-team-forms.ts"
 
-const { updateTeam, uploadTeamAvatar, translate } = vi.hoisted(() => ({
+const { updateTeam, uploadTeamAvatar, translate, errorToast } = vi.hoisted(() => ({
+  errorToast: vi.fn(),
   updateTeam: vi.fn(),
   uploadTeamAvatar: vi.fn(),
   translate: (key: string) => key,
 }))
 vi.mock("@/lib/teams-client", () => ({ updateTeam, uploadTeamAvatar, createTeam: vi.fn() }))
 vi.mock("@/i18n", () => ({ useAppI18n: () => ({ t: translate }) }))
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: errorToast } }))
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
 afterEach(() => vi.clearAllMocks())
 const initialTeam: Team = { id: "profile-team", name: "Original", avatar: "", creator_user_id: "owner" }
@@ -119,11 +120,27 @@ test("a failed save keeps the draft and presents an inline error for retry", asy
     await act(async () => view.forms().edit.submit(submitEvent()))
     expect(view.forms().edit.name).toBe("Updated")
     expect(view.forms().edit.open).toBe(true)
-    expect(view.container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(view.container.querySelectorAll('[role="alert"]')).toHaveLength(1)
+    expect(errorToast).not.toHaveBeenCalled()
     expect(view.container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false)
     updateTeam.mockResolvedValueOnce({ ...initialTeam, name: "Updated" })
     await act(async () => view.forms().edit.submit(submitEvent()))
     expect(view.container.querySelector('[role="alert"]')).toBeNull()
+  } finally {
+    await view.dispose()
+  }
+})
+
+test("a duplicate team name reports only its field error", async () => {
+  updateTeam.mockRejectedValueOnce(new Error("HTTP 409: duplicate team name"))
+  const view = await mountProfile()
+  try {
+    await act(async () => view.forms().edit.setName("Duplicate"))
+    await act(async () => view.forms().edit.submit(submitEvent()))
+    expect(view.forms().edit.error).toBeNull()
+    expect(view.forms().edit.nameError).toBe("teams.teamNameDuplicated")
+    expect(view.container.querySelectorAll('[role="alert"]')).toHaveLength(1)
+    expect(errorToast).not.toHaveBeenCalled()
   } finally {
     await view.dispose()
   }

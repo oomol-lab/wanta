@@ -353,26 +353,27 @@ previous team's configuration state so the wrong team's Skills are never shown, 
 
 ### 5.4 UI structure
 
-The team area lives inside the existing Skills page — no new top-level route. The team tab and the
-team management flow are implemented (see `src/routes/Skills/index.tsx` and
-`src/routes/Skills/team-skill-manage-helpers.ts`):
+The Team route (`src/routes/Skills/TeamManagement.tsx`) uses a compact identity row and
+inline Skills, Members, and manager-only Settings tabs. The existing Skills route also retains
+its team-skill view.
 
-- The current team name shows at the top.
-- In team state, a `Team Skills` section is shown.
-- Configured Skills list: icon, displayName, packageName@version, enabled state, update time.
-- Team-manager-visible operations: Add and Remove today; Enable/Disable, Update version, and Reorder
-  are blocked on the §4 per-Skill model and must not be offered until it ships.
-- Members are read-only; the action area explains that a team manager controls the configuration.
-
-Add Skill panel (design intent; verify against the source for current coverage):
-
-- Data source tabs:
-  - My published: uses Console's `my-skills` API.
-  - Public: reuses Wanta's existing public catalog.
-- Search matches displayName / skillName / packageName / description.
-- Select a concrete skill, not just a package (note: persistence is package-level until §4).
-- `SKILL.md` preview on the right.
-- Confirmation calls the team configuration add API.
+- The main team list groups configured team skills above system recommendations. Recommendations
+  remain visible when no team skills are configured and are available to ordinary members.
+- Rows show names, short descriptions, and local installation status/actions. Package metadata and
+  complete skill instructions live in inline detail views.
+- Team managers can add or remove package associations. All members can discover skills through
+  system recommendations or the market and install them locally. Adding to the shared list does
+  not implicitly install a package; bulk installation targets missing configured skills only.
+- Skill-market navigation lives beside the page tabs. Searching and package details preserve the
+  distinction between shared configuration and local installation.
+- Members and profile editing stay inline. Short member-addition and confirmation flows use one
+  dialog. Select all remains accessible with zero selected members; bulk status actions appear
+  only after selection.
+- Profile forms disable unchanged submissions and support reverting drafts. Saving keeps the
+  editor open. Ordinary failures use one inline error; duplicate-name conflicts use one field
+  error. Neither failure also produces an error toast.
+- Enable/Disable, per-skill version updates, and reordering of shared skills remain blocked on the
+  section 4 per-skill model and must not be offered until it ships.
 
 ### 5.5 Composer palette
 

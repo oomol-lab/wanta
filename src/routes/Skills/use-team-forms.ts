@@ -213,12 +213,10 @@ export function useTeamForms({
         await refreshAfterMutation()
       } catch (error) {
         if (!action.isCurrent(operation)) return
-        setEditError(teamErrorMessage(error, t))
         if (isConflictError(error)) {
           setEditDuplicated(true)
-          toast.error(t("teams.teamNameDuplicated"))
         } else {
-          toast.error(teamErrorMessage(error, t))
+          setEditError(teamErrorMessage(error, t))
         }
       } finally {
         action.finish(operation)

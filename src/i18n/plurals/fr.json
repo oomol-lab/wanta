@@ -516,12 +516,12 @@
     "other": "Installer les compétences manquantes ({{count}})"
   },
   "teams.skillManageInstallMissingSuccess": {
-    "one": "{{count}} Skill d'équipe synchronisé.",
-    "other": "{{count}} Skills d'équipe synchronisés."
+    "one": "{{count}} compétence installée.",
+    "other": "{{count}} compétences installées."
   },
   "teams.skillManageInstallMissingFailed": {
-    "one": "{{count}} synchronisation de Skill d'équipe a échoué : {{error}}",
-    "other": "{{count}} synchronisations de Skills d'équipe ont échoué : {{error}}"
+    "one": "{{count}} installation de compétence a échoué : {{error}}",
+    "other": "{{count}} installations de compétences ont échoué : {{error}}"
   },
   "teams.skillManageLinkAll": {
     "one": "Définir l'ensemble des {{count}} comme recommandations d'équipe",

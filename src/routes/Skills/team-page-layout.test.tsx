@@ -8,6 +8,7 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, expect, test, vi } from "vitest"
 import { TeamManagementRoute } from "./TeamManagement.tsx"
+import { MembersTable } from "./TeamMembersTable.tsx"
 import { TeamSkillManagePanel } from "./TeamSkillManagePanel.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
@@ -332,6 +333,46 @@ test("revoking management rights keeps discovery available and switches to local
     await clickText(view.container, "skills.installedManage")
     expect(props.onOpenManagedSkill).toHaveBeenCalledExactlyOnceWith(suggestion.skillId)
     expect(props.onAddRecommendation).not.toHaveBeenCalled()
+  } finally {
+    await view.unmount()
+  }
+})
+
+test("select all is available before selecting members while bulk actions stay hidden", async () => {
+  const members = ["owner", "member-a", "member-b"].map((id) => ({
+    user_id: id,
+    role: id === "owner" ? ("creator" as const) : ("member" as const),
+    disable: false,
+    avatar: "",
+    displayName: id,
+    fallback: id,
+    secondaryLabel: "",
+  }))
+  const props = {
+    members,
+    canManage: true,
+    actorRole: "creator" as const,
+    actorUserId: "owner",
+    busyAction: null,
+    onDisableMembers: vi.fn(),
+    onEnableMembers: vi.fn(),
+    onRemoveMember: vi.fn(),
+    onUpdateMemberRole: vi.fn(),
+  }
+  const view = await mount(<MembersTable {...props} />)
+  try {
+    const all = view.container.querySelector<HTMLInputElement>('[aria-label="teams.selectAllMembers"]')!
+    expect(all).not.toBeNull()
+    expect(all.checked).toBe(false)
+    expect(view.container.textContent).not.toContain("teams.disableSelectedMembers")
+    await act(async () => all.click())
+    expect(view.container.querySelectorAll('input[type="checkbox"]:checked')).toHaveLength(3)
+    expect(view.container.textContent).toContain("teams.disableSelectedMembers")
+    await act(async () => all.click())
+    expect(view.container.querySelectorAll('input[type="checkbox"]:checked')).toHaveLength(0)
+    expect(view.container.textContent).not.toContain("teams.disableSelectedMembers")
+    await view.render(<MembersTable {...props} canManage={false} actorRole="member" />)
+    expect(view.container.querySelector('[aria-label="teams.selectAllMembers"]')).toBeNull()
   } finally {
     await view.unmount()
   }

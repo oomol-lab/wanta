@@ -438,6 +438,9 @@ export const skillsMessages = {
     "teams.browseSkillsTitle": "查看推荐技能",
     "teams.browseSkillsDescription": "根据团队已连接的服务发现技能，可安装到本机使用。",
     "teams.sharedSkillsGroup": "团队共享",
+    "teams.saveChanges": "保存更改",
+    "teams.revertChanges": "撤销更改",
+    "teams.profileSaveHint": "保存后生效",
   },
   en: {
     "nav.skills": "Skills",
@@ -908,5 +911,8 @@ export const skillsMessages = {
     "teams.browseSkillsDescription":
       "Discover skills for the team’s connected services and install them on this device.",
     "teams.sharedSkillsGroup": "Shared by the team",
+    "teams.saveChanges": "Save changes",
+    "teams.revertChanges": "Revert changes",
+    "teams.profileSaveHint": "Changes apply when saved.",
   },
 } as const

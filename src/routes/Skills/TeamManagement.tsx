@@ -507,18 +507,19 @@ export function TeamManagementRoute({
                     </TabsContent>
                     {canManage ? (
                       <TabsContent value="settings" className="min-h-0 overflow-y-auto pt-3">
-                        <div className="max-w-2xl">
+                        <div className="max-w-[35rem]">
                           <TeamProfileSettingsPanel
                             avatar={teamForms.edit.avatar}
                             avatarFile={teamForms.edit.avatarFile}
                             busy={busyAction === "updateTeam"}
+                            error={teamForms.edit.error}
                             editing={teamForms.edit.open && teamForms.edit.team?.id === selectedTeam.id}
                             name={teamForms.edit.name}
                             nameError={teamForms.edit.nameError}
                             team={selectedTeam}
                             onAvatarChange={teamForms.edit.setAvatar}
                             onAvatarFileChange={teamForms.edit.changeAvatarFile}
-                            onClose={teamForms.edit.close}
+                            onClose={() => teamForms.edit.openDialog(selectedTeam)}
                             onEdit={() => teamForms.edit.openDialog(selectedTeam)}
                             onNameChange={teamForms.edit.setName}
                             onSubmit={teamForms.edit.submit}

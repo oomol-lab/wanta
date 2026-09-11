@@ -2300,5 +2300,8 @@
   "teams.skillsCredentialNote": "Se comparte la lista de habilidades, pero no las credenciales de conexión personales.",
   "teams.browseSkillsTitle": "Ver habilidades recomendadas",
   "teams.browseSkillsDescription": "Descubre habilidades para los servicios conectados del equipo e instálalas en este dispositivo.",
-  "teams.sharedSkillsGroup": "Compartidas por el equipo"
+  "teams.sharedSkillsGroup": "Compartidas por el equipo",
+  "teams.saveChanges": "Guardar cambios",
+  "teams.revertChanges": "Deshacer cambios",
+  "teams.profileSaveHint": "Los cambios se aplican al guardar."
 }

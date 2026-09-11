@@ -2300,5 +2300,8 @@
   "teams.skillsCredentialNote": "スキル一覧は共有されますが、個人の接続認証情報は共有されません。",
   "teams.browseSkillsTitle": "おすすめスキルを見る",
   "teams.browseSkillsDescription": "チームの接続済みサービスに対応するスキルを探し、このデバイスにインストールできます。",
-  "teams.sharedSkillsGroup": "チーム共有"
+  "teams.sharedSkillsGroup": "チーム共有",
+  "teams.saveChanges": "変更を保存",
+  "teams.revertChanges": "変更を元に戻す",
+  "teams.profileSaveHint": "保存すると反映されます。"
 }

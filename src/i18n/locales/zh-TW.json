@@ -2300,5 +2300,8 @@
   "teams.skillsCredentialNote": "共用技能清單，不共用個人連線憑證。",
   "teams.browseSkillsTitle": "查看推薦技能",
   "teams.browseSkillsDescription": "根據團隊已連線的服務探索技能，可安裝到本機使用。",
-  "teams.sharedSkillsGroup": "團隊共用"
+  "teams.sharedSkillsGroup": "團隊共用",
+  "teams.saveChanges": "儲存變更",
+  "teams.revertChanges": "還原變更",
+  "teams.profileSaveHint": "儲存後生效"
 }

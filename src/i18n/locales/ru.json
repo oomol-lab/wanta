@@ -2300,5 +2300,8 @@
   "teams.skillsCredentialNote": "Список навыков общий. Личные данные авторизации подключений не передаются.",
   "teams.browseSkillsTitle": "Посмотреть рекомендации",
   "teams.browseSkillsDescription": "Найдите навыки для подключённых сервисов команды и установите их на это устройство.",
-  "teams.sharedSkillsGroup": "Общие навыки команды"
+  "teams.sharedSkillsGroup": "Общие навыки команды",
+  "teams.saveChanges": "Сохранить изменения",
+  "teams.revertChanges": "Отменить изменения",
+  "teams.profileSaveHint": "Изменения применятся после сохранения."
 }

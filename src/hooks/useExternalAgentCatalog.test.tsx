@@ -10,10 +10,10 @@ const { service } = vi.hoisted(() => ({ service: { invoke: vi.fn() } }))
 vi.mock("@/components/AppContext", () => ({ useChatService: () => service }))
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
 afterEach(() => vi.clearAllMocks())
-async function mount() {
+async function mount(onRefreshed?: () => Promise<void>) {
   let view!: ReturnType<typeof useExternalAgentCatalog>
   function Probe({ kind, model }: { kind: AgentKind; model?: string }) {
-    view = useExternalAgentCatalog(kind, model)
+    view = useExternalAgentCatalog(kind, model, onRefreshed)
     return null
   }
   const root = createRoot(document.createElement("div"))
@@ -58,6 +58,22 @@ test("failed discovery can be retried and never falls back to another agent's ca
     expect(probe.view().catalog).toBeUndefined()
     expect(probe.view().loading).toBe(false)
     expect(service.invoke).toHaveBeenCalledTimes(2)
+  } finally {
+    await probe.dispose()
+  }
+})
+
+test("secondary status refresh failures do not discard successful catalog discovery", async () => {
+  const catalog = { models: [{ id: "model-a", label: "Model A" }], efforts: [{ id: "high", label: "High" }] }
+  service.invoke.mockResolvedValueOnce(catalog)
+  const onRefreshed = vi.fn().mockRejectedValue(new Error("Status probe failed"))
+  const probe = await mount(onRefreshed)
+  try {
+    await probe.render("codex", "model-a")
+    expect(probe.view().catalog).toEqual(catalog)
+    expect(probe.view().loading).toBe(false)
+    expect(probe.view().error).toBe(false)
+    expect(onRefreshed).toHaveBeenCalledOnce()
   } finally {
     await probe.dispose()
   }

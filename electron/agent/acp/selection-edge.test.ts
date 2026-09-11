@@ -998,3 +998,36 @@ describe("model-scoped catalog previews", () => {
     expect(harness.fake.setConfigOptionRequests).toHaveLength(0)
   })
 })
+
+test.each(["config", "legacy"] as const)(
+  "catalog previews include delayed %s selection notifications",
+  async (channel) => {
+    let publish!: () => void
+    const selected = () => {
+      setTimeout(() => publish(), 30)
+      return channel === "config" ? { configOptions: [] } : {}
+    }
+    const harness = await createHarness({
+      newSession: () =>
+        channel === "config"
+          ? ({ sessionId: "delayed-preview", configOptions: MODEL_EFFORT_CONFIG_OPTIONS } as never)
+          : { ...modelsShape("gpt-a", ["gpt-a", "gpt-b"]), sessionId: "delayed-preview" },
+      setConfigOption: selected,
+      setModel: selected,
+    })
+    publish = () => {
+      void harness.fake.notifySessionUpdate("delayed-preview", {
+        sessionUpdate: "config_option_update",
+        configOptions: [
+          { ...MODEL_EFFORT_CONFIG_OPTIONS[0], currentValue: "gpt-b" },
+          { ...MODEL_EFFORT_CONFIG_OPTIONS[1], currentValue: "high", options: [{ value: "high", name: "High" }] },
+        ],
+      })
+    }
+    const result = await harness.adapter.previewCatalog("gpt-b")
+    expect(result.defaultModelId).toBe("gpt-b")
+    expect(result.efforts.map((option) => option.id)).toEqual(["high"])
+    expect(result.defaultEffortId).toBe("high")
+    expect(harness.fake.closedSessionIds).toEqual(["delayed-preview"])
+  },
+)

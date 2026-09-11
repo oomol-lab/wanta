@@ -1005,6 +1005,22 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
           selects.model ??= { ...model, currentValue: modelId }
         }
       }
+      if (modelId) {
+        // Legacy agents may acknowledge selection before publishing the new selects.
+        // Never wait indefinitely for a model that has no effort axis.
+        const deadline = performance.now() + 250
+        do {
+          await new Promise((resolve) => setTimeout(resolve, selects.effort ? 0 : 10))
+          for (const notification of this.takeUnboundSessionUpdates(response.sessionId)) {
+            const update = notification.update as { sessionUpdate: string; configOptions?: unknown }
+            if (update.sessionUpdate !== "config_option_update") continue
+            const next = parseConfigSelects(update.configOptions)
+            if (next.model?.currentValue && next.model.currentValue !== modelId) continue
+            selects = { ...selects, ...next }
+          }
+          if (selects.effort) break
+        } while (performance.now() < deadline)
+      }
       return {
         models: selects.model?.options ?? [],
         efforts: selects.effort?.options ?? [],

@@ -303,6 +303,7 @@ export function TeamSkillManagePanel({
       ) : null}
       <Button
         ref={teamSkills.canManage ? undefined : addButtonRef}
+        disabled={Boolean(busyAction) || !teamSkills.apiEnabled || !teamSkills.hasLoaded || Boolean(teamSkills.error)}
         variant="outline"
         size="sm"
         onClick={() => {

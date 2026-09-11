@@ -283,3 +283,14 @@ it("selects a concrete effort even when it equals the native default", async () 
   await act(async () => high!.click())
   expect(onSelectAgentEffort).toHaveBeenCalledWith("high")
 })
+
+it("does not present an unresolved native default id as a display name", async () => {
+  const { trigger } = await renderPicker({
+    agentKind: "codex",
+    agentModelSelectionEnabled: true,
+    modelRoutingEnabled: false,
+    agentCatalog: { defaultModelId: "internal-stale-id", models: [{ id: "valid", label: "Valid model" }], efforts: [] },
+  })
+  expect(trigger?.textContent).toBe("Codex · Default")
+  expect(trigger?.textContent).not.toContain("internal-stale-id")
+})

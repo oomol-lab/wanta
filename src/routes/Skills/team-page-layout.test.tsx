@@ -1,5 +1,7 @@
-import type { ProviderSkillRecommendation } from "./provider-skill-recommendations.ts"
 // @vitest-environment happy-dom
+
+import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
+import type { ProviderSkillRecommendation } from "./provider-skill-recommendations.ts"
 import type { UseTeamSkills } from "@/hooks/useTeamSkills"
 import type { UseTeamWorkspace } from "@/hooks/useTeamWorkspace"
 
@@ -11,9 +13,16 @@ import { TeamManagementRoute } from "./TeamManagement.tsx"
 import { MembersTable } from "./TeamMembersTable.tsx"
 import { TeamSkillManagePanel } from "./TeamSkillManagePanel.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { I18nContext } from "@/i18n/i18n"
+import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 const { resource, service, details, translate } = vi.hoisted(() => ({
-  resource: { data: { groups: [], skills: [] }, isInitialLoading: false, invalidate: vi.fn(), refresh: vi.fn() },
+  resource: {
+    data: { groups: [] as ManagedSkillGroup[], skills: [] },
+    isInitialLoading: false,
+    invalidate: vi.fn(),
+    refresh: vi.fn(),
+  },
   service: { invoke: vi.fn() },
   details: {
     membersState: { data: [{ user_id: "owner", role: "creator" }], status: "ready", error: null },
@@ -23,6 +32,7 @@ const { resource, service, details, translate } = vi.hoisted(() => ({
   },
   translate: (key: string) => key,
 }))
+vi.mock("./SkillDetailContent.tsx", () => ({ SkillDetailContent: () => <input aria-label="Detail field" /> }))
 vi.mock("@/i18n", () => ({ useAppI18n: () => ({ t: translate, locale: "en" }) }))
 vi.mock("@/components/AppContext", () => ({ useSkillService: () => service }))
 vi.mock("@/components/AppDataHooks", () => ({
@@ -115,7 +125,14 @@ async function mount(element: React.ReactNode) {
   document.body.append(container)
   containers.push(container)
   const root = createRoot(container)
-  const render = (node: React.ReactNode) => act(async () => root.render(<TooltipProvider>{node}</TooltipProvider>))
+  const render = (node: React.ReactNode) =>
+    act(async () =>
+      root.render(
+        <I18nContext.Provider value={{ locale: "en", setLocale: () => undefined, t: translate }}>
+          <TooltipProvider>{node}</TooltipProvider>
+        </I18nContext.Provider>,
+      ),
+    )
   await render(element)
   return { container, render, unmount: () => act(async () => root.unmount()) }
 }
@@ -132,6 +149,7 @@ async function clickText(container: ParentNode, text: string) {
   })
 }
 afterEach(() => {
+  resource.data.groups = []
   containers.splice(0).forEach((container) => container.remove())
   vi.clearAllMocks()
 })
@@ -373,6 +391,57 @@ test("select all is available before selecting members while bulk actions stay h
     expect(view.container.textContent).not.toContain("teams.disableSelectedMembers")
     await view.render(<MembersTable {...props} canManage={false} actorRole="member" />)
     expect(view.container.querySelector('[aria-label="teams.selectAllMembers"]')).toBeNull()
+  } finally {
+    await view.unmount()
+  }
+})
+
+test("a detail that mounts after inventory resolution receives focus without stealing it on refresh", async () => {
+  const recommended = { ...recommendations, recommendations: [{ ...suggestion, installState: "installed" as const }] }
+  const props = { workspace: workspace(), teamSkills: skills(), providerSkillRecommendationsState: recommended }
+  const view = await mount(<TeamManagementRoute {...props} />)
+  try {
+    await clickText(view.container, "skills.installedManage")
+    expect(view.container.querySelector('[aria-label="Detail field"]')).toBeNull()
+    const group: ManagedSkillGroup = {
+      id: suggestion.skillId,
+      name: "Suggested skill",
+      kind: "registry",
+      packageName: suggestion.packageName,
+      version: "1.0.0",
+      hosts: [],
+      runtimeHosts: [],
+      externalHosts: [],
+    }
+    resource.data.groups = [group]
+    await view.render(<TeamManagementRoute {...props} />)
+    expect(document.activeElement?.textContent).toBe("teams.backToSkills")
+    const field = view.container.querySelector<HTMLInputElement>('[aria-label="Detail field"]')!
+    field.focus()
+    resource.data.groups = [{ ...group }]
+    await view.render(<TeamManagementRoute {...props} />)
+    expect(document.activeElement).toBe(field)
+  } finally {
+    await view.unmount()
+  }
+})
+
+test.each(["disabled-api", "unloaded", "error"])("market navigation remains disabled for %s", async (state) => {
+  const teamSkills = skills()
+  if (state === "disabled-api") teamSkills.apiEnabled = false
+  if (state === "unloaded") {
+    teamSkills.hasLoaded = false
+    teamSkills.loading = true
+  }
+  if (state === "error") teamSkills.error = resolveUserFacingError(new Error("Unavailable"), { area: "skills" })
+  const view = await mount(<TeamSkillManagePanel {...paneProps(teamSkills)} />)
+  try {
+    const market = [...view.container.querySelectorAll("button")].find(
+      (button) => button.textContent === "teams.skillManageMarket",
+    )!
+    expect(market.disabled).toBe(true)
+    await act(async () => market.click())
+    expect(view.container.textContent).not.toContain("teams.backToSkills")
   } finally {
     await view.unmount()
   }

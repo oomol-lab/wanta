@@ -89,16 +89,7 @@ export function TeamManagementRoute({
   const [managedSkillError, setManagedSkillError] = React.useState<{ cause: unknown; skillId: string } | null>(null)
   const detailBackRef = React.useRef<HTMLButtonElement>(null)
   const detailOriginRef = React.useRef<HTMLElement | null>(null)
-  React.useEffect(() => {
-    if (managedSkillId || selectedPackage) {
-      detailBackRef.current?.focus()
-    } else if (detailOriginRef.current) {
-      const origin = detailOriginRef.current
-      detailOriginRef.current = null
-      if (origin.isConnected && !origin.closest("[hidden]")) origin.focus()
-      else pageRef.current?.focus()
-    }
-  }, [managedSkillId, selectedPackage])
+
   const avatarPreviewUrls = workspace.teamAvatarPreviewUrls
   const clearTeamAvatarPreview = workspace.clearTeamAvatarPreview
 
@@ -138,6 +129,17 @@ export function TeamManagementRoute({
     busyAction === `addSkill:${selectedPackage.name}:${selectedPackagePrimarySkill.name}`,
   )
   const managedSkill = getSelectedManagedSkillGroup(skillInventory.data?.groups ?? [], managedSkillId)
+  const managedSkillReady = Boolean(managedSkill)
+  React.useEffect(() => {
+    if (managedSkillId || selectedPackage) {
+      detailBackRef.current?.focus()
+    } else if (detailOriginRef.current) {
+      const origin = detailOriginRef.current
+      detailOriginRef.current = null
+      if (origin.isConnected && !origin.closest("[hidden]")) origin.focus()
+      else pageRef.current?.focus()
+    }
+  }, [managedSkillId, selectedPackage, managedSkillReady])
   const managedSkillStatus = managedSkill ? getGroupStatus(managedSkill, t, getRuntimeHosts(managedSkill)) : null
   const skillVersionCheckByKey = React.useMemo(
     () =>

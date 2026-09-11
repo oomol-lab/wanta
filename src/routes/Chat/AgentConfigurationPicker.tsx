@@ -150,7 +150,7 @@ function agentOptionSelection(
   const rows = buildAgentOptionRows(options, defaultOptionId, { defaultDescription, defaultLabel })
   const normalizedValue = normalizeAgentOptionValue(value, defaultOptionId)
   const selectedId = normalizedValue ?? AGENT_OPTION_DEFAULT_ROW_ID
-  const defaultName = options.find((option) => option.id === defaultOptionId)?.label ?? defaultOptionId
+  const defaultName = options.find((option) => option.id === defaultOptionId)?.label
   return {
     rows,
     selectedId,

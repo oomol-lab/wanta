@@ -28,8 +28,12 @@ export function useExternalAgentCatalog(kind: AgentKind, modelId?: string, onRef
     try {
       const catalog = await service.invoke("previewExternalAgentCatalog", { kind, ...(modelId ? { modelId } : {}) })
       if (request === sequence.current) {
-        await onRefreshed?.()
-        if (request === sequence.current) setResult({ key, catalog, error: false, loading: false })
+        setResult({ key, catalog, error: false, loading: false })
+        try {
+          await onRefreshed?.()
+        } catch {
+          // A secondary status refresh cannot invalidate successful discovery.
+        }
       }
     } catch {
       if (request === sequence.current) setResult({ key, error: true, loading: false })

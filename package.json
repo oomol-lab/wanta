@@ -48,7 +48,7 @@
   "dependencies": {
     "@ai-sdk/openai": "4.0.46",
     "@ai-sdk/openai-compatible": "3.0.35",
-    "@opencode-ai/sdk": "1.18.21",
+    "@opencode-ai/sdk": "1.18.30",
     "ai": "7.0.77",
     "diff": "9.0.0",
     "electron-updater": "6.8.9",
@@ -63,8 +63,8 @@
     "yazl": "3.3.1"
   },
   "devDependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.70.0",
-    "@agentclientprotocol/codex-acp": "1.6.2",
+    "@agentclientprotocol/claude-agent-acp": "0.76.0",
+    "@agentclientprotocol/codex-acp": "1.11.0",
     "@agentclientprotocol/sdk": "^1.4.0",
     "@electron-internal/extract-zip": "1.0.5",
     "@electron/get": "5.1.0",
@@ -74,7 +74,7 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "@oomol/connection": "0.2.28",
     "@oomol/connection-electron-adapter": "0.2.12",
-    "@opencode-ai/plugin": "1.18.21",
+    "@opencode-ai/plugin": "1.18.30",
     "@shikijs/langs": "4.4.3",
     "@shikijs/themes": "4.4.3",
     "@streamdown/mermaid": "1.0.2",
@@ -101,7 +101,7 @@
     "jszip": "3.10.1",
     "lucide-react": "1.33.0",
     "motion": "13.1.1",
-    "opencode-ai": "1.18.21",
+    "opencode-ai": "1.18.30",
     "oxfmt": "0.64.0",
     "oxlint": "1.79.0",
     "pdfjs-dist": "6.2.108",

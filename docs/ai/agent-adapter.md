@@ -142,7 +142,7 @@ External agents build on `electron/agent/external/`:
   `agentModelId`/`agentEffortId` on the session-creating prompt. The ACP
   adapter prefers v1.3 session config options (`session/set_config_option`,
   categories `model` / `thought_level`) and falls back to the unstable `models`
-  state + `session/set_model` that shipping agents (codex-acp 1.6.2, grok 1.0.5)
+  state + `session/set_model` that shipping agents (codex-acp 1.11.0, grok 1.0.5)
   actually implement. Available options surface on
   `ExternalAgentRuntimeStatus.catalog` and the UI renders them verbatim; a
   `warmCatalog()` pass (a throwaway ACP session closed right away) fills the catalog before the first user session so draft-time

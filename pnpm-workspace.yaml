@@ -33,3 +33,13 @@ ignoredOptionalDependencies:
 patchedDependencies:
   wiki-graph-core@0.6.0: patches/wiki-graph-core@0.6.0.patch
   wiki-graph@0.6.0: patches/wiki-graph@0.6.0.patch
+
+# Keep the bridges' runtime libraries on audited stable releases. Native CLI
+# binaries remain external and are still excluded above.
+overrides:
+  "@agentclientprotocol/claude-agent-acp>@anthropic-ai/claude-agent-sdk": "0.3.268"
+  "@agentclientprotocol/codex-acp>@openai/codex": "0.154.0"
+
+# Explicitly requested latest stable SDK; keep the age exception version-scoped.
+minimumReleaseAgeExclude:
+  - "@anthropic-ai/claude-agent-sdk@0.3.268"

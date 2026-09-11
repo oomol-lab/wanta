@@ -12,9 +12,21 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
 const maxDownloadBytes = 128 * 1024 * 1024
 
-export const WECOM_CLI_VERSION = "1.1.0"
-export const WECOM_CLI_GIT_HEAD = "889c555c527b26aa4ffece9bb03f0ec624bfa0b1"
-export const WECOM_CLI_SOURCE_COMMIT = "cd0480e0e4013c99cc9e7bb4a3247ec949a052d8"
+export const WECOM_CLI_VERSION = "1.2.1"
+// npm 1.2.1 omits gitHead; pin each published archive instead.
+const WECOM_CLI_INTEGRITIES: Readonly<Record<string, string>> = {
+  "@wecom/cli-linux-arm64":
+    "sha512-ndgR2jV749PAoMpbWm3IpVBHuRpprve4AJiYh+TkTOoIk5RXE1T5ScXmqG4qUjEENcXTdCT2iTVPx9SPG8KDbw==",
+  "@wecom/cli-darwin-arm64":
+    "sha512-HGNAdyvF48ktcxLaGNcKaXu51k0Wz/GTM2DCr3LiB9QLdJMpVcl/8vsjaFZp6LK7x9K84+I50pOjIteUCxuacg==",
+  "@wecom/cli-darwin-x64":
+    "sha512-ekrGOIxy7RUvIJ13TNqsxii+Vk29U5vyeBAO0VhTfZGQ2hwxknBXc5Iw5ue7UlKIV0B01uJga/etxbnNjiHZng==",
+  "@wecom/cli-linux-x64":
+    "sha512-rRWW/Z0ZznlyYovImY+VG1wTEv4CCsAjz53BO/RjmIN1XzzNeOM7c40nOniG5uwJFFUkaHrDYwc95jrhUl7JfA==",
+  "@wecom/cli-win32-x64":
+    "sha512-fDiaE3M+BFuGY/nWstbnHgXp3tpjI30IClmVyWmQ7GnMMRHYMGxcCuAbvBZa9q4lQduJyg2AcHRzKTc1FIgBwQ==",
+}
+export const WECOM_CLI_SOURCE_COMMIT = "e88bf90a7c7cf756385636f8cb02c907171f55a3"
 export const localWecomCliBinDir = path.join(repoRoot, ".wecom-cli-bin")
 export const bundledWecomSkillsDir = path.join(repoRoot, "resources", "wecom-skills")
 
@@ -97,13 +109,12 @@ export async function downloadWecomCliBinary(): Promise<string> {
   if (!metadata.dist?.tarball || !metadata.dist.integrity) {
     throw new Error(`Incomplete npm dist metadata for ${target.packageName}@${WECOM_CLI_VERSION}`)
   }
-  if (metadata.gitHead !== WECOM_CLI_GIT_HEAD) {
-    throw new Error(
-      `${target.packageName}@${WECOM_CLI_VERSION} comes from ${metadata.gitHead ?? "an unknown commit"}; expected ${WECOM_CLI_GIT_HEAD}`,
-    )
+  const expectedIntegrity = WECOM_CLI_INTEGRITIES[target.packageName]
+  if (!expectedIntegrity || metadata.dist.integrity !== expectedIntegrity) {
+    throw new Error(`Unexpected npm integrity for ${target.packageName}@${WECOM_CLI_VERSION}`)
   }
   const archive = await fetchBytes(metadata.dist.tarball)
-  verifyTarballIntegrity(archive, metadata.dist.integrity, metadata.dist.tarball)
+  verifyTarballIntegrity(archive, expectedIntegrity, metadata.dist.tarball)
   const binary = extractFileFromTar(gunzipSync(archive), `package/bin/${target.binaryName}`)
   if (!binary) throw new Error(`WeCom CLI binary is missing from ${target.packageName}@${WECOM_CLI_VERSION}`)
 

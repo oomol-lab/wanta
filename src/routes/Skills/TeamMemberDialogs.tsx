@@ -13,6 +13,7 @@ import { TeamUserAvatar } from "./TeamUserAvatar.tsx"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
+import { Field, FieldSet, FieldLabel, FieldDescription } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Label } from "@/components/ui/label"
@@ -144,13 +145,13 @@ export function TeamProfileSettingsPanel({
   }
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="border-b border-[var(--oo-divider)] px-3 py-2.5">
+    <section className="min-w-0 bg-background">
+      <div className="pb-5">
         <h2 className="oo-text-title text-foreground">{t("teams.teamProfile")}</h2>
         <p className="oo-text-caption mt-0.5 text-muted-foreground">{t("teams.editTeamDescription")}</p>
       </div>
       <form onSubmit={onSubmit}>
-        <div className="grid gap-4 p-3">
+        <FieldSet>
           <TeamAvatarField
             avatar={avatar}
             file={avatarFile}
@@ -165,24 +166,26 @@ export function TeamProfileSettingsPanel({
             }}
             onFileChange={onAvatarFileChange}
           />
-          <div className="grid gap-2">
-            <Label htmlFor="edit-team-name">{t("teams.teamName")}</Label>
+          <Field data-invalid={Boolean(nameError)}>
+            <FieldLabel htmlFor="edit-team-name">{t("teams.teamName")}</FieldLabel>
             <Input
               id="edit-team-name"
               value={name}
               maxLength={maxTeamNameLength}
               aria-invalid={Boolean(nameError)}
-              autoFocus
+              disabled={busy}
               onChange={(event) => onNameChange(event.currentTarget.value)}
             />
             {nameError ? (
-              <p className="oo-text-caption-compact text-destructive">{nameError}</p>
+              <p role="alert" className="oo-text-caption-compact text-destructive">
+                {nameError}
+              </p>
             ) : (
-              <p className="oo-text-caption-compact text-muted-foreground">{t("teams.teamNameDescription")}</p>
+              <FieldDescription>{t("teams.teamNameDescription")}</FieldDescription>
             )}
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 border-t border-[var(--oo-divider)] px-3 py-2.5">
+          </Field>
+        </FieldSet>
+        <div className="mt-5 flex gap-2">
           <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
             {t("common.cancel")}
           </Button>
@@ -382,6 +385,7 @@ export function AddMemberDialog({
   search: MemberSearchState
 }) {
   const { t } = useAppI18n()
+  const searchInputRef = React.useRef<HTMLInputElement>(null)
   const hasSearchResults = search.items.length > 0
   const canSubmit = !busy && Boolean(resolveMemberInput(input, search, selectedUserId))
 
@@ -418,6 +422,8 @@ export function AddMemberDialog({
     <Dialog
       open={open}
       onClose={onClose}
+      initialFocus={() => searchInputRef.current}
+      closeLabel={t("common.close")}
       title={t("teams.addMember")}
       description={t("teams.addMemberDescription")}
       footer={
@@ -440,6 +446,7 @@ export function AddMemberDialog({
               <SearchIcon />
             </InputGroupAddon>
             <InputGroupInput
+              ref={searchInputRef}
               id="team-member-search"
               type="search"
               value={input}

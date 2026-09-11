@@ -768,10 +768,10 @@
     "other": "{{count}} системные рекомендации"
   },
   "teams.skillManageInstallMissingAll": {
-    "one": "Синхронизировать {{count}} командный Skill",
-    "few": "Синхронизировать {{count}} командных Skills",
-    "many": "Синхронизировать {{count}} командных Skills",
-    "other": "Синхронизировать {{count}} командных Skills"
+    "one": "Установить недостающие навыки ({{count}})",
+    "few": "Установить недостающие навыки ({{count}})",
+    "many": "Установить недостающие навыки ({{count}})",
+    "other": "Установить недостающие навыки ({{count}})"
   },
   "teams.skillManageInstallMissingSuccess": {
     "one": "Синхронизирован {{count}} командный Skill.",

@@ -512,8 +512,8 @@
     "other": "{{count}} recommandations système"
   },
   "teams.skillManageInstallMissingAll": {
-    "one": "Synchroniser {{count}} Skill d'équipe",
-    "other": "Synchroniser {{count}} Skills d'équipe"
+    "one": "Installer les compétences manquantes ({{count}})",
+    "other": "Installer les compétences manquantes ({{count}})"
   },
   "teams.skillManageInstallMissingSuccess": {
     "one": "{{count}} Skill d'équipe synchronisé.",

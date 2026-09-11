@@ -87,7 +87,7 @@ interface PublicSkillPackageDetailProps {
   pkg: PublicSkillPackage
 }
 
-function PublicSkillPackageDetail({
+export function PublicSkillPackageDetail({
   additionalActions,
   canInstall,
   className,

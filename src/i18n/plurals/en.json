@@ -512,8 +512,8 @@
     "other": "{{count}} system recommendations"
   },
   "teams.skillManageInstallMissingAll": {
-    "one": "Sync team Skills {{count}}",
-    "other": "Sync team Skills {{count}}"
+    "one": "Install missing skills ({{count}})",
+    "other": "Install missing skills ({{count}})"
   },
   "teams.skillManageInstallMissingSuccess": {
     "one": "{{count}} team Skill synced.",

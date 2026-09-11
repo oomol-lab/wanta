@@ -155,7 +155,7 @@ export function MembersTable({
 
   return (
     <>
-      {canBulkManage ? (
+      {canBulkManage && selectedCount > 0 ? (
         <MemberStatusBulkToolbar
           allSelected={allSelected}
           bulkBusy={bulkBusy}

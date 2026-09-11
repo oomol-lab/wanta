@@ -110,3 +110,7 @@ export {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 }
+
+export function DropdownMenuGroup(props: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
+  return <DropdownMenuPrimitive.Group {...props} />
+}

@@ -46,6 +46,7 @@ export interface SessionPermissionGrant {
 }
 
 export interface PermissionScopeContext {
+  taskProcessRoot?: string
   commandCwd?: string
   trustedProjectRoot?: string
 }
@@ -1043,7 +1044,7 @@ export function permissionRequestNeedsDefaultPrompt(
   }
   if (kind === "command") {
     const command = commandWithoutHereDocumentBodies(commandText(request))
-    return dependencyCommandChangesScope(command)
+    return dependencyCommandChangesScope(command, scope)
   }
   // Broad non-sensitive reads are consequence-free. Keep confirmation for edits whose requested
   // scope is itself a home/system root; destructive shell commands are already gated above.

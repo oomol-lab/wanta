@@ -1,6 +1,6 @@
 import type { TopLevelShellSegment } from "./shell-syntax.ts"
 
-import path from "node:path"
+import { resolveShellPath } from "./shell-path.ts"
 import {
   commandWithoutInertOutputSuffixes,
   explicitCdDirectory,
@@ -97,12 +97,7 @@ export function scopedCommandSequence(command: string, initialCwd?: string): Sco
       if (topLevelShellSegments(segment.text).some((part) => part.operatorAfter === "pipe")) return undefined
       const directory = explicitCdDirectory(body)
       if (!directory) return undefined
-      const paths = isWindowsPath(directory) || isWindowsPath(cwd ?? "") ? path.win32 : path.posix
-      const nextCwd = paths.isAbsolute(directory)
-        ? paths.normalize(directory)
-        : cwd
-          ? paths.resolve(cwd, directory)
-          : undefined
+      const nextCwd = resolveShellPath(directory, cwd)
       directoryMayDifferOnFailure ||= nextCwd !== cwd
       cwd = nextCwd
       if (!cwd) return undefined
@@ -118,8 +113,4 @@ export function scopedCommandSequence(command: string, initialCwd?: string): Sco
     }
   }
   return steps.length > 0 ? steps : undefined
-}
-
-function isWindowsPath(value: string): boolean {
-  return /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith("\\\\")
 }

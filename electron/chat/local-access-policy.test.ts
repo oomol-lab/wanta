@@ -871,11 +871,7 @@ test("default access auto-approves direct Python requirements in bounded task or
     ),
     { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
   )
-  for (const command of [
-    "pip install pandas",
-    "python3 -m pip install pandas",
-    "uv pip install --python /tmp/other/.venv/bin/python pandas",
-  ]) {
+  for (const command of ["pip install pandas", "python3 -m pip install pandas"]) {
     assert.equal(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), {
         permissionMode: "default",
@@ -886,6 +882,7 @@ test("default access auto-approves direct Python requirements in bounded task or
     )
   }
   for (const command of [
+    "uv pip install --python /tmp/other/.venv/bin/python pandas",
     `${projectRoot}/.venv/bin/python -m pip install --user pandas`,
     `${projectRoot}/.venv/bin/python -m pip install -r requirements.txt`,
     `${projectRoot}/.venv/bin/python -m pip install git+https://example.test/package.git`,
@@ -2047,4 +2044,88 @@ test("proven cleanup composes with ordinary work without admitting other boundar
       .type,
     "deny",
   )
+})
+
+test("explicit dependency destinations stay inside task or project across adapters", () => {
+  const scope = {
+    permissionMode: "default" as const,
+    taskProcessRoot: "/work/task",
+    trustedProjectRoot: "/work/project",
+    commandCwd: "/work/project",
+  }
+  const allowed = [
+    "npm install --prefix /work/project/sub lodash",
+    "npm --prefix=/work/task install lodash",
+    "npm install --prefix . lodash",
+    "cd /work/task && npm --prefix . install lodash && echo done",
+    "uv pip install --python /work/task/.wanta-python/bin/python pypdf",
+    "uv pip install --python=.venv/bin/python pypdf",
+    "uv pip install --python /work/project/venv/bin/python3 pypdf",
+    "uv pip install --python /work/project/.venv/bin/python pypdf && echo done",
+  ]
+  const protectedCommands = [
+    "npm install --prefix /work/other lodash",
+    "npm --prefix=/work/project-sibling install lodash",
+    "npm install --prefix ../other lodash",
+    "npm install --prefix /work/project/../other lodash",
+    "npm install --prefix /work/project --prefix /work/other lodash",
+    "uv pip install --python /work/other/.venv/bin/python pypdf",
+    "uv pip install --python /usr/bin/python3 pypdf",
+    "uv pip install --python=../other/.venv/bin/python pypdf",
+    "uv pip install --python /work/task/.wanta-python/bin/python --python /work/other/.venv/bin/python pypdf",
+    'npm install --prefix "$TARGET" lodash',
+    'uv pip install --python "$INTERPRETER" pypdf',
+    "env -C /work/other npm install --prefix . lodash",
+    "/usr/bin/env -C/work/other npm install --prefix . lodash",
+    "bash -c 'cd /work/other; npm install --prefix . lodash'",
+  ]
+  for (const isExternalSession of [false, true]) {
+    for (const [commands, expected] of [
+      [allowed, "allow"],
+      [protectedCommands, "prompt"],
+    ] as const) {
+      for (const command of commands) {
+        const request = permission({ metadata: { command } })
+        assert.equal(evaluateLocalAccessRequest(request, { ...scope, isExternalSession }).type, expected, command)
+      }
+    }
+  }
+})
+
+test("dynamic dependency verbs and option names prompt without resolving shell variables", () => {
+  const commands = [
+    'ACTION=publish\nnpm "$ACTION"',
+    'ACTION=publish\npnpm "$ACTION"',
+    'FLAG=user\npip install --"$FLAG" pypdf',
+    'FLAG=global\nnpm install --"$FLAG" lodash',
+    'ACTION=publish\nnpm run "$ACTION"',
+    'ACTION=install\nuv pip "$ACTION" pypdf',
+    'MODULE=pip\npython3 -m "$MODULE" install --user pypdf',
+  ]
+  for (const isExternalSession of [false, true]) {
+    for (const command of commands) {
+      assert.equal(
+        evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+          permissionMode: "default",
+          isExternalSession,
+        }).type,
+        "prompt",
+        command,
+      )
+    }
+    for (const command of [
+      'PROC=/work/task\n"$PROC/.wanta-python/bin/python" -m pip install pypdf',
+      'ROOT=/work/task\npnpm --dir "$ROOT" add lodash',
+      'python3 report.py --"$FIELD"',
+    ]) {
+      assert.equal(
+        evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+          permissionMode: "default",
+          isExternalSession,
+        }).type,
+        "allow",
+        command,
+      )
+    }
+  }
 })

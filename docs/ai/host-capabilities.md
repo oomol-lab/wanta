@@ -139,6 +139,16 @@ credential, sensitive-resource, project `.env` write, broad edit, and consequent
 operation checks remain in force. These are text-level guards; opaque scripts,
 unknown tools, and dynamic expansion are not a strict filesystem boundary.
 
+Explicit npm `--prefix` destinations must resolve inside the task or selected
+project. Explicit uv `--python` destinations must match an existing recognized
+task-private or selected-project interpreter path. Unknown or outside destinations
+prompt; absolute and equals forms are checked, including repeated options. Relative
+destinations require proven cwd. These checks do not resolve shell variables.
+Dynamic dependency operation names or option names also prompt because they can
+conceal publishing or global/user installation. Ordinary path/package values and
+multiline processing remain eligible for default execution. Nested shell or
+cwd-changing launcher text does not establish a relative destination's cwd.
+
 Known task-scratch or generated-project cleanup can compose with ordinary work
 when the existing sequence parser proves every step independently allowable.
 No partial execution or approval occurs: the original call is approved as a whole.

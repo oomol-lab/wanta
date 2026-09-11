@@ -95,7 +95,7 @@ export interface LocalAccessPolicyContext {
 
 export function localAccessPromptReason(
   request: ChatPermissionRequest,
-  context: Pick<LocalAccessPolicyContext, "commandCwd" | "trustedProjectRoot"> = {},
+  context: Pick<LocalAccessPolicyContext, "commandCwd" | "trustedProjectRoot" | "taskProcessRoot"> = {},
 ): LocalPermissionPromptReason {
   const scope = permissionScope(request, context)
   if (permissionRequestHasSensitiveResource(request, scope)) return "sensitive_resource"
@@ -108,9 +108,10 @@ export function localAccessPromptReason(
 
 function permissionScope(
   request: ChatPermissionRequest,
-  context: Pick<LocalAccessPolicyContext, "commandCwd" | "trustedProjectRoot">,
+  context: Pick<LocalAccessPolicyContext, "commandCwd" | "trustedProjectRoot" | "taskProcessRoot">,
 ) {
   return {
+    ...(context.taskProcessRoot ? { taskProcessRoot: context.taskProcessRoot } : {}),
     ...(context.trustedProjectRoot ? { trustedProjectRoot: context.trustedProjectRoot } : {}),
     ...(effectiveCommandCwd(request, context) ? { commandCwd: effectiveCommandCwd(request, context) } : {}),
   }

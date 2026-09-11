@@ -7,7 +7,7 @@ import { appLocales } from "../app-locale.ts"
 import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../knowledge/common.ts"
 
 const ordinaryDependencyGuidance =
-  "- Ordinary dependency installation follows the default command policy; variables, unproven cwd, command lists, and multiline scripts are not confirmation reasons by themselves. Prefer the task-private environment. Explicit global/user/system installation, destination overrides, external requirements inputs, alternate sources, and existing protected operations still require approval. This is not an execution sandbox."
+  "- Ordinary dependency installation follows the default command policy; variables, unproven cwd, command lists, and multiline scripts are not confirmation reasons by themselves. Prefer the task-private environment. Explicit global/user/system installation, external requirements inputs, alternate sources, and existing protected operations still require approval. Explicit npm --prefix and uv --python destinations must be proven in scope; unknown destinations and dynamic operation/option names require confirmation. This is not an execution sandbox."
 
 const declinedToolGuidance =
   "- Cancelling a tool call rejects the whole call, not just one operation within it. Do not repeat or repackage it without new authorization. Unless the user asked to stop, continue independent work or a different approach within the original authorization that omits the rejected side effects. If that is not possible or authorization is unclear, report completed work and what remains blocked."

@@ -63,17 +63,17 @@ export function TeamSwitcherPanel({
               <TeamAvatar
                 team={selectedTeam}
                 previewUrl={avatarPreviewUrls[selectedTeam.id]}
-                className="size-12 rounded-lg text-lg"
+                className="size-10 rounded-lg text-lg"
                 onRemoteAvatarLoad={onRemoteAvatarLoad}
               />
             ) : (
-              <div className="grid size-12 place-items-center rounded-md bg-muted text-muted-foreground">
+              <div className="grid size-10 place-items-center rounded-md bg-muted text-muted-foreground">
                 <Building2Icon className="size-5" />
               </div>
             )}
           </div>
 
-          <div className="grid min-h-12 min-w-0 flex-1 content-center gap-1">
+          <div className="grid min-h-10 min-w-0 flex-1 content-center gap-1">
             {selectedTeam ? (
               <>
                 <DropdownMenu>

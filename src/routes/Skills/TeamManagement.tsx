@@ -285,7 +285,7 @@ export function TeamManagementRoute({
   )
   return (
     <>
-      <div ref={pageRef} tabIndex={-1} className="h-full min-h-0 overflow-hidden px-5 py-5 outline-none lg:px-7">
+      <div ref={pageRef} tabIndex={-1} className="h-full min-h-0 overflow-hidden px-5 py-3 outline-none lg:px-7">
         {showOverviewError ? (
           <div className="flex min-h-full items-center justify-center px-4 py-10">
             <ErrorBlock
@@ -348,7 +348,7 @@ export function TeamManagementRoute({
                         </TabsTrigger>
                       ) : null}
                     </TabsList>
-                    <TabsContent value="skills" className="min-h-0 overflow-hidden pt-5">
+                    <TabsContent value="skills" className="min-h-0 overflow-hidden pt-3">
                       <div hidden={Boolean(managedSkill || selectedPackage)} className="h-full min-h-0">
                         {selectedTeamSkills ? (
                           <TeamSkillGuidePanel
@@ -474,7 +474,7 @@ export function TeamManagementRoute({
                         </div>
                       ) : null}
                     </TabsContent>
-                    <TabsContent value="members" className="min-h-0 overflow-y-auto pt-5">
+                    <TabsContent value="members" className="min-h-0 overflow-y-auto pt-3">
                       <TeamDetailPanel
                         inline
                         actorRole={activeWorkspace.role}
@@ -497,7 +497,7 @@ export function TeamManagementRoute({
                       />
                     </TabsContent>
                     {canManage ? (
-                      <TabsContent value="settings" className="min-h-0 overflow-y-auto pt-5">
+                      <TabsContent value="settings" className="min-h-0 overflow-y-auto pt-3">
                         <div className="max-w-2xl">
                           <TeamProfileSettingsPanel
                             avatar={teamForms.edit.avatar}

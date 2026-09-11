@@ -293,7 +293,6 @@ test("ordinary members can discover and install recommendations without changing
   const view = await mount(<TeamSkillManagePanel {...props} />)
   try {
     expect(view.container.textContent).toContain("Suggested skill")
-    await clickText(view.container, "teams.browseSkillsTitle")
     expect(view.container.textContent).toContain("Suggested skill")
     expect(view.container.textContent).toContain("teams.skillManageMarket")
     expect(view.container.textContent).not.toContain("teams.skillManageAddOnly")
@@ -304,7 +303,6 @@ test("ordinary members can discover and install recommendations without changing
     })
     expect(props.onAddRecommendation).not.toHaveBeenCalled()
     expect(props.teamSkills.addSkill).not.toHaveBeenCalled()
-    await clickText(view.container, "teams.backToSkills")
     expect(view.container.textContent).toContain("teams.skillGuideEmptyTitle")
   } finally {
     await view.unmount()

@@ -4,7 +4,7 @@ import type { UseTeamSkills } from "@/hooks/useTeamSkills"
 import type { ListPublicSkillPackagesInput } from "@/lib/skills-catalog-client"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations"
 
-import { ArrowLeftIcon, CheckIcon, MonitorIcon, PlusIcon, RefreshCwIcon } from "lucide-react"
+import { ArrowRightIcon, ArrowLeftIcon, CheckIcon, MonitorIcon, PlusIcon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
 import {
   createTeamSkillPackageSet,
@@ -31,7 +31,6 @@ import { useSkillCatalog } from "./use-skill-catalog.ts"
 import { useTeamSkillRemoval } from "./use-team-skill-removal.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
-import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppI18n } from "@/i18n"
@@ -282,9 +281,14 @@ export function TeamSkillManagePanel({
   const marketListClassName = "min-h-0 flex-1 overflow-y-auto bg-background pb-3"
 
   const content = (
-    <div className="flex h-full min-h-0 flex-col gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
+        <div
+          className={cn(
+            "flex min-w-0 gap-2",
+            showInlineRecommendations ? "flex-row flex-wrap items-baseline" : "flex-col",
+          )}
+        >
           {adding ? (
             <Button
               ref={addBackRef}
@@ -318,7 +322,7 @@ export function TeamSkillManagePanel({
                   ? "teams.addSkillsDescription"
                   : "teams.browseSkillsDescription"
                 : showInlineRecommendations
-                  ? "teams.browseSkillsDescription"
+                  ? "teams.skillGuideEmptyTitle"
                   : "teams.sharedSkillsDescription",
             )}
           </p>
@@ -326,25 +330,32 @@ export function TeamSkillManagePanel({
         {!adding ? (
           <Button
             ref={addButtonRef}
+            variant={showInlineRecommendations && !teamSkills.canManage ? "outline" : "default"}
             size="sm"
             disabled={
               !teamSkills.apiEnabled || !teamSkills.hasLoaded || Boolean(teamSkills.error) || Boolean(busyAction)
             }
             onClick={() => {
               setAddingSkills(true)
+              if (showInlineRecommendations && !teamSkills.canManage) setActiveTab("market")
               setSearchQuery("")
             }}
           >
-            <PlusIcon data-icon="inline-start" />
-            {t(teamSkills.canManage ? "teams.addSkillsTitle" : "teams.browseSkillsTitle")}
+            {showInlineRecommendations && !teamSkills.canManage ? (
+              <ArrowRightIcon data-icon="inline-start" />
+            ) : (
+              <PlusIcon data-icon="inline-start" />
+            )}
+            {t(
+              teamSkills.canManage
+                ? "teams.addSkillsTitle"
+                : showInlineRecommendations
+                  ? "teams.skillManageMarket"
+                  : "teams.browseSkillsTitle",
+            )}
           </Button>
         ) : null}
       </div>
-      {showInlineRecommendations && teamSkills.apiEnabled && !teamSkills.error ? (
-        <Alert>
-          <AlertTitle>{t("teams.skillGuideEmptyTitle")}</AlertTitle>
-        </Alert>
-      ) : null}
       {!teamSkills.apiEnabled ? (
         <TeamSkillDialogEmpty
           className={emptyStateClassName}
@@ -369,7 +380,12 @@ export function TeamSkillManagePanel({
       ) : (teamSkills.loading && !teamSkills.hasLoaded) || runtimeInventoryLoading ? (
         <TeamSkillManageLoadingSkeleton inline />
       ) : (
-        <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-3">
+        <div
+          className={cn(
+            "grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)]",
+            showInlineRecommendations ? "gap-0" : "gap-3",
+          )}
+        >
           {adding ? (
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
               <ToggleGroup

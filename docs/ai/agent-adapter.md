@@ -143,10 +143,16 @@ External agents build on `electron/agent/external/`:
   adapter prefers v1.3 session config options (`session/set_config_option`,
   categories `model` / `thought_level`) and falls back to the unstable `models`
   state + `session/set_model` that shipping agents (codex-acp 1.11.0, grok 1.0.5)
-  actually implement. Available options surface on
-  `ExternalAgentRuntimeStatus.catalog` and the UI renders them verbatim; a
-  `warmCatalog()` pass (a throwaway ACP session closed right away) fills the catalog before the first user session so draft-time
-  pickers show the real lists. Per-session choices are also stored in Wanta's
+  actually implement. Runtime status retains its general catalog, while composer
+  pickers call `previewExternalAgentCatalog` for their selected model. The ACP
+  adapter opens a disposable session, applies that model, reads its native
+  config options, and closes the session without sending a prompt or changing
+  any user session. Replies are scoped to the composer's agent/model and stale
+  responses are discarded. Opening the picker retries discovery; loading,
+  authentication failures, and models without effort options have explicit UI
+  states. A concrete model or effort stays distinct from following the native
+  default, even if their current values match. Live selections persist only
+  after the agent confirms the change. Per-session choices are also stored in Wanta's
   session metadata so they survive renderer reloads and full app restarts.
   Wanta/BYOK `model` and `reasoningLevel` fields are never forwarded to an
   external adapter, including when a stale renderer sends them. Claude Code,

@@ -2287,5 +2287,8 @@
   "permissionPrompt.retry": "Повторить этот шаг",
   "permissionPrompt.targets": "Затронутые объекты",
   "permissionPrompt.details": "Показать подробности операции",
-  "permissionPrompt.scope": "Этот выбор также разрешает следующую область, а не только одно выполнение:"
+  "permissionPrompt.scope": "Этот выбор также разрешает следующую область, а не только одно выполнение:",
+  "chat.agentCatalogLoading": "Загрузка параметров CLI…",
+  "chat.agentCatalogUnavailable": "Не удалось загрузить параметры CLI. Проверьте CLI и вход в аккаунт, затем откройте меню снова.",
+  "chat.agentEffortUnavailable": "Модель не вернула параметры рассуждения. Проверьте версию CLI или выберите другую модель."
 }

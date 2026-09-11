@@ -150,15 +150,21 @@ function agentOptionSelection(
   const rows = buildAgentOptionRows(options, defaultOptionId, { defaultDescription, defaultLabel })
   const normalizedValue = normalizeAgentOptionValue(value, defaultOptionId)
   const selectedId = normalizedValue ?? AGENT_OPTION_DEFAULT_ROW_ID
+  const defaultName = options.find((option) => option.id === defaultOptionId)?.label ?? defaultOptionId
   return {
     rows,
     selectedId,
-    selectedLabel: rows.find((row) => row.id === selectedId)?.label ?? defaultLabel,
+    selectedLabel:
+      selectedId === AGENT_OPTION_DEFAULT_ROW_ID && defaultName
+        ? `${defaultLabel} · ${defaultName}`
+        : (rows.find((row) => row.id === selectedId)?.label ?? value ?? defaultLabel),
   }
 }
 
 export function AgentConfigurationPicker({
   agentCatalog,
+  agentCatalogLoading = false,
+  agentCatalogError = false,
   agentEffortId,
   agentEffortSelectionEnabled,
   agentKind,
@@ -179,6 +185,8 @@ export function AgentConfigurationPicker({
   onSelectModel,
   onSelectReasoningLevel,
 }: {
+  agentCatalogLoading?: boolean
+  agentCatalogError?: boolean
   agentCatalog?: ExternalAgentCatalog
   agentEffortId?: string
   agentEffortSelectionEnabled: boolean
@@ -338,6 +346,23 @@ export function AgentConfigurationPicker({
   )
 
   const submenuContent = (() => {
+    if (
+      !modelRoutingEnabled &&
+      (page === "model" || page === "effort") &&
+      (agentCatalogLoading || agentCatalogError || (page === "effort" && !agentCatalog?.efforts.length))
+    ) {
+      return (
+        <div role="status" className="oo-text-caption px-3 py-3 text-muted-foreground">
+          {t(
+            agentCatalogLoading
+              ? "chat.agentCatalogLoading"
+              : agentCatalogError
+                ? "chat.agentCatalogUnavailable"
+                : "chat.agentEffortUnavailable",
+          )}
+        </div>
+      )
+    }
     if (page === "agent") {
       return (
         <>

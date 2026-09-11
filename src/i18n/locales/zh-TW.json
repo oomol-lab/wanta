@@ -2287,5 +2287,8 @@
   "permissionPrompt.retry": "重試這一步",
   "permissionPrompt.targets": "涉及的內容",
   "permissionPrompt.details": "查看操作詳情",
-  "permissionPrompt.scope": "勾選後也會允許以下範圍，不再僅限這一次執行："
+  "permissionPrompt.scope": "勾選後也會允許以下範圍，不再僅限這一次執行：",
+  "chat.agentCatalogLoading": "正在讀取 CLI 選項…",
+  "chat.agentCatalogUnavailable": "無法讀取 CLI 選項。請檢查 CLI 與登入狀態，重新開啟選單重試。",
+  "chat.agentEffortUnavailable": "目前模型未傳回推理選項，請檢查 CLI 版本或選擇其他模型。"
 }

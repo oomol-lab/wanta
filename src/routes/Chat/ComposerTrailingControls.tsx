@@ -26,6 +26,8 @@ interface ComposerTrailingControlsProps {
   turnState: ChatTurnState
   modelCatalog: ModelCatalog | null
   modelRequired?: boolean
+  agentCatalogLoading?: boolean
+  agentCatalogError?: boolean
   agentCatalog?: ExternalAgentCatalog
   agentEffortId?: string
   agentEffortSelectionEnabled?: boolean
@@ -216,6 +218,8 @@ export function ComposerTrailingControls({
   modelCatalog,
   modelRequired = false,
   agentCatalog,
+  agentCatalogLoading,
+  agentCatalogError,
   agentEffortId,
   agentEffortSelectionEnabled,
   agentKind,
@@ -353,6 +357,8 @@ export function ComposerTrailingControls({
             <ComposerModeControls
               agentConfigurationDisabled={agentConfigurationDisabled}
               agentCatalog={agentCatalog}
+              agentCatalogLoading={agentCatalogLoading}
+              agentCatalogError={agentCatalogError}
               agentEffortId={agentEffortId}
               agentEffortSelectionEnabled={agentEffortSelectionEnabled}
               agentKind={agentKind}

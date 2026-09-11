@@ -3,6 +3,7 @@ import type { ChatAgentBackend } from "../contract/chat-backend.ts"
 import type { AgentEvent } from "../contract/event.ts"
 import type { AgentInput, AgentSendOptions } from "../contract/input.ts"
 import type { ExternalAgentRuntimeStatus } from "./probe.ts"
+import type { ExternalAgentCatalog } from "./status.ts"
 
 import { logDiagnostic } from "../../diagnostics-log.ts"
 import { BaseAgentAdapter } from "../contract/adapter.ts"
@@ -168,6 +169,12 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter implements C
    * exists (called when the user focuses the agent in the composer). Default:
    * nothing to warm.
    */
+  /** Read options for a prospective model without changing a user's session. */
+  public async previewCatalog(_modelId?: string): Promise<ExternalAgentCatalog | undefined> {
+    await this.warmCatalog()
+    return (await this.runtimeStatus()).catalog
+  }
+
   public warmCatalog(): Promise<void> {
     return Promise.resolve()
   }

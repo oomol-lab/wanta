@@ -2034,4 +2034,9 @@ export const enMessages = {
   "permissionPrompt.targets": "Affected items",
   "permissionPrompt.details": "View operation details",
   "permissionPrompt.scope": "This choice also allows the following scope; it is not limited to a single execution:",
+  "chat.agentCatalogLoading": "Loading CLI options…",
+  "chat.agentCatalogUnavailable":
+    "Could not load CLI options. Check the CLI and sign-in status, then reopen this menu to retry.",
+  "chat.agentEffortUnavailable":
+    "This model did not report any reasoning options. Check the CLI version or choose another model.",
 } as const

@@ -17,6 +17,8 @@ const NO_EXTERNAL_AGENTS: ExternalAgentRuntimeStatus[] = []
 
 interface ComposerModeControlsProps {
   agentConfigurationDisabled?: boolean
+  agentCatalogLoading?: boolean
+  agentCatalogError?: boolean
   agentCatalog?: ExternalAgentCatalog
   agentEffortId?: string
   agentEffortSelectionEnabled?: boolean
@@ -52,6 +54,8 @@ interface ComposerModeControlsProps {
 export function ComposerModeControls({
   agentConfigurationDisabled = false,
   agentCatalog,
+  agentCatalogLoading,
+  agentCatalogError,
   agentEffortId,
   agentEffortSelectionEnabled = false,
   agentKind = "opencode",
@@ -110,6 +114,8 @@ export function ComposerModeControls({
       ) : null}
       <AgentConfigurationPicker
         agentCatalog={agentCatalog}
+        agentCatalogLoading={agentCatalogLoading}
+        agentCatalogError={agentCatalogError}
         agentEffortId={agentEffortId}
         agentEffortSelectionEnabled={agentEffortSelectionEnabled}
         agentKind={agentKind}

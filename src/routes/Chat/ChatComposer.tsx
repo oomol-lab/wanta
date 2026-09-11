@@ -73,9 +73,9 @@ import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
 import { useAppSettings } from "@/hooks/useAppSettings"
+import { useExternalAgentCatalog } from "@/hooks/useExternalAgentCatalog"
 import { useExternalAgents } from "@/hooks/useExternalAgents"
 import { useT } from "@/i18n/i18n"
-import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { authTypeLabel } from "@/routes/Connections/shared"
@@ -254,21 +254,10 @@ export function ChatComposer({
   const chatService = useChatService()
   const externalAgentsState = useExternalAgents()
   const refreshExternalAgents = externalAgentsState.refresh
-  const warmedAgentKindsRef = React.useRef(new Set<AgentKind>())
-  React.useEffect(() => {
-    // Warm the displayed external agent's catalog once per kind per mount so
-    // model and effort options are ready by the time the pickers open.
-    if (!isExternalAgentKind(agentKind) || warmedAgentKindsRef.current.has(agentKind)) {
-      return
-    }
-    warmedAgentKindsRef.current.add(agentKind)
-    void chatService
-      .invoke("warmExternalAgent", agentKind)
-      .then(() => refreshExternalAgents())
-      .catch((cause: unknown) => {
-        reportRendererHandledError("agent", `warm external agent failed: ${agentKind}`, cause)
-      })
-  }, [agentKind, chatService, refreshExternalAgents])
+  const nativeCatalog = useExternalAgentCatalog(agentKind, agentModelId, refreshExternalAgents)
+  const refreshAgentConfiguration = React.useCallback(async () => {
+    await nativeCatalog.refresh()
+  }, [nativeCatalog.refresh])
   const [localComposer, localDispatch] = React.useReducer(
     composerReducer,
     initialComposerStateProp ?? initialComposerState(),
@@ -973,7 +962,9 @@ export function ChatComposer({
           turnState={composerTurnState}
           modelCatalog={modelCatalog}
           modelRequired={modelRequired}
-          agentCatalog={displayedExternalAgent?.catalog}
+          agentCatalog={nativeCatalog.catalog}
+          agentCatalogLoading={nativeCatalog.loading}
+          agentCatalogError={nativeCatalog.error}
           agentEffortId={agentEffortId}
           agentEffortSelectionEnabled={displayedAgentProfile.inputs.setEffort}
           agentKind={agentKind}
@@ -997,7 +988,7 @@ export function ChatComposer({
           voiceTranscribing={voiceEnabled && voiceInput.transcribing}
           willQueueMessage={composerWillQueueMessage}
           onAddModel={modelCatalogState.openDialog}
-          onAgentPickerOpen={externalAgentsState.refresh}
+          onAgentPickerOpen={refreshAgentConfiguration}
           onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}
           onRetryVoice={voiceInput.retry}

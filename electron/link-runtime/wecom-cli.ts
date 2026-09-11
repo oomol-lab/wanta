@@ -275,7 +275,7 @@ export class WecomCliManager {
 
   private async readAuthState(): Promise<{ accountLabel?: string; connected: boolean }> {
     await this.ensurePrivateDirectories()
-    const status = await this.runCommand(["auth", "show", "--auth-status"], 10_000)
+    const status = await this.runCommand(["auth", "show", "--status"], 10_000)
     if (status.stdout.trim() !== "authorized") return { connected: false }
     const identity = await this.runCommand(["auth", "show"], 10_000)
     try {

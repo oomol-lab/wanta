@@ -106,23 +106,15 @@ export interface AgentOptionRowLabels {
   defaultDescription: string
 }
 
-/**
- * A stored selection equal to the agent-declared default id collapses to the
- * synthetic Default row: both mean "the agent's own default", and showing them
- * as two distinct states would render duplicate menu entries.
- */
+/** Only a literal native default alias is equivalent to following the agent default. */
 export function normalizeAgentOptionValue(
   value: string | undefined,
   defaultOptionId: string | undefined,
 ): string | undefined {
-  return value !== undefined && value === defaultOptionId ? undefined : value
+  return value === "default" && value === defaultOptionId ? undefined : value
 }
 
-/**
- * Synthetic Default row first (captioned with the agent default's own label
- * when known), then every option except the declared default, which the
- * Default row already represents.
- */
+/** Keep every concrete model/effort selectable, even when it is currently the default. */
 export function buildAgentOptionRows(
   options: readonly ExternalAgentCatalogOption[],
   defaultOptionId: string | undefined,
@@ -138,7 +130,7 @@ export function buildAgentOptionRows(
       description: defaultOptionLabel ?? labels.defaultDescription,
     },
     ...options
-      .filter((option) => option.id !== defaultOptionId)
+      .filter((option) => option.id !== "default" || option.id !== defaultOptionId)
       .map((option) => ({
         id: option.id,
         label: option.label,

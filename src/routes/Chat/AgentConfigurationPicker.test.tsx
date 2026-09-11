@@ -140,7 +140,7 @@ describe("AgentConfigurationPicker", () => {
       agentModelSelectionEnabled: true,
       modelRoutingEnabled: false,
     })
-    expect(claude.trigger?.textContent).toBe("Claude Code · Default")
+    expect(claude.trigger?.textContent).toBe("Claude Code · Default · Claude Default")
     expect(claude.trigger?.querySelector('[title="claude-code"]')).not.toBeNull()
   })
 
@@ -247,4 +247,39 @@ describe("AgentConfigurationPicker", () => {
 
     expect(host.querySelector('[aria-label="Agent configuration"]')?.textContent).toBe("Grok")
   })
+})
+
+it.each([
+  [{ agentCatalogLoading: true }, "chat.agentCatalogLoading"],
+  [{ agentCatalogError: true }, "chat.agentCatalogUnavailable"],
+  [
+    {
+      agentCatalog: { models: [], efforts: [] } as NonNullable<
+        ComponentProps<typeof AgentConfigurationPicker>["agentCatalog"]
+      >,
+    },
+    "chat.agentEffortUnavailable",
+  ],
+] as const)("explains unavailable effort choices instead of a fake default-only menu", async (state, key) => {
+  await renderPicker({ agentKind: "codex", agentEffortSelectionEnabled: true, modelRoutingEnabled: false, ...state })
+  await hoverButton("Reasoning effort")
+  expect(document.querySelector('[role="status"]')?.textContent).toBe(translate("en", key))
+})
+
+it("selects a concrete effort even when it equals the native default", async () => {
+  const onSelectAgentEffort = vi.fn()
+  await renderPicker({
+    agentKind: "codex",
+    agentCatalog: baseProps.externalAgents[1]?.catalog,
+    agentEffortSelectionEnabled: true,
+    modelRoutingEnabled: false,
+    onSelectAgentEffort,
+  })
+  await hoverButton("Reasoning effort")
+  const high = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "High",
+  )
+  expect(high).toBeDefined()
+  await act(async () => high!.click())
+  expect(onSelectAgentEffort).toHaveBeenCalledWith("high")
 })

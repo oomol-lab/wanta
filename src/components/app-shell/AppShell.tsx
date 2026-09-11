@@ -1893,27 +1893,35 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         const previousValue = agentSelectionsRef.current[key]?.[field]
         const token = (agentSelectionRequestSeq.current.get(`${key}:${field}`) ?? 0) + 1
         agentSelectionRequestSeq.current.set(`${key}:${field}`, token)
-        writeStoredAgentComposerPrefs(
-          globalThis.localStorage,
-          displayedAgentKind,
-          field === "modelId" ? { modelId: value } : { effortId: value },
-        )
+        const persistSelection = () =>
+          writeStoredAgentComposerPrefs(
+            globalThis.localStorage,
+            displayedAgentKind,
+            field === "modelId" ? { modelId: value } : { effortId: value },
+          )
         setAgentSelections((prev) => ({ ...prev, [key]: { ...prev[key], [field]: value } }))
         if (activeChatSessionId) {
-          void send(activeChatSessionId, value).catch((error: unknown) => {
-            reportRendererHandledError("chat", `set agent ${field === "modelId" ? "model" : "effort"} failed`, error)
-            if (agentSelectionRequestSeq.current.get(`${key}:${field}`) !== token) {
-              return
-            }
-            // The adapter refused the switch; the optimistic value must not stick.
-            setAgentSelections((prev) =>
-              prev[key]?.[field] === value ? { ...prev, [key]: { ...prev[key], [field]: previousValue } } : prev,
-            )
-          })
+          void send(activeChatSessionId, value)
+            .then(() => {
+              if (agentSelectionRequestSeq.current.get(`${key}:${field}`) === token) persistSelection()
+            })
+            .catch((error: unknown) => {
+              reportRendererHandledError("chat", `set agent ${field === "modelId" ? "model" : "effort"} failed`, error)
+              if (agentSelectionRequestSeq.current.get(`${key}:${field}`) !== token) {
+                return
+              }
+              toast.error(userFacingErrorDescription(resolveUserFacingError(error, { area: "chat" }), t))
+              // The adapter refused the switch; the optimistic value must not stick.
+              setAgentSelections((prev) =>
+                prev[key]?.[field] === value ? { ...prev, [key]: { ...prev[key], [field]: previousValue } } : prev,
+              )
+            })
+        } else {
+          persistSelection()
         }
       }
     },
-    [activeChatSessionId, chatService, displayedAgentKind],
+    [activeChatSessionId, chatService, displayedAgentKind, t],
   )
   const handleSelectAgentModel = React.useMemo(() => makeAgentSelectionHandler("modelId"), [makeAgentSelectionHandler])
   const handleSelectAgentEffort = React.useMemo(

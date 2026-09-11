@@ -188,3 +188,16 @@ describe("normalizeAgentOptionValue", () => {
     expect(normalizeAgentOptionValue("sonnet", undefined)).toBe("sonnet")
   })
 })
+
+it("keeps a concrete default effort distinct from following the native default", () => {
+  const rows = buildAgentOptionRows(
+    [
+      { id: "medium", label: "Medium" },
+      { id: "high", label: "High" },
+    ],
+    "medium",
+    { defaultLabel: "Default", defaultDescription: "Follow agent" },
+  )
+  expect(rows.map((row) => row.id)).toEqual(["__default__", "medium", "high"])
+  expect(normalizeAgentOptionValue("medium", "medium")).toBe("medium")
+})

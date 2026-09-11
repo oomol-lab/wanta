@@ -2287,5 +2287,8 @@
   "permissionPrompt.retry": "Reintentar este paso",
   "permissionPrompt.targets": "Elementos afectados",
   "permissionPrompt.details": "Ver detalles de la operación",
-  "permissionPrompt.scope": "Esta opción también permite el siguiente alcance, más allá de una sola ejecución:"
+  "permissionPrompt.scope": "Esta opción también permite el siguiente alcance, más allá de una sola ejecución:",
+  "chat.agentCatalogLoading": "Cargando opciones del CLI…",
+  "chat.agentCatalogUnavailable": "No se pudieron cargar las opciones del CLI. Comprueba el CLI y el inicio de sesión y vuelve a abrir este menú.",
+  "chat.agentEffortUnavailable": "Este modelo no devolvió opciones de razonamiento. Comprueba la versión del CLI o elige otro modelo."
 }

@@ -2287,5 +2287,8 @@
   "permissionPrompt.retry": "このステップを再試行",
   "permissionPrompt.targets": "対象",
   "permissionPrompt.details": "操作の詳細を表示",
-  "permissionPrompt.scope": "選択すると、今回の実行に加えて次の範囲も許可されます："
+  "permissionPrompt.scope": "選択すると、今回の実行に加えて次の範囲も許可されます：",
+  "chat.agentCatalogLoading": "CLI の選択肢を読み込み中…",
+  "chat.agentCatalogUnavailable": "CLI の選択肢を取得できません。CLI とログイン状態を確認し、メニューを開き直してください。",
+  "chat.agentEffortUnavailable": "このモデルは推論設定を返していません。CLI のバージョンを確認するか、別のモデルを選んでください。"
 }

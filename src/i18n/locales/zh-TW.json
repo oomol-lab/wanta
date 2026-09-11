@@ -2281,7 +2281,7 @@
   "permissionPrompt.access": "允許這次存取",
   "permissionPrompt.edit": "允許修改",
   "permissionPrompt.install": "安裝並繼續",
-  "permissionPrompt.delete": "刪除檔案",
+  "permissionPrompt.delete": "刪除",
   "permissionPrompt.retry": "重試這一步",
   "permissionPrompt.targets": "涉及的內容",
   "permissionPrompt.details": "查看操作詳情",

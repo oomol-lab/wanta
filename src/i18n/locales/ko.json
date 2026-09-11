@@ -2281,7 +2281,7 @@
   "permissionPrompt.access": "이번 접근 허용",
   "permissionPrompt.edit": "수정 허용",
   "permissionPrompt.install": "설치 후 계속",
-  "permissionPrompt.delete": "파일 삭제",
+  "permissionPrompt.delete": "삭제",
   "permissionPrompt.retry": "이 단계 다시 시도",
   "permissionPrompt.targets": "대상 항목",
   "permissionPrompt.details": "작업 세부 정보 보기",

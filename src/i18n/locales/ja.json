@@ -2281,7 +2281,7 @@
   "permissionPrompt.access": "今回のアクセスを許可",
   "permissionPrompt.edit": "変更を許可",
   "permissionPrompt.install": "インストールして続行",
-  "permissionPrompt.delete": "ファイルを削除",
+  "permissionPrompt.delete": "削除",
   "permissionPrompt.retry": "このステップを再試行",
   "permissionPrompt.targets": "対象",
   "permissionPrompt.details": "操作の詳細を表示",

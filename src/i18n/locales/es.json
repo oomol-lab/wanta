@@ -2281,7 +2281,7 @@
   "permissionPrompt.access": "Permitir este acceso",
   "permissionPrompt.edit": "Permitir cambios",
   "permissionPrompt.install": "Instalar y continuar",
-  "permissionPrompt.delete": "Eliminar archivos",
+  "permissionPrompt.delete": "Eliminar",
   "permissionPrompt.retry": "Reintentar este paso",
   "permissionPrompt.targets": "Elementos afectados",
   "permissionPrompt.details": "Ver detalles de la operación",

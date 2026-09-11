@@ -2027,7 +2027,7 @@ export const enMessages = {
   "permissionPrompt.access": "Allow this access",
   "permissionPrompt.edit": "Allow changes",
   "permissionPrompt.install": "Install and continue",
-  "permissionPrompt.delete": "Delete files",
+  "permissionPrompt.delete": "Delete",
   "permissionPrompt.retry": "Retry this step",
   "permissionPrompt.targets": "Affected items",
   "permissionPrompt.details": "View operation details",

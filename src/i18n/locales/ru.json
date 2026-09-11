@@ -2281,7 +2281,7 @@
   "permissionPrompt.access": "Разрешить этот доступ",
   "permissionPrompt.edit": "Разрешить изменения",
   "permissionPrompt.install": "Установить и продолжить",
-  "permissionPrompt.delete": "Удалить файлы",
+  "permissionPrompt.delete": "Удалить",
   "permissionPrompt.retry": "Повторить этот шаг",
   "permissionPrompt.targets": "Затронутые объекты",
   "permissionPrompt.details": "Показать подробности операции",

@@ -1927,7 +1927,7 @@ export const zhCNMessages = {
   "permissionPrompt.access": "允许这次访问",
   "permissionPrompt.edit": "允许修改",
   "permissionPrompt.install": "安装并继续",
-  "permissionPrompt.delete": "删除文件",
+  "permissionPrompt.delete": "删除",
   "permissionPrompt.retry": "重试这一步",
   "permissionPrompt.targets": "涉及的内容",
   "permissionPrompt.details": "查看操作详情",

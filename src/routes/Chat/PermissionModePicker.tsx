@@ -207,14 +207,14 @@ export function PermissionModePicker({
                   <PermissionModeIcon mode={mode} active={active} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className={cn("oo-text-label block truncate", active && "font-medium")}>{label}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className={cn("oo-text-label min-w-0 flex-1 truncate", active && "font-medium")}>
+                      {label}
+                    </span>
+                    {active ? <Check className="size-4 shrink-0" aria-hidden /> : null}
+                  </span>
                   <span className="oo-text-caption mt-0.5 block text-muted-foreground">{description}</span>
                 </span>
-                {active ? (
-                  <Check className="mt-0.5 size-4 shrink-0" />
-                ) : (
-                  <span className="size-4 shrink-0" aria-hidden />
-                )}
               </button>
             )
           })}

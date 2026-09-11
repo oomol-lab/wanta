@@ -59,6 +59,7 @@ export function useTeamForms({
   const [createName, setCreateName] = React.useState("")
   const [createAvatarFile, setCreateAvatarFile] = React.useState<File | null>(null)
   const [createDuplicated, setCreateDuplicated] = React.useState(false)
+  const [editError, setEditError] = React.useState<string | null>(null)
   const [editOpen, setEditOpen] = React.useState(false)
   const [editTeamId, setEditTeamId] = React.useState<string | null>(null)
   const [editName, setEditName] = React.useState("")
@@ -143,6 +144,7 @@ export function useTeamForms({
   )
 
   const openEdit = React.useCallback((team: Team) => {
+    setEditError(null)
     setEditTeamId(team.id)
     setEditName(team.name)
     setEditAvatar(team.avatar)
@@ -153,6 +155,7 @@ export function useTeamForms({
 
   const closeEdit = React.useCallback(() => {
     if (busyAction === "updateTeam") return
+    setEditError(null)
     setEditOpen(false)
     setEditTeamId(null)
     setEditName("")
@@ -175,6 +178,8 @@ export function useTeamForms({
     async (event: React.FormEvent) => {
       event.preventDefault()
       if (!editingTeam || !canManageTeam(editingTeam)) return
+      if (!editAvatarFile && editName.trim() === editingTeam.name && editAvatar.trim() === editingTeam.avatar.trim())
+        return
       const teamName = editName.trim()
       const validation = teamNameValidation(teamName)
       if (validation !== "valid") {
@@ -190,6 +195,7 @@ export function useTeamForms({
 
       const operation = action.begin("updateTeam")
       if (!operation) return
+      setEditError(null)
       try {
         let avatar = editAvatar.trim()
         if (editAvatarFile) {
@@ -200,38 +206,23 @@ export function useTeamForms({
         upsertTeam(team, editAvatarFile || avatar !== editingTeam.avatar ? { avatarFile: editAvatarFile } : undefined)
         if (!action.isCurrent(operation)) return
         toast.success(t("teams.updateTeamSuccess"))
-        setEditOpen(false)
-        setEditTeamId(null)
-        setEditName("")
-        setEditAvatar("")
+        setEditName(team.name)
+        setEditAvatar(team.avatar)
         setEditAvatarFile(null)
         setEditDuplicated(false)
-        selectTeam(team.id)
         await refreshAfterMutation()
       } catch (error) {
         if (!action.isCurrent(operation)) return
         if (isConflictError(error)) {
           setEditDuplicated(true)
-          toast.error(t("teams.teamNameDuplicated"))
         } else {
-          toast.error(teamErrorMessage(error, t))
+          setEditError(teamErrorMessage(error, t))
         }
       } finally {
         action.finish(operation)
       }
     },
-    [
-      canManageTeam,
-      editAvatar,
-      editAvatarFile,
-      editName,
-      editingTeam,
-      action,
-      refreshAfterMutation,
-      selectTeam,
-      t,
-      upsertTeam,
-    ],
+    [canManageTeam, editAvatar, editAvatarFile, editName, editingTeam, action, refreshAfterMutation, t, upsertTeam],
   )
 
   return {
@@ -257,6 +248,7 @@ export function useTeamForms({
       submit: submitCreate,
     },
     edit: {
+      error: editError,
       avatar: editAvatar,
       avatarFile: editAvatarFile,
       changeAvatarFile: changeEditAvatarFile,

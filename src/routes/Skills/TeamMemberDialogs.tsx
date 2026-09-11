@@ -13,9 +13,11 @@ import { TeamUserAvatar } from "./TeamUserAvatar.tsx"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
+import { Field, FieldSet, FieldLabel, FieldDescription } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 import { teamAvatarStyle, teamInitials } from "@/hooks/useTeamWorkspace"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
@@ -97,6 +99,7 @@ export function TeamProfileSettingsPanel({
   avatarFile,
   busy,
   editing,
+  error,
   name,
   nameError,
   onAvatarChange,
@@ -110,6 +113,7 @@ export function TeamProfileSettingsPanel({
   avatar: string
   avatarFile: File | null
   busy: boolean
+  error?: string | null
   editing: boolean
   name: string
   nameError: string | null
@@ -122,7 +126,9 @@ export function TeamProfileSettingsPanel({
   team: Team
 }) {
   const { t } = useAppI18n()
-  const disabled = teamNameValidation(name.trim()) !== "valid" || Boolean(nameError) || busy
+  const nameInputRef = React.useRef<HTMLInputElement>(null)
+  const dirty = Boolean(avatarFile) || name.trim() !== team.name || avatar.trim() !== team.avatar.trim()
+  const disabled = !dirty || teamNameValidation(name.trim()) !== "valid" || Boolean(nameError) || busy
   const avatarPreviewUrl = useObjectUrl(avatarFile)
 
   if (!editing) {
@@ -144,14 +150,14 @@ export function TeamProfileSettingsPanel({
   }
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="border-b border-[var(--oo-divider)] px-3 py-2.5">
+    <section className="min-w-0 bg-background">
+      <div className="pb-4">
         <h2 className="oo-text-title text-foreground">{t("teams.teamProfile")}</h2>
-        <p className="oo-text-caption mt-0.5 text-muted-foreground">{t("teams.editTeamDescription")}</p>
       </div>
       <form onSubmit={onSubmit}>
-        <div className="grid gap-4 p-3">
+        <FieldSet disabled={busy}>
           <TeamAvatarField
+            compact
             avatar={avatar}
             file={avatarFile}
             name={name || team.name}
@@ -165,30 +171,54 @@ export function TeamProfileSettingsPanel({
             }}
             onFileChange={onAvatarFileChange}
           />
-          <div className="grid gap-2">
-            <Label htmlFor="edit-team-name">{t("teams.teamName")}</Label>
-            <Input
-              id="edit-team-name"
-              value={name}
-              maxLength={maxTeamNameLength}
-              aria-invalid={Boolean(nameError)}
-              autoFocus
-              onChange={(event) => onNameChange(event.currentTarget.value)}
-            />
-            {nameError ? (
-              <p className="oo-text-caption-compact text-destructive">{nameError}</p>
-            ) : (
-              <p className="oo-text-caption-compact text-muted-foreground">{t("teams.teamNameDescription")}</p>
-            )}
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 border-t border-[var(--oo-divider)] px-3 py-2.5">
-          <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
+          <Separator />
+          <Field data-invalid={Boolean(nameError)} className="grid gap-2 sm:grid-cols-[96px_minmax(0,1fr)] sm:gap-5">
+            <FieldLabel htmlFor="edit-team-name" className="sm:pt-2">
+              {t("teams.teamName")}
+            </FieldLabel>
+            <div className="flex min-w-0 flex-col gap-2">
+              <Input
+                ref={nameInputRef}
+                id="edit-team-name"
+                value={name}
+                maxLength={maxTeamNameLength}
+                aria-invalid={Boolean(nameError)}
+                aria-describedby="edit-team-name-hint"
+                disabled={busy}
+                onChange={(event) => onNameChange(event.currentTarget.value)}
+              />
+              {nameError ? (
+                <p id="edit-team-name-hint" role="alert" className="oo-text-caption-compact text-destructive">
+                  {nameError}
+                </p>
+              ) : (
+                <FieldDescription id="edit-team-name-hint">{t("teams.teamNameDescription")}</FieldDescription>
+              )}
+            </div>
+          </Field>
+        </FieldSet>
+        {error ? (
+          <p role="alert" className="oo-text-caption mt-4 text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <div className="mt-5 flex justify-end gap-2">
+          {dirty ? (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                onClose()
+                nameInputRef.current?.focus()
+              }}
+            >
+              {t("teams.revertChanges")}
+            </Button>
+          ) : null}
           <Button type="submit" disabled={disabled}>
             {busy ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : null}
-            {busy ? t("teams.savingTeam") : t("common.save")}
+            {busy ? t("teams.savingTeam") : t("teams.saveChanges")}
           </Button>
         </div>
       </form>
@@ -241,6 +271,7 @@ function useObjectUrl(file: File | null): string {
 }
 
 function TeamAvatarField({
+  compact = false,
   avatar = "",
   file,
   name,
@@ -251,6 +282,7 @@ function TeamAvatarField({
   title,
   uploading = false,
 }: {
+  compact?: boolean
   avatar?: string
   file: File | null
   name: string
@@ -271,12 +303,15 @@ function TeamAvatarField({
   const fallbackStyle = imageVisible ? undefined : teamAvatarStyle(seed || name || "team")
 
   return (
-    <div className="grid gap-2">
-      <Label htmlFor={inputId}>{title}</Label>
+    <div className={cn("grid gap-2", compact && "sm:grid-cols-[96px_minmax(0,1fr)] sm:gap-5")}>
+      <Label htmlFor={inputId} className={compact ? "sm:self-start sm:pt-2" : undefined}>
+        {title}
+      </Label>
       <div className="flex min-w-0 items-center gap-3">
         <span
           className={cn(
-            "relative flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-md text-lg font-medium",
+            "relative flex shrink-0 items-center justify-center overflow-hidden rounded-md text-lg font-medium",
+            compact ? "size-12" : "size-16",
             imageVisible ? "bg-transparent text-transparent" : "border border-[var(--oo-frame-border)] text-foreground",
           )}
           style={fallbackStyle}
@@ -346,7 +381,7 @@ function TeamAvatarField({
             ) : null}
           </div>
           <p className="oo-text-caption-compact truncate text-muted-foreground">
-            {file ? file.name : t("teams.teamAvatarUploadHint")}
+            {file ? file.name : t(compact ? "teams.profileSaveHint" : "teams.teamAvatarUploadHint")}
           </p>
         </div>
       </div>
@@ -382,6 +417,7 @@ export function AddMemberDialog({
   search: MemberSearchState
 }) {
   const { t } = useAppI18n()
+  const searchInputRef = React.useRef<HTMLInputElement>(null)
   const hasSearchResults = search.items.length > 0
   const canSubmit = !busy && Boolean(resolveMemberInput(input, search, selectedUserId))
 
@@ -418,6 +454,8 @@ export function AddMemberDialog({
     <Dialog
       open={open}
       onClose={onClose}
+      initialFocus={() => searchInputRef.current}
+      closeLabel={t("common.close")}
       title={t("teams.addMember")}
       description={t("teams.addMemberDescription")}
       footer={
@@ -440,6 +478,7 @@ export function AddMemberDialog({
               <SearchIcon />
             </InputGroupAddon>
             <InputGroupInput
+              ref={searchInputRef}
               id="team-member-search"
               type="search"
               value={input}

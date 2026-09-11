@@ -51,7 +51,7 @@ describe.runIf(process.platform !== "win32")("WeCom CLI lifecycle", () => {
         binaryPath,
         `#!/bin/sh
 if [ "$1" = "--version" ]; then echo "wecom-cli 0.1.9"; exit 0; fi
-if [ "$1" = "auth" ] && [ "$3" = "--auth-status" ]; then
+if [ "$1" = "auth" ] && [ "$3" = "--status" ]; then
   if [ -f "$WECOM_CLI_CONFIG_DIR/authorized" ]; then echo authorized; else echo unauthorized; fi
   exit 0
 fi
@@ -111,7 +111,7 @@ exit 1
         binaryPath,
         `#!/bin/sh
 if [ "$1" = "--version" ]; then echo "wecom-cli 0.1.9"; exit 0; fi
-if [ "$1" = "auth" ] && [ "$3" = "--auth-status" ]; then sleep 0.1; echo unauthorized; exit 0; fi
+if [ "$1" = "auth" ] && [ "$3" = "--status" ]; then sleep 0.1; echo unauthorized; exit 0; fi
 if [ "$1" = "init" ]; then touch "$WECOM_CLI_CONFIG_DIR/init-started"; exit 1; fi
 exit 1
 `,

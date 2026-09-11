@@ -1934,4 +1934,7 @@ export const zhCNMessages = {
   "permissionPrompt.targets": "涉及的内容",
   "permissionPrompt.details": "查看操作详情",
   "permissionPrompt.scope": "勾选后还会允许以下范围，不再仅限这一次执行：",
+  "chat.agentCatalogLoading": "正在读取 CLI 选项…",
+  "chat.agentCatalogUnavailable": "无法读取 CLI 选项。请检查 CLI 和登录状态，重新打开菜单重试。",
+  "chat.agentEffortUnavailable": "当前模型未返回推理档位，请检查 CLI 版本或选择其他模型。",
 } as const

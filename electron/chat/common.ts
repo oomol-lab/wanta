@@ -1,5 +1,5 @@
 import type { AgentKind, ExternalAgentKind } from "../agent/contract/profile.ts"
-import type { ExternalAgentRuntimeStatus } from "../agent/external/status.ts"
+import type { ExternalAgentCatalog, ExternalAgentRuntimeStatus } from "../agent/external/status.ts"
 import type { WantaAgentMode } from "../agent/mode.ts"
 import type { WantaReasoningLevel } from "../agent/reasoning.ts"
 import type { AppLocale } from "../app-locale.ts"
@@ -1056,6 +1056,10 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     getExternalSessionSelection(sessionId: string): Promise<{ modelId?: string; effortId?: string }>
     /** Pre-populate an agent's model/effort catalog when the composer focuses it. */
     warmExternalAgent(kind: ExternalAgentKind): Promise<void>
+    previewExternalAgentCatalog(req: {
+      kind: ExternalAgentKind
+      modelId?: string
+    }): Promise<ExternalAgentCatalog | undefined>
     /** Agent sidecar 是否就绪；本地模式缺少 custom model 时为 false。 */
     isReady(): Promise<boolean>
   }

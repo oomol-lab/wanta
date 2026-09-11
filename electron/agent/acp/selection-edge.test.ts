@@ -947,3 +947,87 @@ describe("acp selection: catalog parsing resilience", () => {
     expect(status.catalog).toBeUndefined()
   })
 })
+
+describe("model-scoped catalog previews", () => {
+  test.each(["codex", "claude-code", "grok"] as const)(
+    "%s reads effort options for the requested model without changing a user session",
+    async (kind) => {
+      const harness = await createHarness(
+        {
+          newSession: () => ({ sessionId: "preview", configOptions: MODEL_EFFORT_CONFIG_OPTIONS }) as never,
+          setConfigOption: ({ value }) => ({
+            configOptions: [
+              { ...MODEL_EFFORT_CONFIG_OPTIONS[0], currentValue: value },
+              { ...MODEL_EFFORT_CONFIG_OPTIONS[1], currentValue: "high", options: [{ value: "high", name: "High" }] },
+            ],
+          }),
+        },
+        kind,
+      )
+      const catalog = await harness.adapter.previewCatalog("gpt-b")
+      expect(catalog.defaultModelId).toBe("gpt-b")
+      expect(catalog.efforts.map((option) => option.id)).toEqual(["high"])
+      expect(harness.fake.setConfigOptionRequests).toEqual([
+        { sessionId: "preview", configId: "model", value: "gpt-b" },
+      ])
+      expect(harness.fake.closedSessionIds).toEqual(["preview"])
+      expect(harness.fake.promptRequests).toHaveLength(0)
+      expect(harness.adapter.sessionSelection("any-user-session")).toEqual({})
+    },
+  )
+
+  test("a model without reasoning options does not inherit them from the default model", async () => {
+    const harness = await createHarness({
+      newSession: () => ({ sessionId: "preview", configOptions: MODEL_EFFORT_CONFIG_OPTIONS }) as never,
+      setConfigOption: () => ({ configOptions: [{ ...MODEL_EFFORT_CONFIG_OPTIONS[0], currentValue: "gpt-b" }] }),
+    })
+    expect((await harness.adapter.previewCatalog("gpt-b")).efforts).toEqual([])
+    expect((await harness.adapter.previewCatalog()).efforts.map((option) => option.id)).toEqual([
+      "low",
+      "medium",
+      "high",
+    ])
+  })
+
+  test("a rejected preview always closes its temporary session", async () => {
+    const harness = await createHarness({
+      newSession: () => ({ sessionId: "preview", configOptions: MODEL_EFFORT_CONFIG_OPTIONS }) as never,
+    })
+    await expect(harness.adapter.previewCatalog("unknown-model")).rejects.toThrow("not available")
+    expect(harness.fake.closedSessionIds).toEqual(["preview"])
+    expect(harness.fake.setConfigOptionRequests).toHaveLength(0)
+  })
+})
+
+test.each(["config", "legacy"] as const)(
+  "catalog previews include delayed %s selection notifications",
+  async (channel) => {
+    let publish!: () => void
+    const selected = () => {
+      setTimeout(() => publish(), 30)
+      return channel === "config" ? { configOptions: [] } : {}
+    }
+    const harness = await createHarness({
+      newSession: () =>
+        channel === "config"
+          ? ({ sessionId: "delayed-preview", configOptions: MODEL_EFFORT_CONFIG_OPTIONS } as never)
+          : { ...modelsShape("gpt-a", ["gpt-a", "gpt-b"]), sessionId: "delayed-preview" },
+      setConfigOption: selected,
+      setModel: selected,
+    })
+    publish = () => {
+      void harness.fake.notifySessionUpdate("delayed-preview", {
+        sessionUpdate: "config_option_update",
+        configOptions: [
+          { ...MODEL_EFFORT_CONFIG_OPTIONS[0], currentValue: "gpt-b" },
+          { ...MODEL_EFFORT_CONFIG_OPTIONS[1], currentValue: "high", options: [{ value: "high", name: "High" }] },
+        ],
+      })
+    }
+    const result = await harness.adapter.previewCatalog("gpt-b")
+    expect(result.defaultModelId).toBe("gpt-b")
+    expect(result.efforts.map((option) => option.id)).toEqual(["high"])
+    expect(result.defaultEffortId).toBe("high")
+    expect(harness.fake.closedSessionIds).toEqual(["delayed-preview"])
+  },
+)

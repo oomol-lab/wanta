@@ -175,8 +175,8 @@ Wanta는 OpenCode를 기본 에이전트의 고정 런타임으로 사용하고 
 
 ### 에이전트 엔진: OpenCode
 
-애플리케이션은 고정된 `opencode-ai@1.18.21` 바이너리를 루프백 전용 `opencode serve`
-사이드카로 시작하고 `@opencode-ai/sdk@1.18.21`을 통해 제어합니다. OpenCode 패키지는 MIT
+애플리케이션은 고정된 `opencode-ai@1.18.30` 바이너리를 루프백 전용 `opencode serve`
+사이드카로 시작하고 `@opencode-ai/sdk@1.18.30`을 통해 제어합니다. OpenCode 패키지는 MIT
 라이선스를 사용하며 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 고지되어 있습니다.
 API를 안정적인 것으로 간주하지 않기 때문에 런타임, SDK와 플러그인을 정확히 같은 버전으로 고정합니다.
 

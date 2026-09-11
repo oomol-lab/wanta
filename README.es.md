@@ -184,8 +184,8 @@ host; cada adaptador conserva las capacidades nativas que realmente puede ofrece
 
 ### Motor del agente: OpenCode
 
-La aplicación inicia el binario fijado `opencode-ai@1.18.21` como un sidecar `opencode serve` limitado
-al loopback y lo controla con `@opencode-ai/sdk@1.18.21`. Los paquetes de OpenCode usan licencia MIT y
+La aplicación inicia el binario fijado `opencode-ai@1.18.30` como un sidecar `opencode serve` limitado
+al loopback y lo controla con `@opencode-ai/sdk@1.18.30`. Los paquetes de OpenCode usan licencia MIT y
 se reconocen en [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Wanta fija el runtime, el SDK y el
 plugin a la misma versión exacta porque sus API no se consideran estables.
 

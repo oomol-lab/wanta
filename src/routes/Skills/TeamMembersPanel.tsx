@@ -17,12 +17,14 @@ import { cn } from "@/lib/utils"
 export { AddMemberDialog, CreateTeamDialog, TeamProfileSettingsPanel } from "./TeamMemberDialogs.tsx"
 
 export function TeamMemberAccessButton({
+  showAvatars = true,
   canManage,
   members,
   membersComplete,
   membersLoading,
   onOpen,
 }: {
+  showAvatars?: boolean
   canManage: boolean
   members: MemberView[]
   membersComplete: boolean
@@ -44,7 +46,7 @@ export function TeamMemberAccessButton({
       aria-label={t("teams.memberAccessAriaLabel", { count: countLabel, label })}
       onClick={onOpen}
     >
-      {membersLoading ? (
+      {!showAvatars ? null : membersLoading ? (
         <MemberAvatarStackSkeleton />
       ) : members.length > 0 ? (
         <MemberAvatarStack members={members} />
@@ -94,6 +96,7 @@ function MemberAvatarStackSkeleton() {
 }
 
 export function TeamDetailPanel({
+  inline = false,
   actorRole,
   actorUserId,
   busyAction,
@@ -112,6 +115,7 @@ export function TeamDetailPanel({
   onUpdateMemberRole,
   team,
 }: {
+  inline?: boolean
   actorRole: TeamRole | null
   actorUserId: string | undefined
   busyAction: BusyAction | null
@@ -150,6 +154,7 @@ export function TeamDetailPanel({
   return (
     <div className="grid min-w-0 gap-3">
       <Panel
+        plain={inline}
         title={t("teams.memberManagement")}
         description={
           <span className="oo-text-caption-compact truncate text-muted-foreground">
@@ -157,7 +162,7 @@ export function TeamDetailPanel({
           </span>
         }
         action={
-          canManage ? (
+          canManage && !inline ? (
             <Button type="button" size="sm" disabled={busyAction === "add"} onClick={onAddMember}>
               <PlusIcon className="size-3.5" />
               {t("teams.addMember")}
@@ -238,19 +243,28 @@ function MemberLoadError({ error, onRetry }: { error: string; onRetry: () => voi
 }
 
 export function Panel({
+  plain = false,
   action,
   children,
   description,
   title,
 }: {
+  plain?: boolean
   action?: React.ReactNode
   children: React.ReactNode
   description?: React.ReactNode
   title: React.ReactNode
 }) {
   return (
-    <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
+    <section
+      className={cn("min-w-0 overflow-hidden bg-background", !plain && "rounded-md border border-[var(--oo-divider)]")}
+    >
+      <div
+        className={cn(
+          "flex min-h-14 items-center justify-between gap-3 border-b border-[var(--oo-divider)] py-2",
+          !plain && "px-3",
+        )}
+      >
         <div className="min-w-0">
           <h2 className="oo-text-title truncate text-foreground">{title}</h2>
           {description ? <div className="oo-text-caption mt-0.5 min-w-0">{description}</div> : null}

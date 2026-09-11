@@ -388,18 +388,22 @@ function MemberStatusBulkToolbar({
             onCheckedChange={onToggleAll}
           />
         ) : null}
-        <span className="truncate">{t("teams.selectedMembers", { count: selectedCount })}</span>
+        <span className="truncate">
+          {selectedCount > 0 ? t("teams.selectedMembers", { count: selectedCount }) : t("teams.selectAllMembers")}
+        </span>
       </label>
-      <div className="flex min-w-0 flex-wrap gap-2">
-        <Button type="button" variant="outline" size="sm" disabled={bulkBusy || enableDisabled} onClick={onEnable}>
-          <UserCheckIcon className="size-3.5" />
-          {enableBusy ? t("teams.enablingMembers") : t("teams.enableSelectedMembers")}
-        </Button>
-        <Button type="button" variant="outline" size="sm" disabled={bulkBusy || disableDisabled} onClick={onDisable}>
-          <UserXIcon className="size-3.5" />
-          {disableBusy ? t("teams.disablingMembers") : t("teams.disableSelectedMembers")}
-        </Button>
-      </div>
+      {selectedCount > 0 ? (
+        <div className="flex min-w-0 flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={bulkBusy || enableDisabled} onClick={onEnable}>
+            <UserCheckIcon className="size-3.5" />
+            {enableBusy ? t("teams.enablingMembers") : t("teams.enableSelectedMembers")}
+          </Button>
+          <Button type="button" variant="outline" size="sm" disabled={bulkBusy || disableDisabled} onClick={onDisable}>
+            <UserXIcon className="size-3.5" />
+            {disableBusy ? t("teams.disablingMembers") : t("teams.disableSelectedMembers")}
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 }

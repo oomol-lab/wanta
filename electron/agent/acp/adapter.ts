@@ -967,6 +967,74 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
   }
 
+  /** Model-scoped discovery uses a disposable native session, never the global catalog. */
+  public override async previewCatalog(modelId?: string): Promise<ExternalAgentCatalog> {
+    const handle = await this.ensureConnection()
+    const cwd = await this.ensureScratchDir(`catalog-${this.kind}`)
+    const response = await handle.connection.agent.request("session/new", { cwd, mcpServers: [] })
+    try {
+      this.updateLivePermissionModes(response.modes)
+      let selects = parseSessionSelects(response)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      for (const notification of this.takeUnboundSessionUpdates(response.sessionId)) {
+        const update = notification.update as { sessionUpdate: string; configOptions?: unknown }
+        if (update.sessionUpdate === "config_option_update") {
+          selects = { ...selects, ...parseConfigSelects(update.configOptions) }
+        }
+      }
+      if (modelId && selects.model?.currentValue !== modelId) {
+        const model = selects.model
+        if (!model || !model.options.some((option) => option.id === modelId)) {
+          throw new Error(`${this.kind}: model "${modelId}" is not available`)
+        }
+        if (model.via === "set_model") {
+          const updated = await handle.connection.agent.request(
+            "session/set_model" as never,
+            { sessionId: response.sessionId, modelId } as never,
+          )
+          selects = parseSessionSelects(updated)
+          selects.model ??= { ...model, currentValue: modelId }
+        } else {
+          const updated = await handle.connection.agent.request("session/set_config_option", {
+            sessionId: response.sessionId,
+            configId: model.configId,
+            value: modelId,
+          })
+          // A model without an effort select must not inherit the old model's options.
+          selects = parseSessionSelects(updated)
+          selects.model ??= { ...model, currentValue: modelId }
+        }
+      }
+      if (modelId) {
+        // Legacy agents may acknowledge selection before publishing the new selects.
+        // Never wait indefinitely for a model that has no effort axis.
+        const deadline = performance.now() + 250
+        do {
+          await new Promise((resolve) => setTimeout(resolve, selects.effort ? 0 : 10))
+          for (const notification of this.takeUnboundSessionUpdates(response.sessionId)) {
+            const update = notification.update as { sessionUpdate: string; configOptions?: unknown }
+            if (update.sessionUpdate !== "config_option_update") continue
+            const next = parseConfigSelects(update.configOptions)
+            if (next.model?.currentValue && next.model.currentValue !== modelId) continue
+            selects = { ...selects, ...next }
+          }
+          if (selects.effort) break
+        } while (performance.now() < deadline)
+      }
+      return {
+        models: selects.model?.options ?? [],
+        efforts: selects.effort?.options ?? [],
+        ...(selects.model?.currentValue ? { defaultModelId: selects.model.currentValue } : {}),
+        ...(selects.effort?.currentValue ? { defaultEffortId: selects.effort.currentValue } : {}),
+      }
+    } finally {
+      await handle.connection.agent
+        .request("session/close" as never, { sessionId: response.sessionId } as never)
+        .catch(() => undefined)
+      this.takeUnboundSessionUpdates(response.sessionId)
+    }
+  }
+
   /** Last user-chosen model/effort for a session (renderer read-back after reloads). */
   public override sessionSelection(sessionId: string): { modelId?: string; effortId?: string } {
     const desired = this.desiredSelections.get(sessionId)

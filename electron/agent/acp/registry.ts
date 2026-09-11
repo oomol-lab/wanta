@@ -66,7 +66,7 @@ export const ACP_AGENT_REGISTRY = {
     versionArgs: ["--version"],
     loginHint: "Run `claude login` in a terminal to sign in, then retry.",
     loginCommand: "claude login",
-    // claude-agent-acp 0.70.0 exposes the Claude Code modes with these stable
+    // claude-agent-acp 0.76.0 exposes the Claude Code modes with these stable
     // wire ids; availability (notably auto/full access) is still checked
     // against the concrete session before Wanta applies a requested mode.
     permissionModeMap: {
@@ -76,7 +76,7 @@ export const ACP_AGENT_REGISTRY = {
       auto: "auto",
       full_access: "bypassPermissions",
     },
-    // claude-agent-acp 0.70.0 exposes native model and effort config options.
+    // claude-agent-acp 0.76.0 exposes native model and effort config options.
     // The selected model is executed with the user's own Claude Code account
     // and local provider configuration; Wanta never supplies a model route.
     selection: { model: true, effort: true },
@@ -93,7 +93,7 @@ export const ACP_AGENT_REGISTRY = {
     loginCommand: "codex login",
     // codex-acp modes: read-only / agent (workspace-write) / agent-full-access.
     permissionModeMap: { default: "agent", read_only: "read-only", full_access: "agent-full-access" },
-    // codex-acp 1.6.2: session/new carries the model config option, followed by
+    // codex-acp 1.11.0: session/new carries the model config option, followed by
     // config_option_update replaces it with family-level models (category
     // "model") plus a thought_level effort select — both axes are live.
     selection: { model: true, effort: true },

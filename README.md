@@ -180,8 +180,8 @@ each adapter preserves the runtime-native capabilities it can honestly support.
 
 ### Agent Engine: OpenCode
 
-The application starts the pinned `opencode-ai@1.18.21` binary as a loopback-only `opencode serve`
-sidecar and drives it through `@opencode-ai/sdk@1.18.21`. The OpenCode packages are MIT-licensed and
+The application starts the pinned `opencode-ai@1.18.30` binary as a loopback-only `opencode serve`
+sidecar and drives it through `@opencode-ai/sdk@1.18.30`. The OpenCode packages are MIT-licensed and
 acknowledged in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Wanta pins the runtime, SDK, and
 plugin to the same exact version because their APIs are not treated as stable.
 

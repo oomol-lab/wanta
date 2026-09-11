@@ -4,6 +4,7 @@ import type { ExternalAgentKind } from "../agent/contract/profile.ts"
 import type { ChatEmit } from "../agent/event-translator.ts"
 import type { ExternalAgentAdapter } from "../agent/external/adapter-base.ts"
 import type { ExternalAgentRuntimeStatus } from "../agent/external/probe.ts"
+import type { ExternalAgentCatalog } from "../agent/external/status.ts"
 import type { HostQuestionBroker } from "../agent/host-question-broker.ts"
 import type { ManagedTurnDirectories } from "../agent/managed-turn-directories.ts"
 import type { OpencodeAgentAdapter } from "../agent/opencode-adapter.ts"
@@ -652,6 +653,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async getExternalSessionSelection(sessionId: string): Promise<{ modelId?: string; effortId?: string }> {
     return this.externalAdapterFor(sessionId).sessionSelection(sessionId)
+  }
+
+  public async previewExternalAgentCatalog(req: {
+    kind: ExternalAgentKind
+    modelId?: string
+  }): Promise<ExternalAgentCatalog | undefined> {
+    const adapter = this.externalAgents.get(req.kind)
+    if (!adapter) throw new Error("External agent is not configured")
+    return adapter.previewCatalog(req.modelId)
   }
 
   public async warmExternalAgent(kind: ExternalAgentKind): Promise<void> {

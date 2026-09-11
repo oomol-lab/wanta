@@ -15,7 +15,7 @@ test("bundles a runnable POSIX claude-agent-acp bridge entry", async () => {
     const bundled = await bundleClaudeAgentAcp(directory, "darwin")
     assert.equal(path.basename(bundled.entryPath), "claude-agent-acp")
     assert.equal(path.basename(bundled.scriptPath), "claude-agent-acp.mjs")
-    assert.equal(bundled.version, "0.70.0")
+    assert.equal(bundled.version, "0.76.0")
     const { stdout } = await execFileAsync(bundled.entryPath, ["--version"], {
       env: { ...process.env, WANTA_NODE_RUNTIME: process.execPath },
     })

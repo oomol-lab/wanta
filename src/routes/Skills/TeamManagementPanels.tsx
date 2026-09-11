@@ -1,22 +1,8 @@
-import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { Team, TeamRole } from "../../../electron/teams/common.ts"
-import type { BusyAction, MemberView } from "./team-management-model.ts"
-import type { UseTeamSkills } from "@/hooks/useTeamSkills"
-import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations.ts"
+import type { MemberView } from "./team-management-model.ts"
 
-import {
-  Building2Icon,
-  CheckIcon,
-  ChevronsUpDownIcon,
-  CopyIcon,
-  LockKeyholeIcon,
-  PlusIcon,
-  SettingsIcon,
-  UserPlusIcon,
-  UsersIcon,
-} from "lucide-react"
+import { Building2Icon, CheckIcon, ChevronsUpDownIcon, CopyIcon, PlusIcon, UserPlusIcon } from "lucide-react"
 import * as React from "react"
-import { planProviderSkillRecommendationBulkLinks } from "./team-management-model.ts"
 import { TeamAvatar, TeamMemberAccessButton } from "./TeamMembersPanel.tsx"
 import { TeamSkillManagePanel, TeamSkillManageLoadingSkeleton } from "./TeamSkillManagePanel.tsx"
 import { Badge } from "@/components/ui/badge"
@@ -44,7 +30,7 @@ export function TeamSwitcherPanel({
   getTeamRole,
   onCreate,
   onAddMember,
-  onOpenSettings,
+  onOpenMembers,
   onRemoteAvatarLoad,
   onSelect,
   teams,
@@ -59,7 +45,7 @@ export function TeamSwitcherPanel({
   getTeamRole: (team: Team) => TeamRole
   onCreate: () => void
   onAddMember: () => void
-  onOpenSettings: () => void
+  onOpenMembers: () => void
   onRemoteAvatarLoad: (teamId: string, file: File | null) => void
   onSelect: (teamId: string) => void
   teams: Team[]
@@ -69,25 +55,25 @@ export function TeamSwitcherPanel({
   const { t } = useAppI18n()
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="grid min-w-0 gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+    <section className="min-w-0 bg-background">
+      <div className="grid min-w-0 gap-3 pb-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
         <div className="flex min-w-0 items-center gap-3">
           <div className="shrink-0">
             {selectedTeam ? (
               <TeamAvatar
                 team={selectedTeam}
                 previewUrl={avatarPreviewUrls[selectedTeam.id]}
-                className="size-16 rounded-md text-lg"
+                className="size-10 rounded-lg text-lg"
                 onRemoteAvatarLoad={onRemoteAvatarLoad}
               />
             ) : (
-              <div className="grid size-16 place-items-center rounded-md bg-muted text-muted-foreground">
+              <div className="grid size-10 place-items-center rounded-md bg-muted text-muted-foreground">
                 <Building2Icon className="size-5" />
               </div>
             )}
           </div>
 
-          <div className="grid min-h-16 min-w-0 flex-1 content-center gap-1">
+          <div className="grid min-h-10 min-w-0 flex-1 content-center gap-1">
             {selectedTeam ? (
               <>
                 <DropdownMenu>
@@ -111,13 +97,6 @@ export function TeamSwitcherPanel({
                     teams={teams}
                   />
                 </DropdownMenu>
-                <TeamMemberAccessButton
-                  canManage={canManage}
-                  members={members}
-                  membersComplete={membersComplete}
-                  membersLoading={membersLoading}
-                  onOpen={onOpenSettings}
-                />
               </>
             ) : (
               <div className="oo-text-caption min-w-0 truncate text-muted-foreground">{t("teams.selectTeam")}</div>
@@ -125,17 +104,26 @@ export function TeamSwitcherPanel({
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-wrap gap-2 sm:justify-end">
+        <div className="flex min-w-0 flex-wrap items-center gap-3 sm:justify-end">
+          {selectedTeam ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <TeamMemberAccessButton
+                showAvatars={false}
+                canManage={canManage}
+                members={members}
+                membersComplete={membersComplete}
+                membersLoading={membersLoading}
+                onOpen={onOpenMembers}
+              />
+              <span className="oo-text-caption-compact text-muted-foreground">
+                · {t(teamRoleLabelKey(getTeamRole(selectedTeam)))}
+              </span>
+            </div>
+          ) : null}
           {selectedTeam && canManage ? (
             <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onAddMember}>
               <UserPlusIcon className="size-3.5" />
               {t("teams.addMember")}
-            </Button>
-          ) : null}
-          {selectedTeam ? (
-            <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onOpenSettings}>
-              {canManage ? <SettingsIcon className="size-3.5" /> : <UsersIcon className="size-3.5" />}
-              {t(canManage ? "teams.teamSettings" : "teams.viewMembers")}
             </Button>
           ) : null}
         </div>
@@ -234,120 +222,8 @@ function TeamIdCopyMenuItem({ teamId }: { teamId: string }) {
   )
 }
 
-function teamSkillGuideStatus(teamSkills: UseTeamSkills, t: ReturnType<typeof useAppI18n>["t"]): string {
-  const skillCount = teamSkills.skills.length
-  if (!teamSkills.apiEnabled) {
-    return t("teams.skillGuideUnavailableBadge")
-  }
-  if (teamSkills.loading && !teamSkills.hasLoaded) {
-    return t("teams.skillGuideLoading")
-  }
-  if (teamSkills.error) {
-    return t("teams.skillGuideLoadFailed")
-  }
-  return t("teams.skillGuideEnabledCount", { count: skillCount })
-}
-
-export function TeamSkillGuidePanel({
-  busyAction,
-  groupById,
-  teamSkills,
-  providerRecommendationsLoading,
-  providerRecommendationsResolvedCount,
-  providerRecommendationsTotalCount,
-  providerRecommendations,
-  onAddRecommendation,
-  onAddRecommendationBatch,
-  onAddMarketPackage,
-  onInstallRuntimeSkill,
-  onInstallRuntimeSkills,
-  onOpenManagedSkill,
-  onOpenPackageDetail,
-}: {
-  busyAction: BusyAction | null
-  groupById: ReadonlyMap<string, ManagedSkillGroup>
-  teamSkills: UseTeamSkills
-  providerRecommendationsLoading: boolean
-  providerRecommendationsResolvedCount: number
-  providerRecommendationsTotalCount: number
-  providerRecommendations: ProviderSkillRecommendation[]
-  onAddRecommendation: (
-    recommendation: ProviderSkillRecommendation,
-    options: { installRuntime: boolean },
-  ) => Promise<void>
-  onAddRecommendationBatch: (
-    recommendations: readonly ProviderSkillRecommendation[],
-    options: { installRuntime: boolean },
-  ) => Promise<void>
-  onAddMarketPackage: (
-    pkg: PublicSkillPackage,
-    options: { installRuntime: boolean; skillName?: string },
-  ) => Promise<void>
-  onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
-  onInstallRuntimeSkills: (skills: readonly { packageName: string; skillName: string }[]) => void
-  onOpenManagedSkill: (skillName: string) => void
-  onOpenPackageDetail: (pkg: PublicSkillPackage) => void
-}) {
-  const { t } = useAppI18n()
-  const statusLabel = teamSkillGuideStatus(teamSkills, t)
-  const systemRecommendationCount = React.useMemo(
-    () => planProviderSkillRecommendationBulkLinks(providerRecommendations, teamSkills.skills).linkable.length,
-    [teamSkills.skills, providerRecommendations],
-  )
-  const teamSkillsReady = teamSkills.apiEnabled && teamSkills.hasLoaded && !teamSkills.error
-
-  return (
-    <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--oo-divider)] px-3 py-[7px]">
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <h2 className="oo-text-title min-w-0 truncate text-foreground">{t("teams.skillGuideTitle")}</h2>
-            <Badge variant="muted" className="max-w-full shrink-0">
-              <span className="truncate">{statusLabel}</span>
-            </Badge>
-            {teamSkillsReady && providerRecommendationsLoading ? (
-              <Badge variant="muted" className="max-w-full shrink-0">
-                <span className="truncate">{t("teams.skillGuideSystemLoading")}</span>
-              </Badge>
-            ) : teamSkillsReady && systemRecommendationCount > 0 ? (
-              <Badge variant="muted" className="max-w-full shrink-0">
-                <span className="truncate">
-                  {t("teams.skillGuideSystemCount", { count: systemRecommendationCount })}
-                </span>
-              </Badge>
-            ) : null}
-            {!teamSkills.canManage ? (
-              <Badge variant="muted" className="max-w-full shrink-0">
-                <LockKeyholeIcon className="size-3" />
-                <span className="truncate">{t("teams.skillGuideReadOnlyBadge")}</span>
-              </Badge>
-            ) : null}
-          </div>
-          <p className="oo-text-caption mt-0.5 text-muted-foreground">
-            {t(teamSkills.canManage ? "teams.skillGuideDescription" : "teams.skillGuideReadOnlyDescription")}
-          </p>
-        </div>
-      </div>
-      <div className="min-h-0">
-        <TeamSkillManagePanel
-          busyAction={busyAction}
-          groupById={groupById}
-          teamSkills={teamSkills}
-          providerRecommendationsLoading={providerRecommendationsLoading}
-          providerRecommendationsResolvedCount={providerRecommendationsResolvedCount}
-          providerRecommendationsTotalCount={providerRecommendationsTotalCount}
-          providerRecommendations={providerRecommendations}
-          onAddRecommendation={onAddRecommendation}
-          onAddRecommendationBatch={onAddRecommendationBatch}
-          onAddMarketPackage={onAddMarketPackage}
-          onInstallRuntimeSkill={onInstallRuntimeSkill}
-          onInstallRuntimeSkills={onInstallRuntimeSkills}
-          onOpenManagedSkill={onOpenManagedSkill}
-          onOpenPackageDetail={onOpenPackageDetail}
-        />
-      </div>
-    </section>
-  )
+export function TeamSkillGuidePanel(props: React.ComponentProps<typeof TeamSkillManagePanel>) {
+  return <TeamSkillManagePanel {...props} />
 }
 
 export function TeamManagementSkeleton() {
@@ -365,7 +241,7 @@ export function TeamManagementSkeleton() {
               </div>
             </div>
           </div>
-          <div className="flex min-w-0 flex-wrap gap-2 sm:justify-end">
+          <div className="flex min-w-0 flex-wrap items-center gap-3 sm:justify-end">
             <Skeleton className="h-[var(--oo-control-height-compact)] w-full rounded-md sm:w-24" />
             <Skeleton className="h-[var(--oo-control-height-compact)] w-full rounded-md sm:w-28" />
           </div>

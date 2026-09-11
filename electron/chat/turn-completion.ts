@@ -49,7 +49,7 @@ export function inspectTurnCompletion(
 export function permissionRejectionMessage(rejection: TurnPermissionRejection): string {
   return rejection.source === "policy"
     ? `Wanta automatically blocked this tool call under its permission policy (${rejection.reason ?? "unspecified"}). This was not a user rejection. Do not retry the blocked operation or bypass the policy. Use an allowed alternative or explain what remains incomplete.`
-    : "The user declined this tool call. Do not repeat it without new authorization. Explain what remains incomplete."
+    : "The user declined this entire tool call, not just one operation within it. Do not repeat or repackage it without new authorization. This grants no new authorization. Unless the user asked to stop, continue independent work or a different approach within the original authorization that omits the rejected side effects. If that is not possible or authorization is unclear, report completed work and what remains blocked."
 }
 
 export function completionFailureMessage(

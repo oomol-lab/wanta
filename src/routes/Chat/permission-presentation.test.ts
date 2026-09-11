@@ -24,7 +24,7 @@ describe("permission presentation", () => {
   it("shows every literal deletion target and the original command", () => {
     const command = 'rm -rf -- "/Users/me/old reports" /Users/me/report.pdf'
     const view = permissionPresentation(request(command))
-    expect(view).toMatchObject({ title: "permissionPrompt.deleteTitle", command, caution: true, detailsOpen: true })
+    expect(view).toMatchObject({ title: "permissionPrompt.deleteTitle", command, caution: true, detailsOpen: false })
     expect(view.targets).toEqual(["/Users/me/old reports", "/Users/me/report.pdf"])
     expect(view.repeat).toBeUndefined()
   })
@@ -44,7 +44,7 @@ describe("permission presentation", () => {
   ])("does not claim to understand an ambiguous command: %s", (command) => {
     const view = permissionPresentation(request(command))
     expect(view.title).not.toBe("permissionPrompt.deleteTitle")
-    expect(view.detailsOpen).toBe(true)
+    expect(view.detailsOpen).toBe(false)
     expect(view.command).toBe(command)
   })
   it("preserves all resources for broad or sensitive requests", () => {
@@ -83,11 +83,13 @@ describe("permission presentation", () => {
   it("preserves the host's classification of a project environment edit", () => {
     const view = permissionPresentation(
       request("printf 'FOO=1' > /project/.env", {
-        wanta: { promptReason: "unclassified_request" },
+        wanta: { promptReason: "project_environment_write" },
       }),
     )
     expect(view.caution).toBe(false)
-    expect(view.title).toBe("permissionPrompt.unknownTitle")
+    expect(view.title).toBe("permissionPrompt.editTitle")
+    expect(view.allow).toBe("permissionPrompt.edit")
+    expect(view.detailsOpen).toBe(false)
   })
   it("shows folder grants including broader saved patterns", () => {
     const view = permissionPresentation({

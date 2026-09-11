@@ -23,6 +23,12 @@ test("default access composes ordinary dependency steps without weakening existi
   const root = "/work/project"
   const context = { permissionMode: "default" as const, trustedProjectRoot: root }
   for (const command of [
+    "cd /work/other && npm install && npm test",
+    "npm install && cd /work/other && npm install",
+    "command cd /work/other && npm install",
+    "source setup.sh && npm install",
+    "npm install || npm test",
+    "npm install && env -C /work/other npm install",
     `cd ${root} && npm install && npm test && npm run build`,
     "npm install && pnpm add zod && npm test",
     "command npm install && npm test",
@@ -44,12 +50,6 @@ test("default access composes ordinary dependency steps without weakening existi
     "npm install && npm publish",
     "npm install && rm -rf /work/shared",
     "npm install && cat ~/.ssh/config",
-    "cd /work/other && npm install && npm test",
-    "npm install && cd /work/other && npm install",
-    "command cd /work/other && npm install",
-    "source setup.sh && npm install",
-    "npm install || npm test",
-    "npm install && env -C /work/other npm install",
     "npm install && .venv/bin/python -m pip install --user pandas",
     "npm install && npm install zod --registry https://example.test",
   ]) {
@@ -68,7 +68,7 @@ test("default access composes ordinary dependency steps without weakening existi
   }
 })
 
-test("ordinary dependency pipelines and command lists reuse scope without trusting failed directory changes", () => {
+test("ordinary dependency pipelines and command lists do not require proven cwd", () => {
   const root = "/work/project"
   const context = { permissionMode: "default" as const, trustedProjectRoot: root }
   const decide = (command: string, cwd?: string) =>
@@ -77,6 +77,14 @@ test("ordinary dependency pipelines and command lists reuse scope without trusti
       context,
     )
   for (const command of [
+    "npm install | sh && npm test",
+    "cd /work/other; npm install",
+    "cd /work/other && echo ready; npm install",
+    "cd /work/other && cd /work/project; npm install",
+    "source setup.sh; npm install",
+    "cd /work/project | tail -5; npm install",
+    "if true; then cd /work/other; fi; npm install",
+    "alias enter='cd /work/other'; enter; npm install",
     "npm install | tail -5 && npm test",
     "npm install 2>&1 | head -n 20 | tail -5 && npm run build",
     "npm install; npm test",
@@ -97,19 +105,11 @@ test("ordinary dependency pipelines and command lists reuse scope without trusti
     "npm install | tail -5; rm -rf /work/shared",
     "npm install; cat .ssh/config",
     "npm install; npm install zod --registry https://example.test",
-    "npm install | sh && npm test",
     "npm install; .venv/bin/python -m pip install --user pandas",
-    "cd /work/other; npm install",
-    "cd /work/other && echo ready; npm install",
-    "cd /work/other && cd /work/project; npm install",
-    "source setup.sh; npm install",
-    "cd /work/project | tail -5; npm install",
-    "if true; then cd /work/other; fi; npm install",
-    "alias enter='cd /work/other'; enter; npm install",
   ])
     assert.equal(decide(command, root).type, "prompt", command)
   for (const command of [`cd ${root}; npm install`, `cd ${root} && npm install; npm install zod`])
-    assert.equal(decide(command, "/work/other").type, "prompt", command)
+    assert.equal(decide(command, "/work/other").type, "allow", command)
   assert.equal(decide("npm install | tail -5; printenv", root).type, "deny")
 })
 
@@ -269,7 +269,7 @@ test("session grants must cover every requested resource", () => {
 test("command grants retain the approved command and resources without broadening the scope", () => {
   for (const save of [undefined, ["/work/input/**"]]) {
     const request = permission({
-      metadata: { command: "pip3 install openpyxl" },
+      metadata: { command: "pip3 install --user openpyxl" },
       resources: ["/work/input/requirements.txt", "/work/output/report.xlsx"],
       ...(save ? { save } : {}),
     })
@@ -280,7 +280,7 @@ test("command grants retain the approved command and resources without broadenin
     const approved = { ...context, sessionGrants: [grant] }
     assert.equal(evaluateLocalAccessRequest(request, approved).type, "allow")
     assert.equal(
-      evaluateLocalAccessRequest({ ...request, metadata: { command: "pip3 install pandas" } }, approved).type,
+      evaluateLocalAccessRequest({ ...request, metadata: { command: "pip3 install --user pandas" } }, approved).type,
       "prompt",
     )
     assert.equal(
@@ -720,7 +720,7 @@ test("local access policy allows ordinary file requests and protects sensitive p
 test("local access policy separates dependency confirmation from genuinely high-risk commands", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "npm install" } }), { permissionMode: "default" }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "cat ~/.ssh/id_rsa" } }), {
@@ -841,7 +841,7 @@ test("default access auto-approves direct Python requirements in bounded task or
       }),
       { permissionMode: "default", taskProcessRoot: processRoot },
     ),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
   for (const command of [
     `${projectRoot}/.venv/bin/python -m pip install --compile 'pandas>=2'`,
@@ -871,13 +871,21 @@ test("default access auto-approves direct Python requirements in bounded task or
     ),
     { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
   )
+  for (const command of ["pip install pandas", "python3 -m pip install pandas"]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+        trustedProjectRoot: projectRoot,
+      }).type,
+      "allow",
+      command,
+    )
+  }
   for (const command of [
-    "pip install pandas",
-    "python3 -m pip install pandas",
+    "uv pip install --python /tmp/other/.venv/bin/python pandas",
     `${projectRoot}/.venv/bin/python -m pip install --user pandas`,
     `${projectRoot}/.venv/bin/python -m pip install -r requirements.txt`,
     `${projectRoot}/.venv/bin/python -m pip install git+https://example.test/package.git`,
-    `uv pip install --python /tmp/other/.venv/bin/python pandas`,
   ]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), {
@@ -898,14 +906,14 @@ test("bounded Python bootstrap approval preserves the nearest protected boundari
   const processRoot = "/tmp/wanta-process/task-1"
   const environment = `${processRoot}/.wanta-python`
   const context = { permissionMode: "default" as const, taskProcessRoot: processRoot }
-  const promptCommands = [
+  const ordinaryCommands = [
     `python3 -m venv "${environment}" && python3 -m pip install python-docx`,
     `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && echo OK &&`,
   ]
-  for (const command of promptCommands) {
+  for (const command of ordinaryCommands) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
-      { type: "prompt", kind: "command", highRisk: false },
+      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
       command,
     )
   }
@@ -985,7 +993,7 @@ test("default access uses a proven command cwd as the bounded install target", (
       permissionMode: "default",
       trustedProjectRoot: projectRoot,
     }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
 
@@ -1014,7 +1022,13 @@ test("selected-project env files are readable and session-grantable to write", (
       highRisk: false,
     },
   )
-  assert.equal(localAccessPromptReason(envEdit, { trustedProjectRoot: projectRoot }), "unclassified_request")
+  assert.equal(localAccessPromptReason(envEdit, { trustedProjectRoot: projectRoot }), "project_environment_write")
+  assert.equal(
+    localAccessPromptReason(permission({ metadata: { command: "tee .env", cwd: projectRoot } }), {
+      trustedProjectRoot: projectRoot,
+    }),
+    "project_environment_write",
+  )
   const grant = localAccessGrantForRequest(envEdit)
   assert.ok(grant)
   assert.deepEqual(
@@ -1387,7 +1401,7 @@ test("default access applies one scope-and-boundary policy across Node.js and Py
   for (const command of ["npm install report-tool", "pip install report-tool"]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
-      { type: "prompt", kind: "command", highRisk: false },
+      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
       command,
     )
   }
@@ -1471,7 +1485,7 @@ test("task-scoped managed Python grants only cover the approved packages in the 
       permission({ metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install requests` } }),
       { permissionMode: "default", sessionGrants: [grant] },
     ),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(
@@ -1686,7 +1700,7 @@ test("local access policy keeps project dev grants compatible but prompts unsafe
       sessionGrants: [grant],
       trustedProjectRoot: root,
     }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "pnpm lint" } }), {
@@ -1934,7 +1948,7 @@ test("automatic denials carry specific metadata without command values", () => {
   }
 })
 
-test("unbounded dependency pipelines prompt without recursively expanding themselves", () => {
+test("ordinary dependency pipelines do not require scope inference", () => {
   for (const command of [
     "npm install 2>&1 | tail -5",
     "npm install 2>&1 | tail -5 && npm test",
@@ -1942,8 +1956,211 @@ test("unbounded dependency pipelines prompt without recursively expanding themse
   ]) {
     assert.equal(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "default" }).type,
-      "prompt",
+      "allow",
       command,
     )
+  }
+})
+
+test("dependency decisions are stable across tools, variables, scripts and adapters", () => {
+  const root = "/work/task"
+  const py = `${root}/.wanta-python/bin/python`
+  const ordinary = [
+    `ROOT=${root}\npnpm --dir "$ROOT" add lodash`,
+    `PROC=${root}\npython3 -m venv "$PROC/.wanta-python" && "$PROC/.wanta-python/bin/python" -m pip install -q pypdf && "$PROC/.wanta-python/bin/python" - <<'PY'\nprint(42)\nPY`,
+    `"${py}" -m pip install pypdf && "${py}" - <<'PY'\nprint(42)\nPY`,
+    `cd ${root} && npm install lodash && node <<'JS'\nconsole.log(42)\nJS`,
+    "npm install lodash || echo failed",
+    "pnpm add lodash",
+    "yarn add lodash",
+    "bun add lodash",
+    "npx cowsay hello",
+    "pnpm dlx cowsay hello",
+    "npm exec -- cowsay hello",
+    "pip install pypdf",
+    "poetry add pypdf",
+    "uv run --with pypdf python -c 'print(42)'",
+    `uv pip install --python "${py}" pypdf`,
+  ]
+  const protectedCommands = [
+    "npm install -g lodash",
+    "pnpm remove --global lodash",
+    "npm update -g lodash",
+    "npm install lodash --registry https://example.test",
+    "pnpm add ../local-package",
+    "pip install --user pypdf",
+    "pip install --break-system-packages pypdf",
+    `"${py}" -m pip install -t/work/elsewhere pypdf`,
+    `"${py}" -m pip install --target=/work/elsewhere pypdf`,
+    `"${py}" -m pip install -r requirements.txt`,
+    "uv pip install --system pypdf",
+    "pipx install black",
+    "uv tool install ruff",
+    "npm publish",
+    "sudo pip install pypdf",
+  ]
+  for (const isExternalSession of [false, true]) {
+    const context = { permissionMode: "default" as const, taskProcessRoot: root, isExternalSession }
+    for (const command of ordinary)
+      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "allow", command)
+    for (const protectedCommand of protectedCommands) {
+      for (const command of [
+        protectedCommand,
+        `echo ready && ${protectedCommand}`,
+        `npm install lodash; ${protectedCommand}`,
+        `bash -c '${protectedCommand}'`,
+      ])
+        assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "prompt", command)
+    }
+  }
+})
+
+test("proven cleanup composes with ordinary work without admitting other boundaries", () => {
+  const context = {
+    permissionMode: "default" as const,
+    taskProcessRoot: "/work/task",
+    trustedProjectRoot: "/work/project",
+  }
+  for (const command of [
+    "rm -rf /work/task/scratch && echo done",
+    "npm install lodash && rm -rf /work/task/scratch",
+    "cd /work/task && rm -rf scratch && python3 check.py",
+    "rm -rf /work/project/dist; npm test",
+  ])
+    assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "allow", command)
+  for (const command of [
+    "rm -rf /work/task/scratch && sudo echo done",
+    "rm -rf /work/task/scratch && npm publish",
+    "rm -rf /work/task/scratch && cat ~/.ssh/id_rsa",
+    "rm -rf /work/task/scratch && pip install --user pypdf",
+    "rm -rf /work/task/scratch && rm -rf /tmp/unknown",
+    "cd /work/task; rm -rf scratch",
+    'ROOT=/work/task; rm -rf "$ROOT/scratch"',
+    "rm -rf /work/task/scratch || echo failed",
+  ])
+    assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), context).type, "prompt", command)
+  assert.equal(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "rm -rf /work/task/scratch; printenv" } }), context)
+      .type,
+    "deny",
+  )
+})
+
+test("explicit dependency destinations stay inside task or project across adapters", () => {
+  const scope = {
+    permissionMode: "default" as const,
+    taskProcessRoot: "/work/task",
+    trustedProjectRoot: "/work/project",
+    commandCwd: "/work/project",
+  }
+  const allowed = [
+    "npm install --prefix /work/project/sub lodash",
+    "npm --prefix=/work/task install lodash",
+    "npm install --prefix . lodash",
+    "cd /work/task && npm --prefix . install lodash && echo done",
+    "uv pip install --python /work/task/.wanta-python/bin/python pypdf",
+    "uv pip install --python=.venv/bin/python pypdf",
+    "uv pip install --python /work/project/venv/bin/python3 pypdf",
+    "uv pip install --python /work/project/.venv/bin/python pypdf && echo done",
+  ]
+  const protectedCommands = [
+    "npm install --prefix /work/other lodash",
+    "npm --prefix=/work/project-sibling install lodash",
+    "npm install --prefix ../other lodash",
+    "npm install --prefix /work/project/../other lodash",
+    "npm install --prefix /work/project --prefix /work/other lodash",
+    "uv pip install --python /work/other/.venv/bin/python pypdf",
+    "uv pip install --python /usr/bin/python3 pypdf",
+    "uv pip install --python=../other/.venv/bin/python pypdf",
+    "uv pip install --python /work/task/.wanta-python/bin/python --python /work/other/.venv/bin/python pypdf",
+    'npm install --prefix "$TARGET" lodash',
+    'uv pip install --python "$INTERPRETER" pypdf',
+    "env -C /work/other npm install --prefix . lodash",
+    "/usr/bin/env -C/work/other npm install --prefix . lodash",
+    "bash -c 'cd /work/other; npm install --prefix . lodash'",
+  ]
+  for (const isExternalSession of [false, true]) {
+    for (const [commands, expected] of [
+      [allowed, "allow"],
+      [protectedCommands, "prompt"],
+    ] as const) {
+      for (const command of commands) {
+        const request = permission({ metadata: { command } })
+        assert.equal(evaluateLocalAccessRequest(request, { ...scope, isExternalSession }).type, expected, command)
+      }
+    }
+  }
+})
+
+test("dynamic dependency verbs and option names prompt without resolving shell variables", () => {
+  const commands = [
+    'ACTION=publish\nnpm "$ACTION"',
+    'ACTION=publish\npnpm "$ACTION"',
+    'FLAG=user\npip install --"$FLAG" pypdf',
+    'FLAG=global\nnpm install --"$FLAG" lodash',
+    'ACTION=publish\nnpm run "$ACTION"',
+    'ACTION=install\nuv pip "$ACTION" pypdf',
+    'MODULE=pip\npython3 -m "$MODULE" install --user pypdf',
+  ]
+  for (const isExternalSession of [false, true]) {
+    for (const command of commands) {
+      assert.equal(
+        evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+          permissionMode: "default",
+          isExternalSession,
+        }).type,
+        "prompt",
+        command,
+      )
+    }
+    for (const command of [
+      'PROC=/work/task\n"$PROC/.wanta-python/bin/python" -m pip install pypdf',
+      'ROOT=/work/task\npnpm --dir "$ROOT" add lodash',
+      'python3 report.py --"$FIELD"',
+    ]) {
+      assert.equal(
+        evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+          permissionMode: "default",
+          isExternalSession,
+        }).type,
+        "allow",
+        command,
+      )
+    }
+  }
+})
+
+test("Windows rooted and UNC dependency destinations keep platform and containment", () => {
+  for (const isExternalSession of [false, true]) {
+    const driveScope = {
+      permissionMode: "default" as const,
+      trustedProjectRoot: String.raw`C:\work\project`,
+      commandCwd: String.raw`C:\outside`,
+      isExternalSession,
+    }
+    for (const directory of [String.raw`\work\project`, "/work/project"]) {
+      const command = `cd '${directory}' && npm install --prefix . lodash`
+      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), driveScope).type, "allow", command)
+    }
+    const uncScope = {
+      permissionMode: "default" as const,
+      trustedProjectRoot: String.raw`\\server\share\Project`,
+      taskProcessRoot: String.raw`\\server\share\Task`,
+      isExternalSession,
+    }
+    for (const command of [
+      String.raw`npm install --prefix '\\SERVER\SHARE\project' lodash`,
+      "npm install --prefix //SERVER/SHARE/project lodash",
+      String.raw`uv pip install --python '\\SERVER\SHARE\project\.venv\Scripts\python.exe' pypdf`,
+      "uv pip install --python //SERVER/SHARE/task/.wanta-python/Scripts/python.exe pypdf",
+    ])
+      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), uncScope).type, "allow", command)
+    for (const command of [
+      "npm install --prefix //server/share/project-other lodash",
+      "npm install --prefix //server/other/Project lodash",
+      "uv pip install --python //server/share/Project/bin/python pypdf",
+      "uv pip install --python //server/other/Project/.venv/Scripts/python.exe pypdf",
+    ])
+      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), uncScope).type, "prompt", command)
   }
 })

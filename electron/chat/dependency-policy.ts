@@ -1,3 +1,6 @@
+import { managedPythonExecutables, projectPythonExecutables } from "../agent/python-environment.ts"
+import { scopedCommandSequence } from "./command-sequence.ts"
+import { resolveShellPath } from "./shell-path.ts"
 import {
   shellCommandName,
   shellWords,
@@ -5,6 +8,45 @@ import {
   topLevelShellSegments,
   unwrappedShellCommandWords,
 } from "./shell-syntax.ts"
+
+export const protectedPipInstallOptions = new Set([
+  "-c",
+  "-e",
+  "-f",
+  "-i",
+  "-r",
+  "-t",
+  "--break-system-packages",
+  "--build-constraint",
+  "--config-file",
+  "--constraint",
+  "--default-index",
+  "--editable",
+  "--extra-index-url",
+  "--find-links",
+  "--group",
+  "--index",
+  "--index-url",
+  "--prefix",
+  "--requirement",
+  "--requirements-from-script",
+  "--root",
+  "--target",
+  "--trusted-host",
+  "--user",
+])
+
+export function pipOptionName(word: string): string {
+  if (!word.startsWith("--")) {
+    for (const shortOption of ["-c", "-e", "-f", "-i", "-r", "-t"]) {
+      if (word.startsWith(shortOption) && word !== shortOption) {
+        return shortOption
+      }
+    }
+  }
+  const separator = word.indexOf("=")
+  return separator >= 0 ? word.slice(0, separator) : word
+}
 
 const nodePackageSpecPattern = /^[A-Za-z0-9*+.!<>=~^_-]+$/u
 const nodePackageManagers = new Set(["bun", "npm", "pnpm", "yarn"])
@@ -20,7 +62,6 @@ const nodeDependencyVerbs = new Set([
   "update",
   "upgrade",
 ])
-const nodeInstallVerbs = new Set(["add", "i", "install", "link"])
 const pythonDependencyVerbs = new Set(["add", "install", "remove", "uninstall"])
 const pipxDependencyVerbs = new Set([
   "inject",
@@ -359,9 +400,9 @@ function packageSpecifiersAfter(
   return specifiers
 }
 
-function segmentIsGlobalNodeInstall(words: readonly string[]): boolean {
+function segmentIsGlobalNodeMutation(words: readonly string[]): boolean {
   const operation = nodeDependencyOperation(words)
-  if (!operation || !nodeInstallVerbs.has(operation.verb)) {
+  if (!operation) {
     return false
   }
   if (operation.manager === "yarn" && nodeManagerCommand(words)?.value.toLowerCase() === "global") {
@@ -554,7 +595,7 @@ export function canonicalRegistryNodePackageName(specifier: string): string | un
 export function dependencyCommandRequiresConfirmation(command: string): boolean {
   return parsedCommandSegments(command).some(
     (words) =>
-      segmentIsGlobalNodeInstall(words) || segmentPublishesPackage(words) || segmentUsesAlternatePackageSource(words),
+      segmentIsGlobalNodeMutation(words) || segmentPublishesPackage(words) || segmentUsesAlternatePackageSource(words),
   )
 }
 
@@ -566,4 +607,103 @@ export function isDependencyMutationCommand(command: string): boolean {
 
 export function isPythonDependencyMutationCommand(command: string): boolean {
   return parsedCommandSegments(command).some((words) => Boolean(pythonDependencyOperation(words)))
+}
+
+export interface DependencyScopeContext {
+  commandCwd?: string
+  taskProcessRoot?: string
+  trustedProjectRoot?: string
+}
+
+function resolvedDestination(value: string, cwd?: string): string | undefined {
+  if (!value || /[$`*?{}~]/u.test(value)) return undefined
+  return resolveShellPath(value, cwd)?.replace(/\\/gu, "/")
+}
+
+function destinationAllowed(value: string, scope: DependencyScopeContext, python: boolean): boolean {
+  const target = resolvedDestination(value, scope.commandCwd)
+  if (!target) return false
+  if (!python)
+    return [scope.taskProcessRoot, scope.trustedProjectRoot].some((root) => {
+      const resolvedRoot = root ? resolveShellPath(root)?.replace(/\\/gu, "/") : undefined
+      if (!resolvedRoot) return false
+      const normalize = (value: string) => (/^(?:[A-Za-z]:\/|\/\/)/u.test(target) ? value.toLowerCase() : value)
+      const base = normalize(resolvedRoot).replace(/\/$/u, "")
+      return normalize(target) === base || normalize(target).startsWith(`${base}/`)
+    })
+  const platform = /^(?:[A-Za-z]:\/|\/\/)/u.test(target) ? "win32" : "linux"
+  const normalize = (value: string) => (platform === "win32" ? value.toLowerCase() : value)
+  const executables = [
+    ...(scope.taskProcessRoot ? managedPythonExecutables(scope.taskProcessRoot, platform) : []),
+    ...(scope.trustedProjectRoot ? projectPythonExecutables(scope.trustedProjectRoot, platform) : []),
+  ]
+  return executables.some((executable) => normalize(executable) === normalize(target))
+}
+
+// Dynamic operation names/options can conceal publish/global/user semantics. Do not
+// evaluate shell variables; ordinary package values and path arguments stay ordinary.
+function dynamicDependencyOperation(words: readonly string[]): boolean {
+  const name = shellCommandName(words[0]) ?? ""
+  const node = nodePackageManagers.has(name)
+  const python = ["pip", "pip3", "pipx", "poetry", "uv", "python", "python3", "py"].includes(name)
+  if (!node && !python) return false
+  const dynamic = (word: string | undefined) => Boolean(word && /[$`]/u.test(word))
+  const options = node ? nodeOptionsWithValue : pythonOptionsWithValue
+  let verb = nextCliWord(words, 1, options)
+  if (["python", "python3", "py"].includes(name)) {
+    const moduleIndex = words.indexOf("-m")
+    if (moduleIndex < 0) return false
+    if (dynamic(words[moduleIndex + 1])) return true
+    if (words[moduleIndex + 1] !== "pip") return false
+    verb = nextCliWord(words, moduleIndex + 2, options)
+  }
+  if (words.slice(1).some((word) => word.startsWith("-") && dynamic(optionName(word)))) return true
+  if (dynamic(verb?.value)) return true
+  if (verb && ["run", "run-script", "pip", "tool", "global"].includes(verb.value)) {
+    return dynamic(nextCliWord(words, verb.index + 1, options)?.value)
+  }
+  return false
+}
+
+/** Check explicit destination/input changes, never require a bounded install template. */
+export function dependencyCommandChangesScope(command: string, scope: DependencyScopeContext = {}): boolean {
+  const segments = topLevelShellSegments(command)
+  const steps = scopedCommandSequence(command, scope.commandCwd) ?? [
+    { command, cwd: segments.length === 1 ? scope.commandCwd : undefined },
+  ]
+  return steps.some((step) => {
+    const raw = shellWords(step.command) ?? []
+    const unwrapped = unwrappedShellCommandWords(raw)
+    // Flattened nested shells and cwd-changing env launchers do not prove a
+    // relative destination. Absolute, bounded destinations still qualify.
+    const changesCwd =
+      Boolean(nestedShellCommand(unwrapped)) ||
+      (raw.some((word) => shellCommandName(word) === "env") &&
+        raw.some((word) => word.startsWith("-C") || word === "--chdir" || word.startsWith("--chdir=")))
+    const cwd = changesCwd ? undefined : step.cwd
+    return parsedCommandSegments(step.command).some((words) => {
+      const name = shellCommandName(words[0])
+      if (dynamicDependencyOperation(words)) return true
+      const node = nodeDependencyOperation(words)
+      const python = pythonDependencyOperation(words)
+      if (!node && !python) return false
+      const options = node ? nodeOptionsWithValue : pythonOptionsWithValue
+      // Consume option values so flags appearing as values are not treated as options.
+      for (let index = 1; index < words.length; index += 1) {
+        const word = words[index] ?? ""
+        if (word === "--") break
+        if (!word.startsWith("-")) continue
+        const option = optionName(word)
+        if ((node && option === "--prefix") || (name === "uv" && option === "--python")) {
+          const value = inlineOptionValue(word) ?? words[index + 1] ?? ""
+          if (!destinationAllowed(value, { ...scope, commandCwd: cwd }, !node)) return true
+        }
+        if (node && ["--global-folder", "--modules-dir", "--store-dir", "--virtual-store-dir"].includes(option))
+          return true
+        if (python && (protectedPipInstallOptions.has(pipOptionName(word)) || option === "--system")) return true
+        if (options.has(option) && inlineOptionValue(word) === undefined) index += 1
+      }
+      return name === "pipx" || (name === "uv" && nextCliWord(words, 1, pythonOptionsWithValue)?.value === "tool")
+    })
+  })
 }

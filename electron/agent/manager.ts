@@ -1755,6 +1755,7 @@ function buildProcessSystem(processDir: string | undefined): string | undefined 
   return [
     "Intermediate process file contract for this turn:",
     `- Use this exact directory for temporary scripts, raw service responses, debug logs, scratch data, and other implementation files that help you complete the task but are not the user-facing deliverable: ${processDir}`,
+    "- Create a fresh, uniquely named subdirectory for temporary resources such as browser profiles. Avoid making optional cleanup of old resources or broad process termination a prerequisite for the task. Keep necessary cleanup separate from generation and validation; ordinary commands may still be combined.",
     "- Do not put final deliverables in this process directory.",
     "- Do not put process files in the artifact directory unless the user explicitly asked for source code or scripts as the deliverable.",
     "- When a task needs third-party Python modules, create and use this task-private virtual environment instead of the system Python:",
@@ -1762,7 +1763,7 @@ function buildProcessSystem(processDir: string | undefined): string | undefined 
     `  - Install direct requirements for temporary work with: ${JSON.stringify(pythonExecutable)} -m pip install <package ...>`,
     "  - Creating this exact environment and immediately installing through its exact interpreter may be separate commands or one `&&` chain; harmless file-descriptor redirection does not change the task boundary.",
     "  - Direct requirements with no explicit source override are normally approved automatically regardless of package popularity. Ordinary extras and version constraints are accepted. Other flags are accepted only when they preserve this exact Python executable and virtual-environment target without changing the package source, requirements input, or installation destination; do not add a version constraint unless the task needs one.",
-    "  - Do not use pip or pip3 directly, --user, --break-system-packages, sudo, alternative indexes, local paths, URLs, or requirements files.",
+    "  - Prefer the supplied interpreter over bare pip or pip3. User/system installation, destination overrides, alternative indexes, local/URL sources, and external requirements inputs retain permission boundaries.",
     "- When a task needs third-party Node.js modules only for temporary processing, install direct packages with no explicit source override in this process directory using an explicit target such as `cd <process-directory> && npm install <package ...>`. Package popularity does not affect approval, and package runners may be used when they are the shortest reliable path. Do not use global installation, custom registries, Git/URL/local sources, or user config.",
     "- Prefer short, descriptive filenames such as create_presentation.js, transform_data.py, raw-input.json, or render-log.txt.",
     "- Do not mention process files in the final response unless the user asks for implementation details, debugging details, or source files.",

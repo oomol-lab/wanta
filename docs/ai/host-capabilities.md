@@ -115,20 +115,48 @@ project output roots remain eligible for automatic cleanup, including proven cwd
 forms. Agents should put disposable intermediates in the supplied task process
 directory. This policy does not add filesystem scans or automatic backups.
 
+Process-directory guidance asks agents to create fresh, uniquely named temporary
+resources and avoid optional cleanup or broad process termination as task prerequisites.
+Necessary cleanup stays separate from generation and validation; ordinary commands
+can still be combined. Cancelling a permission request rejects the entire call.
+Default Access guidance permits independent work or a different approach only within
+the original authorization and without the rejected side effects, unless the user
+asked to stop. OpenCode also receives this explanation in its user-rejection reply;
+ACP keeps its native permission-option response without an injected follow-up turn.
+
 Default Access is a permissive guard against common consequential mistakes, not
-a sandbox for arbitrary scripts. Ordinary dependency command lists reuse the
-same per-step policy: `&&`, semicolon/newline separators, and existing bounded
-`head`/`tail` output filters do not add a confirmation when each step qualifies.
-Literal directory changes establish scope only on their success path. An
-unconditional separator after a directory-changing chain discards ambiguous cwd;
-a piped `cd` never establishes parent-shell scope. Shell control flow and
-in-process definitions fall back to the existing policy. Transparent shell
-launchers share risk/dependency normalization, and
-recognized package-runner CLI operations retain their consequential boundaries.
-Relative sensitive file operands and wildcard deletion retain those boundaries
-too. A shell permission with no command cannot be automatically approved in
-Default Access. ACP requests preserve explicit command cwd, otherwise using the
-directory supplied by Wanta when creating that native session.
+an execution sandbox. Ordinary dependency operations use the default command
+policy even when their cwd, variable expansion, wrapper, or script composition
+cannot be proven by the bounded-install recognizers. This deliberately also
+allows plain pip and installs whose environment is not proven task-private;
+agents should still prefer the supplied task environment. A parser miss alone
+is not a dependency confirmation boundary.
+
+Explicit global Node dependency mutations, publishing, alternate package sources,
+Python user/system installs, destination overrides, external requirements or
+constraint inputs, and pipx/uv tool mutations retain confirmation. The existing
+credential, sensitive-resource, project `.env` write, broad edit, and consequential
+operation checks remain in force. These are text-level guards; opaque scripts,
+unknown tools, and dynamic expansion are not a strict filesystem boundary.
+
+Explicit npm `--prefix` destinations must resolve inside the task or selected
+project. Explicit uv `--python` destinations must match an existing recognized
+task-private or selected-project interpreter path. Unknown or outside destinations
+prompt; absolute and equals forms are checked, including repeated options. Relative
+destinations require proven cwd. These checks do not resolve shell variables.
+Dynamic dependency operation names or option names also prompt because they can
+conceal publishing or global/user installation. Ordinary path/package values and
+multiline processing remain eligible for default execution. Nested shell or
+cwd-changing launcher text does not establish a relative destination's cwd.
+
+Known task-scratch or generated-project cleanup can compose with ordinary work
+when the existing sequence parser proves every step independently allowable.
+No partial execution or approval occurs: the original call is approved as a whole.
+Literal directory changes establish scope only on their success path; a failed
+or piped cd does not prove a cleanup target. Unknown deletion targets, variable
+cleanup, and unsupported cleanup control flow still require confirmation.
+A shell permission with no command cannot be automatically approved. ACP requests
+preserve explicit command cwd, otherwise using the native session directory.
 
 ## Kernel contract
 

@@ -532,8 +532,8 @@ test("active run snapshots track permission waits and completion", async () => {
     properties: {
       action: "bash",
       id: "permission-1",
-      resources: ["npm install"],
-      metadata: { command: "npm install" },
+      resources: ["npm install -g cowsay"],
+      metadata: { command: "npm install -g cowsay" },
       sessionID: "session-1",
     },
   })
@@ -1108,6 +1108,13 @@ test.each(["policy", "user"] as const)(
         expect.stringContaining("environment_dump"),
       )
       expect(events.some((event) => event.event === "permissionAsked")).toBe(false)
+    } else {
+      expect(bridge.answerPermission).toHaveBeenCalledWith(
+        "session-1",
+        "permission-1",
+        "reject",
+        expect.stringContaining("The user declined this entire tool call"),
+      )
     }
     bridge.getMessages.mockResolvedValue([
       { id: userMessageId, role: "user", createdAt: 1, parts: [] },
@@ -1136,61 +1143,69 @@ test.each(["policy", "user"] as const)(
   },
 )
 
-test("a final response after policy feedback completes even when idle preceded the permission acknowledgement", async () => {
-  vi.useFakeTimers()
-  const bridge = createBridgeAgent()
-  const service = new ChatServiceImpl(bridge.agent)
-  const events = captureServiceEvents(service)
-  service.startEventBridge()
-  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "validate" })
-  const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
-  bridge.emit({
-    type: "message.updated",
-    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
-  })
-  let acknowledge!: () => void
-  bridge.answerPermission.mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        acknowledge = resolve
-      }),
-  )
-  bridge.emit({
-    type: "permission.v2.asked",
-    properties: {
-      id: "permission-1",
-      sessionID: "session-1",
-      action: "bash",
-      resources: ["printenv"],
-      tool: { messageID: "assistant-1", callID: "call-1" },
-    },
-  })
-  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
-  await vi.advanceTimersByTimeAsync(90_000)
-  expect(service.hasActiveGeneration()).toBe(true)
-  expect(bridge.getMessages).not.toHaveBeenCalled()
-  bridge.getMessages.mockResolvedValue([
-    { id: userMessageId, role: "user", createdAt: 1, parts: [] },
-    {
-      id: "assistant-1",
-      role: "assistant",
-      createdAt: 2,
-      finishReason: "tool-calls",
-      parts: [{ kind: "tool", partId: "part-1", callId: "call-1", status: "error" }],
-    },
-    { id: "final", role: "assistant", createdAt: 3, completedAt: 4, finishReason: "stop", parts: [] },
-  ])
-  vi.useRealTimers()
-  acknowledge()
-  await waitForCondition(() => !service.hasActiveGeneration())
-  expect(events.some((event) => event.event === "messageError")).toBe(false)
-  expect(events.findLast((event) => event.event === "turnOutcome")?.data).toMatchObject({
-    kind: "completed",
-    messageId: "final",
-  })
-  expect(bridge.promptStreaming).toHaveBeenCalledTimes(1)
-  service.dispose()
-})
+test.each(["policy", "user"] as const)(
+  "a final response after %s feedback completes even when idle preceded the permission acknowledgement",
+  async (source) => {
+    vi.useFakeTimers()
+    const bridge = createBridgeAgent()
+    const service = new ChatServiceImpl(bridge.agent)
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+    await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "validate" })
+    const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    let acknowledge!: () => void
+    bridge.answerPermission.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          acknowledge = resolve
+        }),
+    )
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: {
+        id: "permission-1",
+        sessionID: "session-1",
+        action: "bash",
+        resources: [source === "policy" ? "printenv" : "rm -rf /tmp/unowned-profile"],
+        tool: { messageID: "assistant-1", callID: "call-1" },
+      },
+    })
+    const userReply =
+      source === "user"
+        ? service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "reject" })
+        : undefined
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await vi.advanceTimersByTimeAsync(90_000)
+    expect(service.hasActiveGeneration()).toBe(true)
+    expect(bridge.getMessages).not.toHaveBeenCalled()
+    bridge.getMessages.mockResolvedValue([
+      { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 2,
+        finishReason: "tool-calls",
+        parts: [{ kind: "tool", partId: "part-1", callId: "call-1", status: "error" }],
+      },
+      { id: "final", role: "assistant", createdAt: 3, completedAt: 4, finishReason: "stop", parts: [] },
+    ])
+    vi.useRealTimers()
+    acknowledge()
+    await userReply
+    await waitForCondition(() => !service.hasActiveGeneration())
+    expect(events.some((event) => event.event === "messageError")).toBe(false)
+    expect(events.findLast((event) => event.event === "turnOutcome")?.data).toMatchObject({
+      kind: "completed",
+      messageId: "final",
+    })
+    expect(bridge.promptStreaming).toHaveBeenCalledTimes(1)
+    service.dispose()
+  },
+)
 
 test("idle while awaiting approval has no completion deadline and resumes verification after reply", async () => {
   vi.useFakeTimers()
@@ -3453,8 +3468,8 @@ test("full access mode propagates to active task subagents and clears their pare
     id: "permission-1",
     sessionId: "child-session",
     action: "bash",
-    resources: ["npm install"],
-    metadata: { command: "npm install" },
+    resources: ["npm install -g cowsay"],
+    metadata: { command: "npm install -g cowsay" },
   }
   bridge.getPendingPermissions.mockImplementation(async (sessionId: string) =>
     sessionId === "child-session" ? [childPermission] : [],
@@ -3484,8 +3499,8 @@ test("full access mode propagates to active task subagents and clears their pare
       id: "permission-2",
       sessionID: "child-session",
       action: "bash",
-      resources: ["npm install another-package"],
-      metadata: { command: "npm install another-package" },
+      resources: ["npm install -g cowsay another-package"],
+      metadata: { command: "npm install -g cowsay another-package" },
     },
   })
   await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
@@ -3658,8 +3673,8 @@ test("forgetSession clears session-scoped permission state", async () => {
       id: "permission-1",
       sessionID: "session-1",
       action: "bash",
-      resources: ["npm install"],
-      metadata: { command: "npm install" },
+      resources: ["npm install -g cowsay"],
+      metadata: { command: "npm install -g cowsay" },
     },
   })
 
@@ -3707,8 +3722,8 @@ test("permission mode persistence failures roll back the runtime mode", async ()
       id: "permission-1",
       sessionID: "session-1",
       action: "bash",
-      resources: ["npm install"],
-      metadata: { command: "npm install" },
+      resources: ["npm install -g cowsay"],
+      metadata: { command: "npm install -g cowsay" },
     },
   })
 
@@ -4323,8 +4338,8 @@ test("default command approvals still prompt unsafe package mutations", async ()
       id: "permission-3",
       sessionID: "session-1",
       action: "bash",
-      resources: ["npm install"],
-      metadata: { command: "npm install" },
+      resources: ["npm install -g cowsay"],
+      metadata: { command: "npm install -g cowsay" },
     },
   })
 
@@ -5401,4 +5416,36 @@ test("draft save rejects a stale owner after persistence completes", async () =>
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test("ordinary dependency scripts auto-reply without a user-facing permission card", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "Check the PDF" })
+  const commands = [
+    'PROC=/work/task\npython3 -m venv "$PROC/.wanta-python" && "$PROC/.wanta-python/bin/python" -m pip install -q pypdf && "$PROC/.wanta-python/bin/python" - <<\'PY\'\nfrom pypdf import PdfReader\nprint(42)\nPY',
+    "ROOT=/work/task\npnpm --dir \"$ROOT\" add lodash && node <<'JS'\nconsole.log(42)\nJS",
+  ]
+  for (const [index, command] of commands.entries()) {
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: {
+        id: `dependency-${index}`,
+        sessionID: "session-1",
+        action: "bash",
+        resources: [command],
+        metadata: { command },
+      },
+    })
+  }
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === commands.length)
+  expect(bridge.answerPermission.mock.calls).toEqual([
+    ["session-1", "dependency-0", "once"],
+    ["session-1", "dependency-1", "once"],
+  ])
+  expect(events.some((event) => event.event === "permissionAsked")).toBe(false)
+  expect(bridge.promptStreaming).toHaveBeenCalledTimes(1)
+  service.dispose()
 })

@@ -3315,6 +3315,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           sessionId: sourceSessionId,
           requestId: req.requestId,
           reply: req.reply,
+          ...(req.reply === "reject" ? { message: permissionRejectionMessage({ source: "user" }) } : {}),
         }),
     )
     if (req.reply === "always") {

@@ -223,6 +223,7 @@ export type LocalPermissionPromptReason =
   | "broad_resource"
   | "dependency_mutation"
   | "high_risk_command"
+  | "project_environment_write"
   | "sensitive_resource"
   | "unclassified_request"
 export interface ChatPermissionRequest {

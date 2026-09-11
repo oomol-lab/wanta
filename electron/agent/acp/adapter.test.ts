@@ -984,7 +984,7 @@ describe("AcpAgentAdapter", () => {
   test.each([
     [undefined, "allow"],
     ["/work/project", "allow"],
-    ["/work/other", "prompt"],
+    ["/work/other", "allow"],
   ] as const)("permission scope uses explicit cwd or session cwd: %s", async (cwd, decision) => {
     const harness = await createHarness({
       prompt: async (turn) => {

@@ -111,7 +111,7 @@ test("buildPermissionModeSystem describes default access", () => {
   assert.match(prompt, /git restore/)
   assert.match(prompt, /named `docker rm`/)
   assert.match(prompt, /deleting `\/tmp` or `\/var\/tmp` themselves/)
-  assert.match(prompt, /unrelated temporary directories are not automatically approved/)
+  assert.match(prompt, /unrelated temporary directories are not automatically approved/i)
   assert.match(prompt, /A `\.env` file inside the selected project may be read automatically/)
   assert.match(prompt, /selected-project virtual-environment interpreter/)
   assert.match(prompt, /visible integrated browser/)

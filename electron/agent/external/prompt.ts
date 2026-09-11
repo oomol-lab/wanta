@@ -15,6 +15,9 @@ export function externalAgentPromptText(
       ? `- Temporary scripts, raw responses, logs, and scratch files must be written to this exact process directory: ${input.processDir}`
       : undefined,
     input.processDir
+      ? "- Create a fresh, uniquely named subdirectory for temporary resources such as browser profiles. Avoid making optional cleanup of old resources or broad process termination a prerequisite for the task. Keep necessary cleanup separate from generation and validation; ordinary commands may still be combined."
+      : undefined,
+    input.processDir
       ? "- If a file exceeds a read tool's token limit, inspect its byte and line counts first. For a very long single-line file, use search or byte-range shell reads; do not retry the same line-based read with only a smaller line limit."
       : undefined,
     input.processDir

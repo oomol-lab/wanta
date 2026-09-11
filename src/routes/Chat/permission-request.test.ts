@@ -396,7 +396,7 @@ test("default prompt detection only flags basic safety boundaries", () => {
     ),
     false,
   )
-  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "npm install" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "npm install" } })), false)
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "find ~ -type f" } })), false)
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -la ~" } })), false)
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -R ~" } })), false)

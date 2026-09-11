@@ -16,6 +16,9 @@ test("literal POSIX and Windows paths preserve existing cwd semantics", () => {
     [".", String.raw`C:\work\project`],
     ["../other", String.raw`C:\work\project`],
     [String.raw`D:\task`, String.raw`C:\work\project`],
+    [String.raw`\work\project`, String.raw`C:\outside`],
+    ["/work/project", String.raw`C:\outside`],
+    ["//server/share/project", String.raw`C:\outside`],
     ["child", String.raw`\\server\share\project`],
     ["../../..", String.raw`\\server\share\project`],
   ])
@@ -25,4 +28,6 @@ test("literal POSIX and Windows paths preserve existing cwd semantics", () => {
 test("relative paths without cwd and drive-relative targets remain unknown", () => {
   assert.equal(resolveShellPath(".venv/bin/python"), undefined)
   assert.equal(resolveShellPath("C:other", String.raw`C:\work\project`), undefined)
+  assert.equal(resolveShellPath(String.raw`\work\project`), undefined)
+  assert.equal(resolveShellPath(String.raw`\work\project`, String.raw`\\server\share\outside`), undefined)
 })

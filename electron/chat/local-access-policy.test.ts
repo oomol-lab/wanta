@@ -2129,3 +2129,38 @@ test("dynamic dependency verbs and option names prompt without resolving shell v
     }
   }
 })
+
+test("Windows rooted and UNC dependency destinations keep platform and containment", () => {
+  for (const isExternalSession of [false, true]) {
+    const driveScope = {
+      permissionMode: "default" as const,
+      trustedProjectRoot: String.raw`C:\work\project`,
+      commandCwd: String.raw`C:\outside`,
+      isExternalSession,
+    }
+    for (const directory of [String.raw`\work\project`, "/work/project"]) {
+      const command = `cd '${directory}' && npm install --prefix . lodash`
+      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), driveScope).type, "allow", command)
+    }
+    const uncScope = {
+      permissionMode: "default" as const,
+      trustedProjectRoot: String.raw`\\server\share\Project`,
+      taskProcessRoot: String.raw`\\server\share\Task`,
+      isExternalSession,
+    }
+    for (const command of [
+      String.raw`npm install --prefix '\\SERVER\SHARE\project' lodash`,
+      "npm install --prefix //SERVER/SHARE/project lodash",
+      String.raw`uv pip install --python '\\SERVER\SHARE\project\.venv\Scripts\python.exe' pypdf`,
+      "uv pip install --python //SERVER/SHARE/task/.wanta-python/Scripts/python.exe pypdf",
+    ])
+      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), uncScope).type, "allow", command)
+    for (const command of [
+      "npm install --prefix //server/share/project-other lodash",
+      "npm install --prefix //server/other/Project lodash",
+      "uv pip install --python //server/share/Project/bin/python pypdf",
+      "uv pip install --python //server/other/Project/.venv/Scripts/python.exe pypdf",
+    ])
+      assert.equal(evaluateLocalAccessRequest(permission({ metadata: { command } }), uncScope).type, "prompt", command)
+  }
+})

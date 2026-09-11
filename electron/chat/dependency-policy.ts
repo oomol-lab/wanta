@@ -627,11 +627,11 @@ function destinationAllowed(value: string, scope: DependencyScopeContext, python
     return [scope.taskProcessRoot, scope.trustedProjectRoot].some((root) => {
       const resolvedRoot = root ? resolveShellPath(root)?.replace(/\\/gu, "/") : undefined
       if (!resolvedRoot) return false
-      const normalize = (value: string) => (/^[A-Za-z]:\//u.test(target) ? value.toLowerCase() : value)
+      const normalize = (value: string) => (/^(?:[A-Za-z]:\/|\/\/)/u.test(target) ? value.toLowerCase() : value)
       const base = normalize(resolvedRoot).replace(/\/$/u, "")
       return normalize(target) === base || normalize(target).startsWith(`${base}/`)
     })
-  const platform = /^[A-Za-z]:\//u.test(target) ? "win32" : "linux"
+  const platform = /^(?:[A-Za-z]:\/|\/\/)/u.test(target) ? "win32" : "linux"
   const normalize = (value: string) => (platform === "win32" ? value.toLowerCase() : value)
   const executables = [
     ...(scope.taskProcessRoot ? managedPythonExecutables(scope.taskProcessRoot, platform) : []),

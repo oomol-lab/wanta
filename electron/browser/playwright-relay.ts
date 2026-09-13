@@ -41,6 +41,7 @@ export class PlaywrightWebContentsRelay {
   private targetInfo: CDPTargetInfo | null = null
   private transport: ConnectOverCDPTransport | null = null
   private autoAttached = false
+  private readonly screenshotCommands = new Set<Promise<unknown>>()
 
   public constructor(contents: WebContents) {
     this.contents = contents
@@ -74,6 +75,12 @@ export class PlaywrightWebContentsRelay {
     this.browser = null
     if (browser) await browser.close().catch(() => undefined)
     this.closeTransport()
+  }
+
+  public async waitForScreenshots(): Promise<void> {
+    // Playwright can reject on cancellation before CDP finishes restoring the
+    // native viewport. Geometry must wait for the underlying command as well.
+    await Promise.allSettled(this.screenshotCommands)
   }
 
   private readonly handleDebuggerMessage = (
@@ -114,8 +121,13 @@ export class PlaywrightWebContentsRelay {
       return
     }
 
-    void this.contents.debugger
-      .sendCommand(method, params, sessionId === pageSessionId ? undefined : sessionId)
+    const command = this.contents.debugger.sendCommand(
+      method,
+      params,
+      sessionId === pageSessionId ? undefined : sessionId,
+    )
+    if (method === "Page.captureScreenshot") this.screenshotCommands.add(command)
+    void command
       .then((result) => this.emit({ id, result, sessionId }))
       .catch((error: unknown) => {
         this.emit({
@@ -124,6 +136,7 @@ export class PlaywrightWebContentsRelay {
           sessionId,
         })
       })
+      .finally(() => this.screenshotCommands.delete(command))
   }
 
   private announcePage(): void {

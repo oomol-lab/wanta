@@ -40,6 +40,8 @@ export class BrowserPage {
   public readonly sessionId: string
   private crashed = false
   private currentBounds: BrowserViewBounds | null = null
+  private pendingShowBounds: BrowserViewBounds | null = null
+  private screenshotsInFlight = 0
   private currentDialog: Dialog | null = null
   private documentColorScheme: string | null = null
   private readonly mainWindow: ElectronBrowserWindow
@@ -111,6 +113,15 @@ export class BrowserPage {
   }
 
   public show(bounds: BrowserViewBounds): void {
+    // CDP screenshots temporarily resize the native viewport and restore its old
+    // size on completion. Resizing during capture leaves that restored viewport
+    // out of sync with the View bounds, corrupting subsequent on-screen scrolling.
+    if (this.screenshotsInFlight > 0) {
+      if (this.visible && sameBrowserBounds(this.currentBounds, bounds)) return
+      this.hide()
+      this.pendingShowBounds = { ...bounds }
+      return
+    }
     if (this.visible) {
       if (!sameBrowserBounds(this.currentBounds, bounds)) {
         this.view.setBounds(bounds)
@@ -128,6 +139,7 @@ export class BrowserPage {
   }
 
   public hide(): void {
+    this.pendingShowBounds = null
     if (!this.visible) return
     this.mainWindow.contentView.removeChildView(this.view)
     this.visible = false
@@ -215,8 +227,21 @@ export class BrowserPage {
     return this.read(undefined, signal)
   }
 
-  public screenshot(fullPage: boolean, signal?: AbortSignal): Promise<Buffer> {
-    return this.requirePage().screenshot({ fullPage, signal, type: "png" })
+  public async screenshot(fullPage: boolean, signal?: AbortSignal): Promise<Buffer> {
+    const page = this.requirePage()
+    const relay = this.relay
+    this.screenshotsInFlight += 1
+    try {
+      return await page.screenshot({ fullPage, signal, type: "png" })
+    } finally {
+      await relay?.waitForScreenshots()
+      this.screenshotsInFlight -= 1
+      if (this.screenshotsInFlight === 0 && this.pendingShowBounds) {
+        const bounds = this.pendingShowBounds
+        this.pendingShowBounds = null
+        if (!this.isCrashed()) this.show(bounds)
+      }
+    }
   }
 
   public async handleDialog(accept: boolean, promptText?: string): Promise<BrowserReadResult> {

@@ -83,10 +83,8 @@ app.whenReady().then(async () => {
               captureSettled = true
             },
           )
-          setTimeout(() => {
-            resizedDuringCapture = !captureSettled
-            page.show(after)
-          }, 5)
+          resizedDuringCapture = !captureSettled
+          page.show(after)
         }
         return result
       }
@@ -99,9 +97,11 @@ app.whenReady().then(async () => {
       assert.ok(resizedDuringCapture, "The resize must overlap the actual CDP capture")
       const viewport = await contents.executeJavaScript("({width:innerWidth,height:innerHeight})")
       assert.deepEqual(viewport, { width: after.width, height: after.height })
+      const scrollBefore = await contents.executeJavaScript("scrollY")
       await page.scroll(undefined, 0, 300)
       await pause(100)
-      assert.ok(await contents.executeJavaScript("scrollY > 0"))
+      const scrollAfter = await contents.executeJavaScript("scrollY")
+      assert.ok(scrollAfter > scrollBefore, "Each scroll must advance the page")
       console.log(JSON.stringify({ result: "pass", before, after, viewport }))
     }
   } catch (error) {

@@ -690,9 +690,9 @@ const ProviderCard = React.memo(function ProviderCard({
         <span className="grid min-w-0 gap-0.5">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
-            {marketplaceApp ? (
-              <Badge variant="secondary" className="shrink-0" title={t("connections.marketplaceManaged")}>
-                {t("connections.marketplaceManaged")}
+            {marketplaceApp && provider.appCount > 1 ? (
+              <Badge variant="secondary" className="shrink-0" title={t("connections.marketplaceAccount")}>
+                {t("connections.marketplaceAccount")}
               </Badge>
             ) : null}
           </span>

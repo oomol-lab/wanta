@@ -480,8 +480,11 @@ export function getProviderMeta(provider: ConnectionProviderSummary, t: Translat
   if (isDirectlyAvailableProvider(provider)) {
     return getProviderCategoryLabel(provider, t)
   }
+  if (provider.appCount === 1 && getProviderMarketplaceApp(provider)) {
+    return t("connections.marketplaceAccount")
+  }
   if (provider.status === "connected" && provider.appCount === 1 && provider.accountLabel) {
-    return provider.appAuthType === "marketplace" ? t("connections.marketplaceAccount") : provider.accountLabel
+    return provider.accountLabel
   }
   if (provider.status === "connected") {
     return t("connections.connectionCount", { count: provider.appCount })

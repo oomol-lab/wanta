@@ -141,6 +141,8 @@ test("Marketplace connections are selectable but not mutable credentials", () =>
   })
   const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
 
+  assert.equal(getProviderMeta(managed, t), "OOMOL built-in account")
+  assert.equal(getProviderMeta({ ...managed, appCount: 2 }, t), "2 connections")
   assert.equal(isMarketplaceApp(marketplaceApp), true)
   assert.equal(canMutateConnectionApp(marketplaceApp), false)
   assert.equal(getDefaultAuthType(managed), "api_key")

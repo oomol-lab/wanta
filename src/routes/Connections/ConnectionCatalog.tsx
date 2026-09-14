@@ -22,6 +22,7 @@ import {
   providerGridGapPx,
 } from "./provider-grid-virtualization.ts"
 import { ProviderIcon } from "./ProviderIcon.tsx"
+import { ProviderPriceBadge } from "./ProviderPriceBadge.tsx"
 import { authTypeLabel as getAuthTypeLabel } from "./shared.ts"
 import { SearchField } from "@/components/SearchField"
 import { Badge } from "@/components/ui/badge"
@@ -598,7 +599,7 @@ export const ProviderCatalog = React.memo(function ProviderCatalog({
   return (
     <div
       ref={gridRef}
-      className="relative overflow-hidden rounded-lg border"
+      className="relative box-content overflow-hidden rounded-lg border"
       style={{ height: visibleRange.totalHeight }}
     >
       <div
@@ -668,7 +669,7 @@ const ProviderCard = React.memo(function ProviderCard({
         if (targetIndex !== index) onNavigate(targetIndex)
       }}
       className={cn(
-        "group/card relative grid min-w-0 cursor-pointer overflow-hidden border-r border-b bg-card px-4 py-3 text-left text-card-foreground transition-[background-color,box-shadow,transform] outline-none hover:bg-[var(--oo-row-hover)] focus-visible:z-10 focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
+        "group/card relative grid min-w-0 cursor-pointer items-center overflow-hidden border-r border-b bg-card px-4 py-2 text-left text-card-foreground transition-[background-color,box-shadow,transform] outline-none hover:bg-[var(--oo-row-hover)] focus-visible:z-10 focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
         index === 0 && "rounded-tl-[calc(var(--radius-lg)_-_1px)]",
         index < columnCount &&
           (index === itemCount - 1 || index % columnCount === columnCount - 1) &&
@@ -689,13 +690,16 @@ const ProviderCard = React.memo(function ProviderCard({
         <span className="grid min-w-0 gap-0.5">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
-            {marketplaceApp ? (
-              <Badge variant="secondary" className="shrink-0" title={t("connections.marketplaceManaged")}>
-                {t("connections.marketplaceManaged")}
+            {marketplaceApp && provider.appCount > 1 ? (
+              <Badge variant="secondary" className="shrink-0" title={t("connections.marketplaceAccount")}>
+                {t("connections.marketplaceAccount")}
               </Badge>
             ) : null}
           </span>
-          <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <ProviderPriceBadge provider={provider} />
+            <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
+          </span>
         </span>
         {statusLabel && tone === "directly-available" ? (
           <Badge

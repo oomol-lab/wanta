@@ -1389,6 +1389,8 @@
   "connections.defaultConnection": "デフォルト",
   "connections.setDefaultConnection": "デフォルトに設定",
   "connections.marketplaceAccount": "OOMOL 組み込みアカウント",
+  "connections.priceAdvantage.comparison": "公式価格",
+  "connections.priceAdvantage.description": "OOMOL 組み込みアカウント：公式価格より {percent} お得",
   "connections.marketplaceManaged": "OOMOL 管理",
   "connections.marketplaceBilling": "使用量",
   "connections.marketplaceMetered": "OOMOL Credits を消費",

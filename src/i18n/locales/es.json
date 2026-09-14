@@ -1389,6 +1389,8 @@
   "connections.defaultConnection": "Predeterminada",
   "connections.setDefaultConnection": "Establecer como predeterminada",
   "connections.marketplaceAccount": "Cuenta integrada de OOMOL",
+  "connections.priceAdvantage.comparison": "Precio oficial",
+  "connections.priceAdvantage.description": "Cuenta integrada de OOMOL: {percent} menos que el precio oficial",
   "connections.marketplaceManaged": "Gestionada por OOMOL",
   "connections.marketplaceBilling": "Uso",
   "connections.marketplaceMetered": "Usa OOMOL Credits",

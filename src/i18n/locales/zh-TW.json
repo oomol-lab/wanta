@@ -1389,6 +1389,8 @@
   "connections.defaultConnection": "預設",
   "connections.setDefaultConnection": "設為預設",
   "connections.marketplaceAccount": "OOMOL 內建帳號",
+  "connections.priceAdvantage.comparison": "官方價",
+  "connections.priceAdvantage.description": "OOMOL 內建帳號：比官方價低 {percent}",
   "connections.marketplaceManaged": "由 OOMOL 管理",
   "connections.marketplaceBilling": "用量",
   "connections.marketplaceMetered": "使用 OOMOL Credits",

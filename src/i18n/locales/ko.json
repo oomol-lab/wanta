@@ -1389,6 +1389,8 @@
   "connections.defaultConnection": "기본",
   "connections.setDefaultConnection": "기본으로 설정",
   "connections.marketplaceAccount": "OOMOL 내장 계정",
+  "connections.priceAdvantage.comparison": "공식 가격",
+  "connections.priceAdvantage.description": "OOMOL 내장 계정: 공식 가격 대비 {percent} 할인",
   "connections.marketplaceManaged": "OOMOL 관리",
   "connections.marketplaceBilling": "사용량",
   "connections.marketplaceMetered": "OOMOL 크레딧 사용",

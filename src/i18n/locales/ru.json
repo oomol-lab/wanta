@@ -1389,6 +1389,8 @@
   "connections.defaultConnection": "По умолчанию",
   "connections.setDefaultConnection": "Сделать по умолчанию",
   "connections.marketplaceAccount": "Встроенный аккаунт OOMOL",
+  "connections.priceAdvantage.comparison": "Официальная цена",
+  "connections.priceAdvantage.description": "Встроенный аккаунт OOMOL: на {percent} ниже официальной цены",
   "connections.marketplaceManaged": "Управляется OOMOL",
   "connections.marketplaceBilling": "Использование",
   "connections.marketplaceMetered": "Использует кредиты OOMOL",

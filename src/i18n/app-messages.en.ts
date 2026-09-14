@@ -1505,6 +1505,8 @@ export const enMessages = {
   "connections.defaultConnection": "Default",
   "connections.setDefaultConnection": "Set as default",
   "connections.marketplaceAccount": "OOMOL built-in account",
+  "connections.priceAdvantage.comparison": "Official price",
+  "connections.priceAdvantage.description": "OOMOL built-in account: {percent} below the official price",
   "connections.marketplaceManaged": "OOMOL managed",
   "connections.marketplaceBilling": "Usage",
   "connections.marketplaceMetered": "Uses OOMOL Credits",

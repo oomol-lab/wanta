@@ -22,6 +22,7 @@ import {
   providerGridGapPx,
 } from "./provider-grid-virtualization.ts"
 import { ProviderIcon } from "./ProviderIcon.tsx"
+import { ProviderPriceBadge } from "./ProviderPriceBadge.tsx"
 import { authTypeLabel as getAuthTypeLabel } from "./shared.ts"
 import { SearchField } from "@/components/SearchField"
 import { Badge } from "@/components/ui/badge"
@@ -695,7 +696,10 @@ const ProviderCard = React.memo(function ProviderCard({
               </Badge>
             ) : null}
           </span>
-          <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <ProviderPriceBadge provider={provider} />
+            <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
+          </span>
         </span>
         {statusLabel && tone === "directly-available" ? (
           <Badge

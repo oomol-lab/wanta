@@ -1436,6 +1436,8 @@ export const zhCNMessages = {
   "connections.defaultConnection": "默认",
   "connections.setDefaultConnection": "设为默认",
   "connections.marketplaceAccount": "OOMOL 内置账号",
+  "connections.priceAdvantage.comparison": "官方价",
+  "connections.priceAdvantage.description": "OOMOL 内置账号：比官方价低 {percent}",
   "connections.marketplaceManaged": "OOMOL 托管",
   "connections.marketplaceBilling": "计费",
   "connections.marketplaceMetered": "使用 OOMOL Credits",

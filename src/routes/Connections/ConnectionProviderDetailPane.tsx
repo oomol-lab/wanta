@@ -30,6 +30,7 @@ import {
 } from "./connection-route-model.ts"
 import { AuthTypeToggleGroup, ConnectionAccountsList } from "./ConnectionAccountsList.tsx"
 import { ProviderIcon } from "./ProviderIcon.tsx"
+import { ProviderPriceBadge } from "./ProviderPriceBadge.tsx"
 import { Loader } from "@/components/ai-elements/loader"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
@@ -155,6 +156,7 @@ export function ProviderDetail({
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="oo-text-title truncate">{provider.displayName}</h2>
+              <ProviderPriceBadge provider={provider} />
               {direct ? <Badge variant="secondary">{t("connections.directMode")}</Badge> : null}
               {marketplaceApp ? <Badge variant="secondary">{t("connections.marketplaceManaged")}</Badge> : null}
               <ProviderStatusBadge canManageConnections={canManageConnections} provider={provider} />

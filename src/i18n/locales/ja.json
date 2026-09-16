@@ -1877,6 +1877,7 @@
   "teams.roleCreator": "作成者",
   "teams.roleAdmin": "管理者",
   "teams.roleMember": "メンバー",
+  "teams.roleGuest": "ゲスト",
   "teams.changeMemberRole": "{{name}}のチームロールを変更",
   "teams.createTeam": "チームを作成",
   "teams.createNewTeam": "新しいチームを作成",

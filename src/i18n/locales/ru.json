@@ -1877,6 +1877,7 @@
   "teams.roleCreator": "Создатель",
   "teams.roleAdmin": "Администратор",
   "teams.roleMember": "Участник",
+  "teams.roleGuest": "Гость",
   "teams.changeMemberRole": "Изменить роль {{name}} в команде",
   "teams.createTeam": "Создать команду",
   "teams.createNewTeam": "Создать новую команду",

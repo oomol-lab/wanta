@@ -181,3 +181,46 @@ test("two submissions while the write is pending send only one POST", async () =
     await probe.dispose()
   }
 })
+
+test("adding a user refreshes a team containing Console's guest service account", async () => {
+  const userId = "019fb724-1500-7d79-a783-1642d99ed93e"
+  let added = false
+  const summaryRequests: string[] = []
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes("/members")) {
+        expect(new URL(url).hostname).toContain("relation-control.")
+        if (init?.method === "POST") {
+          added = true
+          return new Response(null, { status: 204 })
+        }
+        return Response.json({
+          members: [
+            { user_id: "creator", role: "creator" },
+            { user_id: "guest-id", role: "guest", user_type: "service-account", disable: false },
+            ...(added ? [{ user_id: userId, role: "member", user_type: "user" }] : []),
+          ],
+        })
+      }
+      if (url.includes("/service-accounts"))
+        return Response.json({ service_accounts: [{ id: "guest-id", name: "guest" }] })
+      summaryRequests.push(String(init?.body ?? url))
+      return Response.json({ creator: { username: "Creator" }, [userId]: { username: "Added" } })
+    }),
+  )
+  const probe = await mountProbe(userId)
+  try {
+    expect(probe.current().details.membersState.status).toBe("ready")
+    await act(async () => probe.current().actions.addMember({ preventDefault() {} } as React.FormEvent))
+    const { details, addError } = probe.current()
+    expect(addError).toBeNull()
+    expect(details.membersState.status).toBe("ready")
+    expect(details.membersState.data.map((member) => member.user_id)).toEqual(["creator", "guest-id", userId])
+    expect(details.serviceAccountsState.data[0]?.name).toBe("guest")
+    expect(summaryRequests.join(" ")).not.toContain("guest-id")
+  } finally {
+    await probe.dispose()
+  }
+})

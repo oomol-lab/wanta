@@ -4,6 +4,7 @@ import type { BusyAction, MemberSearchState } from "./team-management-model.ts"
 import * as React from "react"
 import { toast } from "sonner"
 import { teamErrorMessage } from "./team-errors.ts"
+import { isRemovableTeamMember } from "./team-management-model.ts"
 import { errorMessage, resolveMemberInput, uniqueStrings } from "./team-management-model.ts"
 import { useAppI18n } from "@/i18n"
 import { invalidateTeamDetailsResource } from "@/lib/team-details-resource"
@@ -144,7 +145,7 @@ export function useTeamMemberActions({
 
   const removeMember = React.useCallback(
     async (member: TeamMember) => {
-      if (!selectedTeam || !canManage) return
+      if (!selectedTeam || !canManage || !isRemovableTeamMember(member)) return
       const operation = beginOperation(`remove:${member.user_id}`)
       try {
         await removeTeamMember({ teamId: selectedTeam.id, userId: member.user_id })

@@ -1,11 +1,15 @@
 export type TeamRole = "creator" | "admin" | "member"
-export type EditableTeamMemberRole = Exclude<TeamRole, "creator">
+export type TeamStatus = "normal" | "paused"
+export type TeamMemberRole = TeamRole | "guest"
+export type EditableTeamMemberRole = Exclude<TeamMemberRole, "creator" | "guest">
+export type TeamMemberType = "user" | "service-account"
 
 export interface Team {
   id: string
   name: string
   avatar: string
   creator_user_id: string
+  status?: TeamStatus
   role?: TeamRole
   system_created?: boolean
   writable?: boolean
@@ -14,7 +18,9 @@ export interface Team {
 export interface TeamMember {
   disable?: boolean
   user_id: string
-  role: TeamRole
+  role: TeamMemberRole
+  user_type?: TeamMemberType
+  name?: string
 }
 
 export type TeamAppAccess = Record<string, Record<string, unknown>>
@@ -69,4 +75,13 @@ export interface UpdateTeamMemberRoleRequest {
   role: EditableTeamMemberRole
   teamId: string
   userId: string
+}
+
+export interface ServiceAccount {
+  id: string
+  name: string
+  creator_user_id: string
+  status: string
+  created_at: string
+  updated_at: string
 }

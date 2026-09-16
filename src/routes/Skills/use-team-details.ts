@@ -1,10 +1,11 @@
-import type { Team, TeamMember, TeamUserSummary } from "../../../electron/teams/common.ts"
+import type { ServiceAccount, Team, TeamMember, TeamUserSummary } from "../../../electron/teams/common.ts"
 import type { LoadState } from "./team-management-model.ts"
 
 import * as React from "react"
 import { errorState, loadState, loadingState, readyState, uniqueStrings } from "./team-management-model.ts"
 import {
   getCachedTeamMembers,
+  getServiceAccountsResource,
   getCachedTeamUserSummaries,
   getTeamMembersResource,
   getTeamUserSummariesResource,
@@ -33,6 +34,9 @@ export function useTeamDetails({
   const [summariesState, setSummariesState] = React.useState<LoadState<Record<string, TeamUserSummary>>>(() =>
     loadState({}),
   )
+  const [serviceAccountsState, setServiceAccountsState] = React.useState<LoadState<ServiceAccount[]>>(() =>
+    loadState([]),
+  )
   const mountedRef = React.useRef(false)
   const requestIdRef = React.useRef(0)
   const loadedTeamIdRef = React.useRef<string | null>(null)
@@ -49,6 +53,7 @@ export function useTeamDetails({
     requestIdRef.current += 1
     loadedTeamIdRef.current = null
     setMembersState(loadState([]))
+    setServiceAccountsState(loadState([]))
     setSummariesState(loadState({}))
   }, [])
 
@@ -67,9 +72,9 @@ export function useTeamDetails({
       const fallbackUserIds = uniqueStrings([team.creator_user_id, activeAccountId ?? ""])
       const summaryIds = (members: TeamMember[]) =>
         uniqueStrings([
-          ...(includeAllSummaries ? members : members.slice(0, members.length > 5 ? 4 : 5)).map(
-            (member) => member.user_id,
-          ),
+          ...(includeAllSummaries ? members : members.slice(0, members.length > 5 ? 4 : 5))
+            .filter((member) => member.user_type !== "service-account")
+            .map((member) => member.user_id),
           ...fallbackUserIds,
         ])
       const cachedSummaryUserIds = summaryIds(cachedMembers ?? [])
@@ -83,10 +88,15 @@ export function useTeamDetails({
         cachedSummaries ? readyState(cachedSummaries) : loadingState(preserveCurrentData ? current : loadState({})),
       )
 
+      setServiceAccountsState((current) => loadingState(preserveCurrentData ? current : loadState([])))
       const membersResult = await settle(
         getTeamMembersResource(resourceAccountId, team.id, { forceRefresh: options.forceRefresh }),
       )
       if (requestIdRef.current !== requestId) return
+      const serviceAccountsPromise =
+        membersResult.ok && membersResult.value.some((member) => member.user_type === "service-account")
+          ? settle(getServiceAccountsResource(resourceAccountId, options))
+          : Promise.resolve<AsyncResult<ServiceAccount[]>>({ ok: true, value: [] })
       const summaryUserIds = membersResult.ok ? summaryIds(membersResult.value) : fallbackUserIds
       const summariesPromise = summaryUserIds.length
         ? settle(getTeamUserSummariesResource(resourceAccountId, team.id, summaryUserIds))
@@ -95,10 +105,15 @@ export function useTeamDetails({
       if (membersResult.ok) setMembersState(readyState(membersResult.value))
       else setMembersState((current) => errorState(current, membersResult.error))
 
-      const summariesResult = await summariesPromise
+      const [summariesResult, serviceAccountsResult] = await Promise.all([summariesPromise, serviceAccountsPromise])
       if (requestIdRef.current !== requestId) return
       setSummariesState((current) =>
         summariesResult.ok ? readyState(summariesResult.value) : errorState(current, summariesResult.error),
+      )
+      setServiceAccountsState((current) =>
+        serviceAccountsResult.ok
+          ? readyState(serviceAccountsResult.value)
+          : errorState(current, serviceAccountsResult.error),
       )
       loadedTeamIdRef.current = team.id
     },
@@ -135,5 +150,5 @@ export function useTeamDetails({
     if (selectedTeam && selectedTeamIdRef.current === selectedTeam.id) await load(selectedTeam)
   }, [load, selectedTeam])
 
-  return { membersState, refresh, reload, summariesState }
+  return { membersState, refresh, reload, summariesState, serviceAccountsState }
 }

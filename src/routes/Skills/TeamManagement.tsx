@@ -189,6 +189,7 @@ export function TeamManagementRoute({
     refresh: refreshDetails,
     reload,
     summariesState,
+    serviceAccountsState,
   } = useTeamDetails({
     activeAccountId,
     selectedTeam,
@@ -213,8 +214,16 @@ export function TeamManagementRoute({
         members: membersState.data,
         team: selectedTeam,
         summaries: summariesState.data,
+        serviceAccounts: serviceAccountsState.data,
       }),
-    [activeAccount, activeWorkspace.role, membersState.data, selectedTeam, summariesState.data],
+    [
+      activeAccount,
+      activeWorkspace.role,
+      membersState.data,
+      selectedTeam,
+      summariesState.data,
+      serviceAccountsState.data,
+    ],
   )
   const membersError = membersState.error
   const membersForbidden = membersState.errorStatus === 403

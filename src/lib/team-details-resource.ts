@@ -1,7 +1,13 @@
 import type { ConnectionAppSummary } from "../../electron/connections/common.ts"
-import type { TeamAppAccess, TeamMember, TeamUserSummary } from "../../electron/teams/common.ts"
+import type { ServiceAccount, TeamAppAccess, TeamMember, TeamUserSummary } from "../../electron/teams/common.ts"
 
-import { getTeamAppAccess, listTeamConnectionApps, listTeamMembers, listUserSummaries } from "./teams-client.ts"
+import {
+  getTeamAppAccess,
+  listServiceAccounts,
+  listTeamConnectionApps,
+  listTeamMembers,
+  listUserSummaries,
+} from "./teams-client.ts"
 
 const teamDetailsStaleMs = 60_000
 const teamDetailsMaxEntries = 256
@@ -260,4 +266,11 @@ function notifyResourceEntry(entry: ResourceEntry<unknown>): void {
   for (const listener of entry.listeners) {
     listener()
   }
+}
+
+export function getServiceAccountsResource(
+  accountId: string,
+  options: TeamDetailsResourceOptions = {},
+): Promise<ServiceAccount[]> {
+  return loadResource(resourceKey(accountId, "", "service-accounts"), listServiceAccounts, options.forceRefresh)
 }

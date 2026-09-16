@@ -1877,6 +1877,7 @@
   "teams.roleCreator": "Creador",
   "teams.roleAdmin": "Administrador",
   "teams.roleMember": "Miembro",
+  "teams.roleGuest": "Invitado",
   "teams.changeMemberRole": "Cambiar el rol de equipo de {{name}}",
   "teams.createTeam": "Crear equipo",
   "teams.createNewTeam": "Crear nuevo equipo",

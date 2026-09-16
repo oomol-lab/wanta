@@ -3,6 +3,7 @@ import type { BusyAction, MemberView } from "./team-management-model.ts"
 
 import { MoreHorizontalIcon, Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react"
 import * as React from "react"
+import { isRemovableTeamMember } from "./team-management-model.ts"
 import { TeamUserAvatar } from "./TeamUserAvatar.tsx"
 import { hasMemberStatus, isBulkEditableMember, useMemberStatusSelection } from "./use-member-status-selection.ts"
 import { CopyIconButton } from "@/components/CopyIconButton"
@@ -174,7 +175,7 @@ export function MembersTable({
       ) : null}
       <div className="divide-y">
         {members.map((member) => {
-          const canRemove = canManage && member.role !== "creator"
+          const canRemove = canManage && isRemovableTeamMember(member)
           const canUpdateRole =
             member.role !== "creator" &&
             canChangeTeamMemberRole({

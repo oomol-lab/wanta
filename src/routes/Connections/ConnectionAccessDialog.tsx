@@ -142,7 +142,9 @@ export function ConnectionAccessDialog({
       setSnapshot(nextSnapshot)
       setActions(normalizeActions(localizeConnectionActions(app.service, nextActions.data, locale)))
       setMembers(nextMembers)
-      const userIds = uniqueStrings(nextMembers.map((member) => member.user_id))
+      const userIds = uniqueStrings(
+        nextMembers.filter((member) => member.user_type !== "service-account").map((member) => member.user_id),
+      )
       if (userIds.length > 0) {
         const nextSummaries = await getTeamUserSummariesResource(accountId, context.team.id, userIds)
         if (requestIdRef.current === requestId) setSummaries(nextSummaries)

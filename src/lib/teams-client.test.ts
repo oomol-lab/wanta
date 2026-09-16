@@ -420,7 +420,7 @@ describe("member failure explanations", () => {
     [{ members: null }, "Expected members array; received null"],
     [
       { members: [{ user_id: "private-id", role: "private-role" }] },
-      "members[0]: role must be creator, admin, or member",
+      "members[0]: role must be creator, admin, member, or guest",
     ],
     [{ members: [{ role: "member" }] }, "members[0]: user_id must be a non-empty string; received missing"],
     ["<html>private-response</html>", "Expected JSON object; received string"],
@@ -473,5 +473,36 @@ describe("member failure explanations", () => {
     expect(error.message).toContain("status=unavailable")
     expect(error.message).toContain("cannot distinguish DNS, TLS, proxy, CORS, or connection failures")
     expect(error.message).not.toContain("private-token")
+  })
+})
+
+describe("Console team member contract", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("reads guest and service-account members from relation-control without dropping their identity", async () => {
+    const members = [
+      { user_id: "creator", role: "creator", user_type: "user", disable: false },
+      { user_id: "guest-account", role: "guest", user_type: "service-account", name: "guest", disable: false },
+      { user_id: "automation", role: "member", user_type: "service-account", name: "Automation" },
+    ]
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ members }))
+    vi.stubGlobal("fetch", fetchMock)
+    await expect(listTeamMembers("team-1")).resolves.toEqual(members)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(
+      /^https:\/\/relation-control\.[^/]+\/v1\/teams\/team-1\/members$/,
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    [{ role: "owner" }, "role must be creator, admin, member, or guest"],
+    [{ user_type: "robot" }, "user_type must be user or service-account"],
+    [{ name: 123 }, "name must be a string"],
+  ])("rejects malformed members without inventing a compatible role", async (override, reason) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ members: [{ user_id: "id", role: "guest", ...override }] })),
+    )
+    await expect(listTeamMembers("team-1")).rejects.toThrow(reason)
   })
 })

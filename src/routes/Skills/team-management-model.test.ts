@@ -4,6 +4,8 @@ import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
   buildMemberViews,
+  countOccupiedTeamSeats,
+  isRemovableTeamMember,
   buildTeamMemberViews,
   createTeamSkillPackageSet,
   errorState,
@@ -276,3 +278,19 @@ function member(userId: string): TeamMember {
     user_id: userId,
   }
 }
+
+test("Console guest service accounts retain their identity and do not occupy seats", () => {
+  const guest: TeamMember = { user_id: "guest-id", role: "guest", user_type: "service-account" }
+  const worker: TeamMember = { user_id: "worker", role: "member", user_type: "service-account", name: "Worker" }
+  const views = buildMemberViews([guest, worker, { user_id: "owner", role: "creator" }], {}, [
+    { id: "guest-id", name: "guest", creator_user_id: "owner", status: "normal", created_at: "", updated_at: "" },
+  ])
+  assert.equal(views[0]?.displayName, "guest")
+  assert.equal(views[1]?.displayName, "Worker")
+  assert.equal(countOccupiedTeamSeats(views), 2)
+  assert.equal(isRemovableTeamMember(views[0]!), false)
+  assert.equal(isRemovableTeamMember(views[1]!), true)
+  assert.equal(isRemovableTeamMember(views[2]!), false)
+  assert.equal(teamRoleLabelKey("guest"), "teams.roleGuest")
+  assert.equal(teamRoleHasDefaultConnectionAccess("guest"), false)
+})

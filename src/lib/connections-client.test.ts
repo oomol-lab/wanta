@@ -40,6 +40,25 @@ describe("connections-client", () => {
     expect(result.authorizationUrl).toBeUndefined()
   })
 
+  it.each([undefined, "app-1"])(
+    "follows Console URL precedence when OAuth also returns app metadata (app %s)",
+    async (appId) => {
+      vi.stubGlobal("fetch", async () =>
+        Response.json({
+          data: {
+            authorizationUrl: "https://accounts.example.com/oauth",
+            app: { id: "app-1", service: "gmail", status: "reauth_required", authType: "oauth2" },
+          },
+        }),
+      )
+      await expect(
+        startOAuthConnect({ appId, service: "gmail", authType: "oauth2" }, managementWorkspace),
+      ).resolves.toEqual({
+        authorizationUrl: "https://accounts.example.com/oauth",
+      })
+    },
+  )
+
   it("rejects an OAuth response with neither a URL nor a valid app", async () => {
     vi.stubGlobal("fetch", async () => Response.json({ data: { app: {} } }))
     await expect(startOAuthConnect({ service: "gmail", authType: "oauth2" }, managementWorkspace)).rejects.toThrow(

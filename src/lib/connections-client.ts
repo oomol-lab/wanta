@@ -705,6 +705,7 @@ async function requestOAuthConnect(
     throw new Error("Connector connect request did not return an authorization URL or a connected app")
   }
   invalidateWorkspaceApps(workspace, input.appId)
+  // Console's wire response permits both fields; an authorization URL takes precedence over app metadata.
   return authorizationUrl
     ? { authorizationUrl: parseConnectorAuthorizationUrl(authorizationUrl).toString() }
     : { app: app! }

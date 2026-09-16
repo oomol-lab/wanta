@@ -36,7 +36,7 @@ test("seat preflight excludes guest accounts and ignores results from the previo
       teamId,
       accountId: "user",
       enabled: true,
-      membersComplete: true,
+      membersStatus: "ready",
       members: [
         { user_id: "user", role: "creator" },
         { user_id: "guest", user_type: "service-account", role: "guest" },
@@ -54,6 +54,38 @@ test("seat preflight excludes guest accounts and ignores results from the previo
     expect(view.reached).toBe(false)
     await act(async () => root.render(<Probe teamId="zero-capacity" />))
     expect(view).toEqual({ loading: false, reached: true })
+  } finally {
+    await act(async () => root.unmount())
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  }
+})
+
+test("seat preflight waits for member reads and releases the guard after a terminal read failure", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
+  vi.mocked(getTeamSubscriptionStatus).mockResolvedValue(subscription(1))
+  let view!: ReturnType<typeof useTeamSeatLimit>
+  function Probe({ status }: { status: "idle" | "loading" | "ready" | "error" }) {
+    view = useTeamSeatLimit({
+      teamId: "members-pending",
+      accountId: "user",
+      enabled: true,
+      membersStatus: status,
+      members: [{ user_id: "user", role: "creator" }],
+    })
+    return null
+  }
+  const root = createRoot(document.createElement("div"))
+  try {
+    await act(async () => root.render(<Probe status="idle" />))
+    expect(view).toEqual({ loading: true, reached: false })
+    await act(async () => root.render(<Probe status="loading" />))
+    expect(view).toEqual({ loading: true, reached: false })
+    await act(async () => root.render(<Probe status="ready" />))
+    expect(view).toEqual({ loading: false, reached: true })
+    await act(async () => root.render(<Probe status="error" />))
+    expect(view).toEqual({ loading: false, reached: false })
+    expect(getTeamSubscriptionStatus).toHaveBeenCalledTimes(1)
   } finally {
     await act(async () => root.unmount())
     vi.unstubAllGlobals()

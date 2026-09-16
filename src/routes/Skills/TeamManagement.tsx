@@ -279,7 +279,7 @@ export function TeamManagementRoute({
     teamId: selectedTeam?.id,
     enabled: addMemberOpen && canManage,
     members: membersState.data,
-    membersComplete,
+    membersStatus: membersState.status,
   })
   const memberActions = useTeamMemberActions({
     activeAccountId,

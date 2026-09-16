@@ -1,4 +1,5 @@
 import type { TeamMember } from "../../../electron/teams/common.ts"
+import type { LoadState } from "./team-management-model.ts"
 
 import * as React from "react"
 import { getTeamSubscriptionStatus } from "@/lib/billing-client"
@@ -10,13 +11,13 @@ export function useTeamSeatLimit({
   teamId,
   enabled,
   members,
-  membersComplete,
+  membersStatus,
 }: {
   accountId: string | undefined
   teamId: string | undefined
   enabled: boolean
   members: TeamMember[]
-  membersComplete: boolean
+  membersStatus: LoadState<TeamMember[]>["status"]
 }) {
   const key = `${accountId ?? ""}:${teamId ?? ""}`
   const [state, setState] = React.useState<{ key: string; maxMembers?: number; loading: boolean } | null>(null)
@@ -38,9 +39,11 @@ export function useTeamSeatLimit({
   }, [accountId, teamId, key, enabled])
   const maxMembers = state?.key === key ? state.maxMembers : undefined
   return {
-    loading: enabled && (state?.key !== key || state.loading),
+    // Wait for an in-flight member read, but let the server enforce capacity if that read fails.
+    loading:
+      enabled && (membersStatus === "idle" || membersStatus === "loading" || state?.key !== key || state.loading),
     reached:
-      membersComplete &&
+      membersStatus === "ready" &&
       typeof maxMembers === "number" &&
       Number.isFinite(maxMembers) &&
       maxMembers >= 0 &&

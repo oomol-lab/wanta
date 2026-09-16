@@ -361,7 +361,7 @@ export function ConnectDialog({
       onSubmit({
         appId,
         authType: "oauth2",
-        authorizationScopes: authorizationOptions.length > 0 ? authorizationOptionIds : undefined,
+        authorizationOptionIds: authorizationOptions.length > 0 ? authorizationOptionIds : undefined,
         service: detail.service,
         extra: connectPayload.extra,
         secretExtra: connectPayload.secretExtra,

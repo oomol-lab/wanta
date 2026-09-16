@@ -203,11 +203,10 @@ export function teamSkillMentionId(skill: Pick<TeamSkillConfigItem, "id" | "pack
   return `team:${skill.id || `${skill.packageName}:${skill.skillName}`}`
 }
 
-export async function listTeamSkills(teamId: string, signal?: AbortSignal): Promise<TeamSkillConfig> {
-  const response = await oomolFetchJson<TeamSkillPackageResponse>(
-    new URL(`/-/oomol/orgs/${encodeURIComponent(teamId.trim())}/package-infos`, registryBaseUrl),
-    { signal, timeoutMs: teamSkillRequestTimeoutMs },
-  )
+export async function listTeamSkills(teamId: string, signal?: AbortSignal, lang?: string): Promise<TeamSkillConfig> {
+  const url = new URL(`/-/oomol/orgs/${encodeURIComponent(teamId.trim())}/package-infos`, registryBaseUrl)
+  if (lang) url.searchParams.set("lang", lang)
+  const response = await oomolFetchJson<TeamSkillPackageResponse>(url, { signal, timeoutMs: teamSkillRequestTimeoutMs })
   return normalizeTeamSkillPackages(response)
 }
 

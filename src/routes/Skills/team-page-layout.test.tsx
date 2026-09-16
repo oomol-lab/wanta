@@ -42,6 +42,7 @@ vi.mock("@/components/AppDataHooks", () => ({
   useSkillVersionReportResource: () => resource,
 }))
 vi.mock("./use-team-details.ts", () => ({ useTeamDetails: () => details }))
+vi.mock("@/lib/billing-client", () => ({ getTeamSubscriptionStatus: async () => ({ team: { maxMembers: 10 } }) }))
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
 
 const team = { id: "team-a", name: "Team A", creator_user_id: "owner", avatar: "" }

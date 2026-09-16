@@ -252,13 +252,18 @@ export function SkillsRoute({
   const loadPublished = React.useCallback(
     (input: ListPublicSkillPackagesInput) => {
       if (!account) throw new Error("Sign in is required.")
-      return listMyPublishedSkillPackages({ ...input, account })
+      return listMyPublishedSkillPackages({ ...input, account, lang: locale })
     },
-    [account?.id, account?.name, account?.avatarUrl],
+    [account?.id, account?.name, account?.avatarUrl, locale],
+  )
+  const loadPublic = React.useCallback(
+    (input: ListPublicSkillPackagesInput) => listPublicSkillPackages({ ...input, lang: locale }),
+    [locale],
   )
   const loadSearch = React.useCallback(
-    (input: ListPublicSkillPackagesInput) => searchPublicSkillPackages({ ...input, query: debouncedDiscoveryQuery }),
-    [debouncedDiscoveryQuery],
+    (input: ListPublicSkillPackagesInput) =>
+      searchPublicSkillPackages({ ...input, query: debouncedDiscoveryQuery, lang: locale }),
+    [debouncedDiscoveryQuery, locale],
   )
   const {
     catalog: publicPackageCatalog,
@@ -266,7 +271,7 @@ export function SkillsRoute({
     loadPage: loadPublicSkillPackages,
   } = useSkillCatalog({
     enabled: activeTab === "discover" && discoveryFilter === "all" && !debouncedDiscoveryQuery,
-    load: listPublicSkillPackages,
+    load: loadPublic,
   })
   const {
     catalog: myPublishedPackageCatalog,

@@ -9,6 +9,8 @@ function subscription(overrides: Partial<SubscriptionStatus>): SubscriptionStatu
     plan: null,
     plans: [],
     platforms: {},
+
+    team: { additionalSeats: 0, cached: false, updatedAt: null },
     ...overrides,
   }
 }

@@ -1,3 +1,5 @@
+import type { TeamPendingPaymentResult } from "../../../electron/chat/common.ts"
+
 import { describe, expect, it } from "vitest"
 import {
   buildTeamPlanChange,
@@ -6,8 +8,62 @@ import {
   resolveTeamPendingPaymentTargets,
 } from "./team-subscription-model.ts"
 
+const pendingUpgrade: TeamPendingPaymentResult = {
+  subscriptionID: "sub",
+  status: "active",
+  plan: "team_plus",
+  additionalSeats: 1,
+  targetPlan: "team_pro",
+  targetAdditionalSeats: 4,
+  currentPeriodEnd: null,
+  latestInvoiceID: null,
+  paymentRequired: true,
+  paymentURL: "https://example.com/pay",
+  invoiceStatus: null,
+  amountRemaining: null,
+  currency: null,
+  pendingUpdate: true,
+  pendingUpdateExpiresAt: null,
+  scheduledUpdate: false,
+  scheduledEffectiveAt: null,
+}
+
+it("matches pending payment using target fields instead of current subscription fields", () => {
+  expect(
+    resolveTeamPendingPaymentTargets({
+      currentPlan: "team_plus",
+      currentAdditionalSeats: 1,
+      pendingPayment: pendingUpgrade,
+    }),
+  ).toEqual({ plan: "team_pro", additionalSeats: null, paymentUrl: "https://example.com/pay" })
+  expect(
+    resolveTeamPendingPaymentTargets({
+      currentPlan: "team_plus",
+      currentAdditionalSeats: 1,
+      pendingPayment: { ...pendingUpgrade, targetPlan: "team_plus" },
+    }),
+  ).toEqual({ plan: null, additionalSeats: 4, paymentUrl: "https://example.com/pay" })
+})
+
+it.each([0, 7, undefined])("trusts server maxMembers %s instead of local plan capacity", (maxMembers) => {
+  const overview = buildTeamSubscriptionOverview({
+    canManage: true,
+    memberCount: 8,
+    pendingPayment: null,
+    subscription: {
+      plan: "team_plus",
+      plans: [],
+      features: [],
+      platforms: {},
+      team: { maxMembers, additionalSeats: 4, updatedAt: null, cached: false },
+    },
+  })
+  expect(overview.seatCapacity).toBe(maxMembers ?? null)
+  expect(overview.overCapacity).toBe(maxMembers === undefined ? null : true)
+})
+
 describe("buildTeamSubscriptionOverview", () => {
-  it("uses Team plan capacity plus additional seats", () => {
+  it("uses the server seat limit", () => {
     const overview = buildTeamSubscriptionOverview({
       canManage: true,
       memberCount: 12,
@@ -17,7 +73,7 @@ describe("buildTeamSubscriptionOverview", () => {
         plan: "team_plus",
         plans: [],
         platforms: {},
-        team: { additionalSeats: 4, cached: false, updatedAt: null },
+        team: { additionalSeats: 4, maxMembers: 14, cached: false, updatedAt: null },
       },
     })
 
@@ -39,6 +95,8 @@ describe("buildTeamSubscriptionOverview", () => {
         plan: "team_plus",
         plans: [],
         platforms: {},
+
+        team: { additionalSeats: 0, cached: false, updatedAt: null },
       },
     })
 
@@ -59,7 +117,7 @@ describe("buildTeamSubscriptionOverview", () => {
         plan: "team_plus",
         plans: [],
         platforms: {},
-        team: { additionalSeats: 10, cached: false, updatedAt: null },
+        team: { additionalSeats: 10, maxMembers: 20, cached: false, updatedAt: null },
       },
     })
 
@@ -73,6 +131,10 @@ describe("buildTeamSubscriptionOverview", () => {
       canManage: true,
       memberCount: 2,
       pendingPayment: {
+        targetPlan: "team_plus",
+        targetAdditionalSeats: 0,
+        scheduledUpdate: false,
+        scheduledEffectiveAt: null,
         additionalSeats: 0,
         amountRemaining: null,
         currency: null,
@@ -92,6 +154,8 @@ describe("buildTeamSubscriptionOverview", () => {
         plan: null,
         plans: [],
         platforms: {},
+
+        team: { additionalSeats: 0, cached: false, updatedAt: null },
       },
     })
 
@@ -109,13 +173,15 @@ describe("buildTeamSubscriptionOverview", () => {
         plan: null,
         plans: [],
         platforms: {},
+
+        team: { additionalSeats: 0, cached: false, updatedAt: null },
       },
     })
 
     expect(overview.currentPlan).toBeNull()
     expect(overview.seatCapacity).toBeNull()
     expect(overview.accountsPerApp).toBe(1)
-    expect(overview.overCapacity).toBe(false)
+    expect(overview.overCapacity).toBeNull()
     expect(overview.recommendedAction).toBe("choose_plan")
   })
 
@@ -129,7 +195,7 @@ describe("buildTeamSubscriptionOverview", () => {
         plan: null,
         plans: [],
         platforms: {},
-        team: { additionalSeats: 3, cached: false, updatedAt: null },
+        team: { additionalSeats: 3, maxMembers: 3, cached: false, updatedAt: null },
       },
     })
 
@@ -150,7 +216,7 @@ describe("buildTeamSubscriptionOverview", () => {
         plan: null,
         plans: [],
         platforms: {},
-        team: { additionalSeats: 3, cached: false, updatedAt: null },
+        team: { additionalSeats: 3, maxMembers: 3, cached: false, updatedAt: null },
       },
     })
 
@@ -168,6 +234,8 @@ describe("buildTeamSubscriptionOverview", () => {
         plan: "team_plus",
         plans: [],
         platforms: {},
+
+        team: { additionalSeats: 0, maxMembers: 10, cached: false, updatedAt: null },
       },
     })
 
@@ -182,6 +250,10 @@ describe("resolveTeamPendingPaymentTargets", () => {
       currentAdditionalSeats: 0,
       currentPlan: null,
       pendingPayment: {
+        targetPlan: "team_plus",
+        targetAdditionalSeats: 0,
+        scheduledUpdate: false,
+        scheduledEffectiveAt: null,
         additionalSeats: 0,
         amountRemaining: null,
         currency: null,
@@ -210,6 +282,10 @@ describe("resolveTeamPendingPaymentTargets", () => {
       currentAdditionalSeats: 0,
       currentPlan: "team_plus",
       pendingPayment: {
+        targetPlan: "team_plus",
+        targetAdditionalSeats: 3,
+        scheduledUpdate: false,
+        scheduledEffectiveAt: null,
         additionalSeats: 3,
         amountRemaining: null,
         currency: null,
@@ -238,6 +314,10 @@ describe("resolveTeamPendingPaymentTargets", () => {
       currentAdditionalSeats: 0,
       currentPlan: null,
       pendingPayment: {
+        targetPlan: null,
+        targetAdditionalSeats: 2,
+        scheduledUpdate: false,
+        scheduledEffectiveAt: null,
         additionalSeats: 2,
         amountRemaining: null,
         currency: null,
@@ -266,6 +346,10 @@ describe("resolveTeamPendingPaymentTargets", () => {
       currentAdditionalSeats: 0,
       currentPlan: "team_plus",
       pendingPayment: {
+        targetPlan: "team_pro",
+        targetAdditionalSeats: 3,
+        scheduledUpdate: false,
+        scheduledEffectiveAt: null,
         additionalSeats: 3,
         amountRemaining: null,
         currency: null,
@@ -289,11 +373,15 @@ describe("resolveTeamPendingPaymentTargets", () => {
     })
   })
 
-  it("falls back to the current plan for renewal payment checkouts", () => {
+  it("preserves a null target plan instead of replacing it with the current plan", () => {
     const targets = resolveTeamPendingPaymentTargets({
       currentAdditionalSeats: 0,
       currentPlan: "team_plus",
       pendingPayment: {
+        targetPlan: null,
+        targetAdditionalSeats: 0,
+        scheduledUpdate: false,
+        scheduledEffectiveAt: null,
         additionalSeats: 0,
         amountRemaining: null,
         currency: null,
@@ -313,7 +401,7 @@ describe("resolveTeamPendingPaymentTargets", () => {
     expect(targets).toEqual({
       additionalSeats: null,
       paymentUrl: "https://console.example.com/renew",
-      plan: "team_plus",
+      plan: null,
     })
   })
 })

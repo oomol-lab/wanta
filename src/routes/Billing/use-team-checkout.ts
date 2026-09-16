@@ -8,11 +8,11 @@ import * as React from "react"
 import { toast } from "sonner"
 import { buildTeamPlanChange } from "./team-subscription-model.ts"
 import { useT } from "@/i18n/i18n"
-import { previewTeamSubscription, updateTeamSubscription } from "@/lib/billing-client"
+import { cancelTeamSubscriptionSchedule, previewTeamSubscription, updateTeamSubscription } from "@/lib/billing-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 
-export type TeamLoadingTarget = TeamSubscriptionPlan | "checkout" | "seats"
+export type TeamLoadingTarget = TeamSubscriptionPlan | "checkout" | "seats" | "cancel_schedule"
 
 export interface TeamCheckoutPreview {
   teamId: string
@@ -124,23 +124,43 @@ export function useTeamCheckout({
   )
 
   const confirm = React.useCallback(async () => {
-    if (!preview) return
+    if (!preview || preview.teamId !== teamId) return
+    const requestId = ++requestIdRef.current
     setLoading("checkout")
     try {
       const result = await updateTeamSubscription(preview.teamId, preview.payload)
+      if (requestId !== requestIdRef.current) return
       const paymentUrl = result.paymentURL?.trim()
       setPreview(null)
       refresh()
       if (paymentUrl) await openExternalCheckout(paymentUrl)
-      else toast.success(t("billing.teamSubscriptionUpdated"))
+      else toast.success(t(result.scheduledUpdate ? "billing.teamSchedule.saved" : "billing.teamSubscriptionUpdated"))
     } catch (cause) {
-      reportFailure("Team subscription update failed", cause)
+      if (requestId === requestIdRef.current) reportFailure("Team subscription update failed", cause)
     } finally {
-      setLoading(null)
+      if (requestId === requestIdRef.current) setLoading(null)
     }
-  }, [openExternalCheckout, preview, refresh, reportFailure, t])
+  }, [openExternalCheckout, preview, refresh, reportFailure, t, teamId])
+
+  const cancelSchedule = React.useCallback(async () => {
+    if (!teamId) return
+    const requestId = ++requestIdRef.current
+    setLoading("cancel_schedule")
+    try {
+      await cancelTeamSubscriptionSchedule(teamId)
+      if (requestId !== requestIdRef.current) return
+      refresh()
+      toast.success(t("billing.teamSchedule.cancelled"))
+    } catch (cause) {
+      if (requestId === requestIdRef.current) reportFailure("Cancelling scheduled Team change failed", cause)
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(null)
+    }
+  }, [teamId, refresh, reportFailure, t])
 
   return {
+    cancelSchedule,
+    continuePayment: () => openPendingPayment("checkout"),
     choosePlan,
     closePreview: () => {
       if (loading !== "checkout") setPreview(null)

@@ -393,6 +393,7 @@ export function AddMemberDialog({
   activeUserId,
   addError,
   busy,
+  submitDisabled = false,
   input,
   selectedUserId,
   onClose,
@@ -406,6 +407,7 @@ export function AddMemberDialog({
   activeUserId: string | null
   addError: string | null
   busy: boolean
+  submitDisabled?: boolean
   input: string
   selectedUserId: string | null
   onClose: () => void
@@ -419,7 +421,7 @@ export function AddMemberDialog({
   const { t } = useAppI18n()
   const searchInputRef = React.useRef<HTMLInputElement>(null)
   const hasSearchResults = search.items.length > 0
-  const canSubmit = !busy && Boolean(resolveMemberInput(input, search, selectedUserId))
+  const canSubmit = !busy && !submitDisabled && Boolean(resolveMemberInput(input, search, selectedUserId))
 
   const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
     switch (event.key) {

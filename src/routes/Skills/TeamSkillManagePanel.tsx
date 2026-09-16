@@ -93,7 +93,7 @@ export function TeamSkillManagePanel({
   providerRecommendationsTotalCount?: number
   providerRecommendations: ProviderSkillRecommendation[]
 }) {
-  const { t } = useAppI18n()
+  const { t, locale } = useAppI18n()
   const catalogRevision = React.useSyncExternalStore(
     subscribeSkillCatalogInvalidation,
     getSkillCatalogInvalidationRevision,
@@ -130,8 +130,10 @@ export function TeamSkillManagePanel({
   const marketQuery = adding && activeTab === "market" ? searchQuery.trim() : ""
   const loadMarket = React.useCallback(
     (input: ListPublicSkillPackagesInput) =>
-      marketQuery ? searchPublicSkillPackages({ ...input, query: marketQuery }) : listPublicSkillPackages(input),
-    [marketQuery],
+      marketQuery
+        ? searchPublicSkillPackages({ ...input, query: marketQuery, lang: locale })
+        : listPublicSkillPackages({ ...input, lang: locale }),
+    [marketQuery, locale],
   )
   const { catalog: marketCatalog, loadPage: loadMarketPackages } = useSkillCatalog({
     enabled: adding && activeTab === "market",

@@ -8,6 +8,8 @@ import { createRoot } from "react-dom/client"
 import { afterEach, expect, test, vi } from "vitest"
 import { invalidateTeamSkillCache, useTeamSkills } from "./useTeamSkills.ts"
 
+vi.mock("@/i18n", () => ({ useAppI18n: () => ({ locale: "en" }) }))
+
 let root: Root | undefined
 let view: UseTeamSkills
 let sequence = 0

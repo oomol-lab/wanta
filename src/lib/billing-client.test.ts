@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   billingAuthRequiredMessage,
+  cancelTeamSubscriptionSchedule,
   getBillingOverview,
   getCreditBalance,
   previewTeamSubscription,
@@ -46,6 +47,64 @@ function stubTeamSubscriptionFetch(data: Record<string, unknown>): { requestBody
 }
 
 describe("billing-client", () => {
+  it("preserves the Console pending-payment contract, including null targets and seconds", async () => {
+    const pending = {
+      subscriptionID: null,
+      status: null,
+      plan: "team_plus",
+      additionalSeats: 3,
+      targetPlan: null,
+      targetAdditionalSeats: 0,
+      currentPeriodEnd: 1_800_000_000,
+      latestInvoiceID: null,
+      paymentRequired: false,
+      paymentURL: null,
+      invoiceStatus: null,
+      amountRemaining: null,
+      currency: null,
+      pendingUpdate: false,
+      pendingUpdateExpiresAt: null,
+      scheduledUpdate: true,
+      scheduledEffectiveAt: 1_800_000_000,
+    }
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const path = urlOf(input).pathname
+      expect(path).not.toContain("/api/org/")
+      if (path.endsWith("pending_payment")) return Response.json({ success: true, data: pending })
+      if (path.endsWith("/subscriptions"))
+        return Response.json({
+          success: true,
+          data: {
+            plan: "team_plus",
+            plans: [],
+            features: [],
+            platforms: {},
+            team: { additionalSeats: 3, maxMembers: 7, updatedAt: null, cached: false },
+          },
+        })
+      return Response.json({ items: [], total: {}, sourceTotals: {} })
+    })
+    const result = await getBillingOverview(30, teamScope)
+    expect(result.teamPendingPayment).toEqual(pending)
+    expect(result.subscription?.team.maxMembers).toBe(7)
+  })
+
+  it("cancels a scheduled team change through the Console endpoint", async () => {
+    const response = { plan: null, targetPlan: null, scheduledUpdate: false, currentPeriodEnd: null }
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      expect(urlOf(input).pathname).toBe("/api/team/team%2F1/subscriptions/team/schedule/cancel")
+      expect(init?.method).toBe("POST")
+      expect(init?.body).toBeUndefined()
+      return Response.json({ success: true, data: response })
+    })
+    expect(await cancelTeamSubscriptionSchedule("team/1")).toEqual(response)
+  })
+
+  it("does not turn a failed Console mutation envelope into an empty success", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({ success: false, message: "Subscription locked" }))
+    await expect(updateTeamSubscription("team-1", { plan: "team_plus" })).rejects.toThrow("Subscription locked")
+  })
+
   it("attaches the session cookie via credentials:include and sets no Authorization header", async () => {
     let seenInit: RequestInit | undefined
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
@@ -110,7 +169,7 @@ describe("billing-client", () => {
       if (url.pathname === "/v2/stats/billing" || url.pathname === "/v2/stats/metering") {
         return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
       }
-      if (url.pathname === "/api/org/team-1/subscriptions") {
+      if (url.pathname === "/api/team/team-1/subscriptions") {
         return Response.json({
           data: {
             features: [],
@@ -179,7 +238,7 @@ describe("billing-client", () => {
       teamName: "acme",
     })
 
-    expect(paths.some((path) => path.startsWith("/api/org/"))).toBe(false)
+    expect(paths.some((path) => path.startsWith("/api/team/"))).toBe(false)
     expect(paths).toContain("/v1/balance/available")
     expect(paths).not.toContain("/api/user/subscriptions")
     expect(summary.balance).not.toBeNull()
@@ -229,7 +288,7 @@ describe("billing-client", () => {
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
       const url = urlOf(input)
       paths.push(url.pathname)
-      if (url.pathname === "/api/org/team-1/subscriptions") {
+      if (url.pathname === "/api/team/team-1/subscriptions") {
         return Response.json({ data: { features: [], plan: "team_plus", plans: [], platforms: {} }, success: true })
       }
       if (url.pathname === "/api/team/team-1/subscriptions/team/pending_payment") {
@@ -246,7 +305,7 @@ describe("billing-client", () => {
       teamName: "acme",
     })
 
-    expect(paths).toContain("/api/org/team-1/subscriptions")
+    expect(paths).toContain("/api/team/team-1/subscriptions")
     expect(paths).toContain("/api/team/team-1/subscriptions/team/pending_payment")
     expect(paths).toContain("/v1/balance/available")
     expect(paths).not.toContain("/api/user/subscriptions")
@@ -280,6 +339,7 @@ describe("billing-client", () => {
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
       expect(urlOf(input).pathname).toBe("/api/user/web_top_up_url")
       expect(urlOf(input).searchParams.get("price")).toBe("20_USD")
+      expect(urlOf(input).searchParams.get("redirect")).toBe("https://console.oomol.com/billing")
       return Response.json({ data: "https://console.example.com/checkout", success: true })
     })
 

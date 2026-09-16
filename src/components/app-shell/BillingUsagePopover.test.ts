@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { BillingOverviewResult } from "../../../electron/chat/common.ts"
 import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 
 import * as React from "react"
@@ -20,7 +21,7 @@ const mockBilling = vi.hoisted(() => ({
     subscriptionAvailable: false,
     teamPendingPayment: null,
     teamPendingPaymentAvailable: false,
-  } as Record<string, unknown>,
+  } as BillingOverviewResult,
   seatCount: null as number | null,
 }))
 
@@ -122,6 +123,7 @@ function setAvailablePlan(plan: "team_plus" | "team_pro" | null) {
       plan,
       plans: [],
       platforms: {},
+      team: { additionalSeats: 0, cached: false, updatedAt: null, maxMembers: 7 },
     },
     subscriptionAvailable: true,
     teamPendingPaymentAvailable: true,
@@ -169,6 +171,7 @@ describe("BillingUsagePopover", () => {
     mockBilling.data = {
       ...mockBilling.data,
       balance: {
+        deficit: "0",
         items: [],
         total: {
           currentCredit: "89.03",

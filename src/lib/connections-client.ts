@@ -644,9 +644,9 @@ export async function getConnectionExecutionLogs(
   return normalizeConnectionExecutionLogs(result.data)
 }
 
-export interface OAuthConnectStart {
-  authorizationUrl: string
-}
+export type OAuthConnectStart =
+  | { authorizationUrl: string; app?: never }
+  | { authorizationUrl?: never; app: ConnectionAppDetail }
 
 function oauthConnectInFlightKey(
   input: Extract<ConnectionConnectInput, { authType: "oauth2" }>,
@@ -655,7 +655,7 @@ function oauthConnectInFlightKey(
   // 只有完整请求相同才合并，避免重连或 connect-only 字段串用授权 URL。
   return JSON.stringify({
     appId: input.appId ?? null,
-    authorizationScopes: input.authorizationScopes ?? null,
+    authorizationOptionIds: input.authorizationOptionIds ?? null,
     extra: input.extra ?? null,
     secretExtra: input.secretExtra ?? null,
     service: input.service,
@@ -690,21 +690,25 @@ async function requestOAuthConnect(
   const path = input.appId
     ? `${appsPath}/by-id/${encodeURIComponent(input.appId)}/connect`
     : `${appsPath}/${service}/connect`
-  const result = await requestConnector<{ authorizationUrl?: unknown }>(path, workspace, {
+  const result = await requestConnector<{ authorizationUrl?: unknown; app?: RawApp }>(path, workspace, {
     method: "POST",
     body: JSON.stringify({
       returnUri: createConnectorOAuthReturnUri(consoleBaseUrl, connectorOAuthReturnProtocol()),
-      authorizationScopes: input.authorizationScopes,
+      authorizationOptionIds: input.authorizationOptionIds,
       extra: input.extra,
       secretExtra: input.secretExtra,
     }),
   })
   const authorizationUrl = asString(result.data.authorizationUrl)
-  if (!authorizationUrl) {
-    throw new Error("Connector connect request did not return an authorization URL")
+  const app = result.data.app ? normalizeConnectionAppDetail(result.data.app) : undefined
+  if (!authorizationUrl && !app) {
+    throw new Error("Connector connect request did not return an authorization URL or a connected app")
   }
-  invalidateWorkspaceApps(workspace, "appId" in input ? input.appId : undefined)
-  return { authorizationUrl: parseConnectorAuthorizationUrl(authorizationUrl).toString() }
+  invalidateWorkspaceApps(workspace, input.appId)
+  // Console's wire response permits both fields; an authorization URL takes precedence over app metadata.
+  return authorizationUrl
+    ? { authorizationUrl: parseConnectorAuthorizationUrl(authorizationUrl).toString() }
+    : { app: app! }
 }
 
 export async function listOAuthClientConfigs(): Promise<ConnectionUserOAuthClientConfigSummary[]> {

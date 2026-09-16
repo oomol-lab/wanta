@@ -22,6 +22,8 @@ interface TeamMemberActionsOptions {
   activeAccountId: string | undefined
   actorRole: TeamRole | null
   canManage: boolean
+  memberLimitReached?: boolean
+  memberLimitLoading?: boolean
   memberInput: string
   memberSearch: MemberSearchState
   reloadDetails: () => Promise<void>
@@ -44,6 +46,8 @@ export function useTeamMemberActions({
   canManage,
   memberInput,
   memberSearch,
+  memberLimitReached = false,
+  memberLimitLoading = false,
   reloadDetails,
   resetMemberSearch,
   selectedTeam,
@@ -91,6 +95,11 @@ export function useTeamMemberActions({
       event.preventDefault()
       if (!selectedTeam || !canManage || addingRef.current) return
 
+      if (memberLimitLoading) return
+      if (memberLimitReached) {
+        setAddMemberError(t("teams.addMemberLimitExceeded"))
+        return
+      }
       const userId = resolveMemberInput(memberInput, memberSearch, selectedSearchUserId)
       if (!userId) {
         setAddMemberError(t("teams.addMemberSelectRequired"))
@@ -131,6 +140,8 @@ export function useTeamMemberActions({
       finishOperation,
       memberInput,
       memberSearch,
+      memberLimitReached,
+      memberLimitLoading,
       actionContextKey,
       operationIsCurrent,
       reloadDetails,

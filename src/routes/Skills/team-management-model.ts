@@ -279,10 +279,7 @@ export function resolveMemberInput(input: string, search: MemberSearchState, sel
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query) ? query : null
 }
 
-/** Console excludes the guest service account from occupied seats. */
-export function countOccupiedTeamSeats(members: readonly TeamMember[]): number {
-  return members.filter((member) => !isGuestTeamServiceAccount(member)).length
-}
+export { countOccupiedTeamSeats } from "@/lib/team-permissions"
 
 export function isRemovableTeamMember(member: TeamMember): boolean {
   return member.role !== "creator" && !isGuestTeamServiceAccount(member)

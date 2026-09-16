@@ -21,6 +21,32 @@ import { consoleBaseUrl } from "./domain.ts"
 const managementWorkspace = { manageable: true, teamName: "team-name" } as const
 
 describe("connections-client", () => {
+  it.each([undefined, "app-1"])("accepts OAuth completion without a redirect (app %s)", async (appId) => {
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(new URL(String(input)).pathname).toBe(
+        appId ? "/v1/connections/by-id/app-1/connect" : "/v1/connections/gmail/connect",
+      )
+      const body = JSON.parse(String(init?.body))
+      expect(body.authorizationOptionIds).toEqual(["mail.read"])
+      expect(body).not.toHaveProperty("authorizationScopes")
+      return Response.json({ data: { app: { id: "app-1", service: "gmail", status: "active", authType: "oauth2" } } })
+    })
+    vi.stubGlobal("fetch", fetcher)
+    const result = await startOAuthConnect(
+      { appId, service: "gmail", authType: "oauth2", authorizationOptionIds: ["mail.read"] },
+      managementWorkspace,
+    )
+    expect(result.app).toMatchObject({ id: "app-1", service: "gmail", status: "active" })
+    expect(result.authorizationUrl).toBeUndefined()
+  })
+
+  it("rejects an OAuth response with neither a URL nor a valid app", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({ data: { app: {} } }))
+    await expect(startOAuthConnect({ service: "gmail", authType: "oauth2" }, managementWorkspace)).rejects.toThrow(
+      "connected app",
+    )
+  })
+
   afterEach(() => {
     clearConnectorCache()
     vi.useRealTimers()
@@ -432,7 +458,7 @@ describe("connections-client", () => {
       {
         authType: "oauth2",
         service: "twitter",
-        authorizationScopes: ["tweet.read", "users.read"],
+        authorizationOptionIds: ["tweet.read", "users.read"],
         extra: { scopes: ["tweet.read", "users.read"] },
         secretExtra: { appBearerToken: "secret" },
       },
@@ -440,7 +466,7 @@ describe("connections-client", () => {
     )
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
-    expect(body.authorizationScopes).toEqual(["tweet.read", "users.read"])
+    expect(body.authorizationOptionIds).toEqual(["tweet.read", "users.read"])
     expect(body.extra).toEqual({ scopes: ["tweet.read", "users.read"] })
     expect(body.secretExtra).toEqual({ appBearerToken: "secret" })
   })

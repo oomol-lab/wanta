@@ -34,6 +34,7 @@ import {
   Panel,
   TeamProfileSettingsPanel,
 } from "./TeamMembersPanel.tsx"
+import { useTeamSeatLimit } from "./use-team-seat-limit.ts"
 import { useSkillService } from "@/components/AppContext"
 import { useAuthStateResource, useSkillInventoryResource } from "@/components/AppDataHooks"
 import { useSkillVersionReportResource } from "@/components/AppDataHooks"
@@ -273,12 +274,21 @@ export function TeamManagementRoute({
     [selectTeamWorkspace, teamForms.edit],
   )
 
+  const memberLimit = useTeamSeatLimit({
+    accountId: activeAccountId,
+    teamId: selectedTeam?.id,
+    enabled: addMemberOpen && canManage,
+    members: membersState.data,
+    membersComplete,
+  })
   const memberActions = useTeamMemberActions({
     activeAccountId,
     actorRole: activeWorkspace.role,
     canManage,
     memberInput,
     memberSearch,
+    memberLimitReached: memberLimit.reached,
+    memberLimitLoading: memberLimit.loading,
     reloadDetails: reload,
     resetMemberSearch,
     selectedTeam,
@@ -568,9 +578,10 @@ export function TeamManagementRoute({
       />
       <AddMemberDialog
         activeUserId={activeSearchUserId}
-        addError={addMemberError}
+        addError={memberLimit.reached ? t("teams.addMemberLimitExceeded") : addMemberError}
         busy={busyAction === "add"}
         input={memberInput}
+        submitDisabled={memberLimit.reached || memberLimit.loading}
         open={addMemberOpen && canManage}
         search={memberSearch}
         selectedUserId={selectedSearchUserId}

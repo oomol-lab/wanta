@@ -33,6 +33,7 @@ export interface MyPublishedSkillAccount {
 }
 
 export interface ListPublicSkillPackagesInput {
+  lang?: string
   forceRefresh?: boolean
   next?: string
   signal?: AbortSignal
@@ -40,6 +41,7 @@ export interface ListPublicSkillPackagesInput {
 }
 
 export interface SearchPublicSkillPackagesInput {
+  lang?: string
   forceRefresh?: boolean
   next?: string
   query: string
@@ -48,38 +50,11 @@ export interface SearchPublicSkillPackagesInput {
 }
 
 export interface ListMyPublishedSkillPackagesInput {
+  lang?: string
   account: MyPublishedSkillAccount
   forceRefresh?: boolean
   next?: string
   signal?: AbortSignal
-}
-
-interface RawPublicSkillSearchResponse {
-  data?: unknown
-  next?: unknown
-}
-
-interface RawPublicSkillSearchItem {
-  description?: unknown
-  icon?: unknown
-  name?: unknown
-  owner?: unknown
-  packageName?: unknown
-  packageVersion?: unknown
-  title?: unknown
-  version?: unknown
-  visibility?: unknown
-}
-
-interface PublicSkillSearchGroup {
-  description?: string
-  displayName: string
-  icon?: string
-  maintainer: PublicSkillPackageMaintainer
-  packageName: string
-  skills: PublicSkillPackage["skills"]
-  version: string
-  visibility: PublicSkillPackage["visibility"]
 }
 
 function skillCatalogPageKey(next: string | undefined, size: number | undefined): string {
@@ -108,13 +83,14 @@ export async function listPublicSkillPackages(
     input.size && Number.isFinite(input.size)
       ? Math.min(Math.max(Math.trunc(input.size), 1), publicSkillPackagePageSize)
       : undefined
-  const cacheKey = `public:list:${skillCatalogPageKey(next, size)}`
+  const cacheKey = `public:list:${input.lang ?? ""}:${skillCatalogPageKey(next, size)}`
   return readCachedSkillCatalog(
     cacheKey,
     publicSkillPackageListCacheMs,
     input.forceRefresh,
     async (signal) => {
       const url = new URL("/v1/packages/-/skills-list", searchBaseUrl)
+      if (input.lang) url.searchParams.set("lang", input.lang)
       if (next) {
         url.searchParams.set("next", next)
       }
@@ -138,6 +114,7 @@ export async function searchPublicSkillPackages(
   if (!query) {
     return listPublicSkillPackages({
       forceRefresh: input.forceRefresh,
+      lang: input.lang,
       next: input.next,
       signal: input.signal,
       size: input.size,
@@ -146,14 +123,16 @@ export async function searchPublicSkillPackages(
 
   const next = input.next?.trim()
   const size = Math.min(Math.max(Math.trunc(input.size ?? publicSkillSearchResultSize), 1), publicSkillSearchResultSize)
-  const cacheKey = `search:skills:${query.toLocaleLowerCase()}:${skillCatalogPageKey(next, size)}`
+  const cacheKey = `search:skills:${input.lang ?? ""}:${query.toLocaleLowerCase()}:${skillCatalogPageKey(next, size)}`
   return readCachedSkillCatalog(
     cacheKey,
     publicSkillSearchCacheMs,
     input.forceRefresh,
     async (signal) => {
-      const url = new URL("/v1/packages/-/skills-search", searchBaseUrl)
-      url.searchParams.set("keywords", query)
+      const url = new URL("/v1/packages/-/skills-list", searchBaseUrl)
+      if (input.lang) url.searchParams.set("lang", input.lang)
+      url.searchParams.set("text", query)
+      url.searchParams.set("sort", "relevance")
       if (next) {
         url.searchParams.set("next", next)
       }
@@ -164,12 +143,7 @@ export async function searchPublicSkillPackages(
         throw new Error(`Public Skill search request failed with status ${response.status}.`)
       }
 
-      const searchCatalog = normalizePublicSkillSearchCatalog(await response.text())
-      return {
-        items: searchCatalog.items.map(createPublicSkillSearchFallbackPackage),
-        next: searchCatalog.next,
-        updatedAt: searchCatalog.updatedAt,
-      }
+      return resolvePublicSkillPackageCatalog(normalizePublicSkillPackageCatalog(await response.text()))
     },
     input.signal,
   )
@@ -178,10 +152,11 @@ export async function searchPublicSkillPackages(
 async function readMyPublishedSkillPackageList(
   next?: string,
   signal?: AbortSignal,
+  lang?: string,
 ): Promise<PublicSkillPackageCatalog> {
-  const url = new URL("/v1/packages/-/my", searchBaseUrl)
+  const url = new URL("/v1/packages/-/my-skills", searchBaseUrl)
   url.searchParams.set("size", String(myPublishedSkillPackagePageSize))
-  url.searchParams.set("lang", "en")
+  if (lang) url.searchParams.set("lang", lang)
   const trimmed = next?.trim()
   if (trimmed) {
     url.searchParams.set("next", trimmed)
@@ -315,13 +290,13 @@ async function mapWithConcurrency<T, R>(
 export async function listMyPublishedSkillPackages(
   input: ListMyPublishedSkillPackagesInput,
 ): Promise<PublicSkillPackageCatalog> {
-  const cacheKey = `my:${input.account.id}:${skillCatalogPageKey(input.next, undefined)}`
+  const cacheKey = `my:${input.account.id}:${input.lang ?? ""}:${skillCatalogPageKey(input.next, undefined)}`
   return readCachedSkillCatalog(
     cacheKey,
     myPublishedSkillPackageCacheMs,
     input.forceRefresh,
     async (signal) => {
-      const publishedPackages = await readMyPublishedSkillPackageList(input.next, signal)
+      const publishedPackages = await readMyPublishedSkillPackageList(input.next, signal, input.lang)
       const maintainer: PublicSkillPackageMaintainer = {
         id: input.account.id,
         name: input.account.name,
@@ -376,120 +351,4 @@ export function resolvePublicSkillPackageIcon(pkg: PublicSkillPackage): PublicSk
     ...pkg,
     ...(icon ? { icon } : {}),
   }
-}
-
-function normalizePublicSkillSearchCatalog(
-  stdout: string,
-  updatedAt = new Date().toISOString(),
-): {
-  items: PublicSkillSearchGroup[]
-  next: string | null
-  updatedAt: string
-} {
-  const parsed = JSON.parse(stdout) as unknown
-
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("Public Skill search returned an unsupported response.")
-  }
-
-  const raw = parsed as RawPublicSkillSearchResponse
-  if (!Array.isArray(raw.data)) {
-    throw new Error("Public Skill search returned an unsupported response.")
-  }
-
-  return {
-    items: mergePublicSkillSearchGroups(
-      raw.data.map(normalizePublicSkillSearchItem).filter((item): item is PublicSkillSearchGroup => Boolean(item)),
-    ),
-    next: typeof raw.next === "string" && raw.next.trim() ? raw.next.trim() : null,
-    updatedAt,
-  }
-}
-
-function normalizePublicSkillSearchItem(value: unknown): PublicSkillSearchGroup | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined
-  }
-
-  const raw = value as RawPublicSkillSearchItem
-  const packageName = asString(raw.packageName)
-  const skillName = asString(raw.name)
-  if (!packageName || !skillName) {
-    return undefined
-  }
-
-  const title = asString(raw.title) ?? skillName
-  const version = asString(raw.packageVersion) ?? asString(raw.version) ?? "latest"
-  const owner = asString(raw.owner)
-  return {
-    ...(asString(raw.description) ? { description: asString(raw.description) } : {}),
-    displayName: title,
-    ...(asString(raw.icon) ? { icon: asString(raw.icon) } : {}),
-    maintainer: {
-      ...(owner ? { id: owner } : {}),
-      name: packageName.startsWith("oo-") ? "OOMOL" : packageName.replace(/^@/, "").split("/")[0] || packageName,
-    },
-    packageName,
-    skills: [
-      {
-        ...(asString(raw.description) ? { description: asString(raw.description) } : {}),
-        name: skillName,
-        title,
-      },
-    ],
-    version,
-    visibility: normalizeSearchVisibility(raw.visibility),
-  }
-}
-
-function mergePublicSkillSearchGroups(groups: PublicSkillSearchGroup[]): PublicSkillSearchGroup[] {
-  const byPackage = new Map<string, PublicSkillSearchGroup>()
-  for (const group of groups) {
-    const key = `${group.packageName}@${group.version}`
-    const existing = byPackage.get(key)
-    if (!existing) {
-      byPackage.set(key, group)
-      continue
-    }
-
-    const skillNames = new Set(existing.skills.map((skill) => skill.name))
-    byPackage.set(key, {
-      ...existing,
-      skills: [
-        ...existing.skills,
-        ...group.skills.filter((skill) => {
-          if (skillNames.has(skill.name)) {
-            return false
-          }
-          skillNames.add(skill.name)
-          return true
-        }),
-      ],
-    })
-  }
-  return Array.from(byPackage.values())
-}
-
-function createPublicSkillSearchFallbackPackage(group: PublicSkillSearchGroup): PublicSkillPackage {
-  const icon = resolvePackageAssetIconSource(group.icon, group.packageName, group.version)
-  return {
-    ...(group.description ? { description: group.description } : {}),
-    displayName: group.displayName,
-    ...(icon ? { icon } : {}),
-    id: `${group.packageName}@${group.version}`,
-    isTemplate: false,
-    maintainers: [group.maintainer],
-    name: group.packageName,
-    skills: group.skills,
-    version: group.version,
-    visibility: group.visibility,
-  }
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
-}
-
-function normalizeSearchVisibility(value: unknown): PublicSkillPackage["visibility"] {
-  return value === "private" || value === "public" ? value : "unknown"
 }

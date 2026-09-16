@@ -4,6 +4,7 @@ import type { AddTeamSkillInput, TeamSkillConfig, TeamSkillConfigItem } from "@/
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 import * as React from "react"
+import { useAppI18n } from "@/i18n"
 import { OomolHttpError } from "@/lib/oomol-http"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { createSharedRequest, waitForSharedRequest } from "@/lib/shared-request"
@@ -57,14 +58,19 @@ const teamSkillCache = new Map<string, TeamSkillCacheEntry>()
 let teamSkillPersistentCacheRead = false
 const pendingTeamSkills = new Map<string, SharedRequest<TeamSkillConfig>>()
 
-function readSharedTeamSkills(cacheKey: string, teamId: string, signal: AbortSignal): Promise<TeamSkillConfig> {
+function readSharedTeamSkills(
+  cacheKey: string,
+  teamId: string,
+  signal: AbortSignal,
+  lang: string,
+): Promise<TeamSkillConfig> {
   let request = pendingTeamSkills.get(cacheKey)
   if (!request || request.controller.signal.aborted) {
     const shared = createSharedRequest(async (requestSignal) => {
       // Let a same-turn effect cleanup cancel before starting network work.
       await Promise.resolve()
       requestSignal.throwIfAborted()
-      const config = await listTeamSkills(teamId, requestSignal).catch((cause: unknown) => {
+      const config = await listTeamSkills(teamId, requestSignal, lang).catch((cause: unknown) => {
         if (!isTeamSkillsUnavailable(cause)) throw cause
         return { skills: [], updatedAt: new Date().toISOString() }
       })
@@ -192,7 +198,10 @@ function deleteTeamSkillCacheEntry(cacheKey: string): void {
 
 export function invalidateTeamSkillCache(accountId: string | undefined, teamId: string): void {
   const accountKey = accountId?.trim() || "anonymous"
-  deleteTeamSkillCacheEntry(`${accountKey}\u0000${teamId}`)
+  const prefix = `${accountKey}\u0000${teamId}`
+  for (const key of new Set([...teamSkillCache.keys(), ...pendingTeamSkills.keys()])) {
+    if (key === prefix || key.startsWith(`${prefix}\u0000`)) deleteTeamSkillCacheEntry(key)
+  }
 }
 
 function teamWorkspaceKey(workspace: WorkspaceSelection): string {
@@ -226,7 +235,8 @@ function toChatContextSkill(skill: TeamSkillConfigItem): TeamSkillChatContext {
 
 export function useTeamSkills(workspace: WorkspaceSelection, accountId?: string): UseTeamSkills {
   const workspaceKey = teamWorkspaceKey(workspace)
-  const cacheKey = teamSkillCacheKey(workspace, accountId)
+  const { locale } = useAppI18n()
+  const cacheKey = `${teamSkillCacheKey(workspace, accountId)}\u0000${locale}`
   const teamId = workspace.teamId || null
   const teamName = workspace.team?.name ?? null
   const remoteApiEnabled = teamSkillsApiEnabled()
@@ -292,7 +302,7 @@ export function useTeamSkills(workspace: WorkspaceSelection, accountId?: string)
       requestIdRef.current = requestId
       setLoading(true)
       try {
-        const config = await readSharedTeamSkills(cacheKey, teamId, controller.signal)
+        const config = await readSharedTeamSkills(cacheKey, teamId, controller.signal, locale)
         if (controller.signal.aborted || requestIdRef.current !== requestId) {
           return
         }
@@ -315,7 +325,7 @@ export function useTeamSkills(workspace: WorkspaceSelection, accountId?: string)
         }
       }
     },
-    [cacheKey, teamId, remoteApiEnabled, workspaceKey],
+    [cacheKey, teamId, remoteApiEnabled, workspaceKey, locale],
   )
 
   React.useEffect(() => {
@@ -351,13 +361,14 @@ export function useTeamSkills(workspace: WorkspaceSelection, accountId?: string)
       const targetTeamId = teamId
       const targetCacheKey = cacheKey
       await addTeamSkill(targetTeamId, input)
+      invalidateTeamSkillCache(accountId, targetTeamId)
       if (options.refresh === false) {
         deleteTeamSkillCacheEntry(targetCacheKey)
       } else {
         await reloadAfterMutation(targetTeamId, targetCacheKey)
       }
     },
-    [cacheKey, teamId, reloadAfterMutation, remoteApiEnabled],
+    [accountId, cacheKey, teamId, reloadAfterMutation, remoteApiEnabled],
   )
 
   const removePackage = React.useCallback(
@@ -371,9 +382,10 @@ export function useTeamSkills(workspace: WorkspaceSelection, accountId?: string)
       const targetTeamId = teamId
       const targetCacheKey = cacheKey
       await removeTeamSkill(targetTeamId, packageName)
+      invalidateTeamSkillCache(accountId, targetTeamId)
       await reloadAfterMutation(targetTeamId, targetCacheKey)
     },
-    [cacheKey, teamId, reloadAfterMutation, remoteApiEnabled],
+    [accountId, cacheKey, teamId, reloadAfterMutation, remoteApiEnabled],
   )
 
   const cached = teamId ? getTeamSkillCacheEntry(cacheKey, teamId) : undefined

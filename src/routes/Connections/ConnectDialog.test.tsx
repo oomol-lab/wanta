@@ -111,7 +111,7 @@ test("submits selected OAuth authorization options and warns about destructive a
   await act(async () => connect?.click())
   expect(onSubmit).toHaveBeenCalledWith(
     expect.objectContaining({
-      authorizationScopes: ["account.read", "documents.read", "documents.delete"],
+      authorizationOptionIds: ["account.read", "documents.read", "documents.delete"],
       authType: "oauth2",
       service: "documents",
     }),
@@ -152,7 +152,7 @@ test("preserves unmanaged scopes when reconnecting", async () => {
   await act(async () => reconnect?.click())
   expect(onSubmit).toHaveBeenCalledWith(
     expect.objectContaining({
-      authorizationScopes: ["account.read", "legacy.scope"],
+      authorizationOptionIds: ["account.read", "legacy.scope"],
       authType: "oauth2",
     }),
   )

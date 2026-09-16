@@ -71,3 +71,8 @@ export function canChangeTeamMemberRole({
 export function isGuestTeamServiceAccount(member: TeamMember): boolean {
   return member.user_type === "service-account" && member.role === "guest"
 }
+
+/** Guest service accounts do not occupy a team seat. */
+export function countOccupiedTeamSeats(members: readonly TeamMember[]): number {
+  return members.filter((member) => !isGuestTeamServiceAccount(member)).length
+}

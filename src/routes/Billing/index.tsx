@@ -10,6 +10,7 @@ import {
   PlanComparison,
   PlanSeatOverviewPanel,
   TeamSubscriptionPreviewDialog,
+  TeamSubscriptionSchedulePanel,
 } from "./BillingSubscriptionPanels.tsx"
 import { BalanceOverview, UsageDetailsDisclosure } from "./BillingUsagePanels.tsx"
 import { CreditPurchaseModal } from "./CreditPurchaseModal.tsx"
@@ -267,6 +268,14 @@ export function BillingRoute({
               workspaceLabel={billingContext.workspaceLabel}
             />
 
+            <TeamSubscriptionSchedulePanel
+              pendingPayment={data?.teamPendingPayment ?? null}
+              canManage={canManageTeamSubscription}
+              disabled={teamLoading !== null || isSessionExpired}
+              onCancel={() => void teamCheckout.cancelSchedule()}
+              onContinuePayment={() => void teamCheckout.continuePayment()}
+            />
+
             <PlanComparison
               ref={planComparisonRef}
               currentPlan={teamOverview.currentPlan}
@@ -351,7 +360,7 @@ function buildBillingWorkspaceContext(
   return {
     canManage: canManageTeamSubscription,
     connectedProviderCount,
-    memberCount: memberCount === null ? null : Math.max(1, memberCount),
+    memberCount: memberCount === null ? null : Math.max(0, memberCount),
     teamId: workspace.teamId,
     teamName,
     workspaceLabel: teamName || teamWorkspaceLabel,

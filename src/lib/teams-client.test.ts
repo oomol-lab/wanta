@@ -73,7 +73,7 @@ describe("teams-client", () => {
     const [url, init] = fetchMock.mock.calls[0] ?? []
     expect(String(url)).toContain("/v1/teams")
     expect(init?.method).toBe("POST")
-    expect(JSON.parse(String(init?.body))).toEqual({ org_name: "acme" })
+    expect(JSON.parse(String(init?.body))).toEqual({ team_name: "acme" })
   })
 
   it("updates team names and avatars through the console API team endpoint", async () => {
@@ -96,7 +96,7 @@ describe("teams-client", () => {
     expect(init?.method).toBe("PUT")
     expect(JSON.parse(String(init?.body))).toEqual({
       avatar: "https://img.example/avatar.png",
-      org_name: "acme",
+      team_name: "acme",
     })
   })
 

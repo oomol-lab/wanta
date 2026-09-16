@@ -371,7 +371,7 @@ export async function createTeam(req: CreateTeamRequest): Promise<Team> {
   const team = normalizeTeam(
     await requestApiJson("/v1/teams", {
       method: "POST",
-      body: JSON.stringify({ org_name: teamName, ...(req.avatar?.trim() ? { avatar: req.avatar.trim() } : {}) }),
+      body: JSON.stringify({ team_name: teamName, ...(req.avatar?.trim() ? { avatar: req.avatar.trim() } : {}) }),
     }),
   )
   if (!team) {
@@ -389,7 +389,7 @@ export async function updateTeam(req: UpdateTeamRequest): Promise<Team> {
   const team = normalizeTeam(
     await requestApiJson(`/v1/teams/${encodePath(teamId)}`, {
       method: "PUT",
-      body: JSON.stringify({ org_name: teamName, avatar: req.avatar.trim() }),
+      body: JSON.stringify({ team_name: teamName, avatar: req.avatar.trim() }),
     }),
   )
   if (!team) {

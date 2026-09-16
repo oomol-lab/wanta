@@ -131,6 +131,10 @@ test("an unavailable period refresh retains period-independent team billing deta
       team: { additionalSeats: 2, cached: false, updatedAt: null },
     },
     teamPendingPayment: {
+      targetPlan: "team_plus" as const,
+      targetAdditionalSeats: 1,
+      scheduledUpdate: false,
+      scheduledEffectiveAt: null,
       additionalSeats: 1,
       amountRemaining: 600,
       currency: "usd",
@@ -168,6 +172,8 @@ test("a successful empty team billing response replaces retained values", () => 
       plan: "team_plus",
       plans: [],
       platforms: {},
+
+      team: { additionalSeats: 0, cached: false, updatedAt: null },
     },
   }
   const next = emptyBillingOverview()
@@ -188,6 +194,8 @@ test("cross-period team billing retention ignores stale cache entries", () => {
     plan: "team_plus",
     plans: [],
     platforms: {},
+
+    team: { additionalSeats: 0, cached: false, updatedAt: null },
   }
   otherEntry.data = {
     ...emptyBillingOverview(),

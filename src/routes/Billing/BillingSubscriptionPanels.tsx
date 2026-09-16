@@ -1,4 +1,4 @@
-import type { TeamSubscriptionPlan } from "../../../electron/chat/common.ts"
+import type { TeamPendingPaymentResult, TeamSubscriptionPlan } from "../../../electron/chat/common.ts"
 import type { TeamSubscriptionOverview } from "./team-subscription-model.ts"
 import type { TeamCheckoutPreview, TeamLoadingTarget } from "./use-team-checkout.ts"
 
@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { teamPlanLabel } from "./team-plan-label.ts"
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
@@ -133,6 +134,58 @@ export function PlanSeatOverviewPanel({
   )
 }
 
+export function TeamSubscriptionSchedulePanel({
+  pendingPayment,
+  canManage,
+  disabled,
+  onCancel,
+  onContinuePayment,
+}: {
+  pendingPayment: TeamPendingPaymentResult | null
+  canManage: boolean
+  disabled: boolean
+  onCancel: () => void
+  onContinuePayment: () => void
+}) {
+  const { t, locale } = useI18n()
+  if (!pendingPayment) return null
+  const scheduled = pendingPayment.scheduledUpdate
+  const paymentPending = Boolean(pendingPayment.paymentURL?.trim())
+  if (!scheduled && !paymentPending) return null
+  const effectiveAt = pendingPayment.scheduledEffectiveAt ?? pendingPayment.currentPeriodEnd
+  const targetPlan = pendingPayment.targetPlan ? teamPlanLabel(pendingPayment.targetPlan, t) : t("billing.teamNoPlan")
+  return (
+    <Alert>
+      <AlertTitle>{t(scheduled ? "billing.teamSchedule.title" : "billing.teamPaymentPending")}</AlertTitle>
+      <AlertDescription>
+        <p>{t("billing.teamSchedule.target", { plan: targetPlan, seats: pendingPayment.targetAdditionalSeats })}</p>
+        {scheduled ? (
+          <p>
+            {t("billing.teamPreview.timing")}:{" "}
+            {effectiveAt === null
+              ? t("billing.teamPreview.nextCycle")
+              : new Date(effectiveAt * 1000).toLocaleDateString(locale)}
+          </p>
+        ) : null}
+        {canManage ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {paymentPending ? (
+              <Button variant="outline" size="sm" disabled={disabled} onClick={onContinuePayment}>
+                {t("billing.teamContinuePayment")}
+              </Button>
+            ) : null}
+            {scheduled ? (
+              <Button variant="outline" size="sm" disabled={disabled} onClick={onCancel}>
+                {t("billing.teamSchedule.cancel")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </AlertDescription>
+    </Alert>
+  )
+}
+
 export const PlanComparison = React.forwardRef<
   HTMLElement,
   {
@@ -227,7 +280,7 @@ export function TeamSubscriptionPreviewDialog({
           </Button>
           <Button type="button" disabled={!details || loading} onClick={onConfirm}>
             {loading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
-            {t("billing.teamPreview.confirm")}
+            {t(details?.changeTiming === "next_cycle" ? "common.confirm" : "billing.teamPreview.confirm")}
           </Button>
         </>
       }

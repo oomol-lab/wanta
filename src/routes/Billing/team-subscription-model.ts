@@ -68,14 +68,12 @@ export function buildTeamSubscriptionOverview({
   const currentPlan = getCurrentTeamPlan(subscription)
   const planCapacity = currentPlan ? teamPlanCapacity(currentPlan) : null
   const additionalSeats = Math.max(0, Math.floor(subscription?.team?.additionalSeats ?? 0))
-  const usedSeats = memberCount === null ? null : Math.max(1, Math.floor(memberCount))
-  const seatCapacity = planCapacity
-    ? planCapacity.members + additionalSeats
-    : additionalSeats > 0
-      ? additionalSeats
-      : null
+  const usedSeats = memberCount === null ? null : Math.max(0, Math.floor(memberCount))
+  const maxMembers = subscription?.team.maxMembers
+  const seatCapacity =
+    typeof maxMembers === "number" && Number.isFinite(maxMembers) && maxMembers >= 0 ? maxMembers : null
   const remainingSeats = seatCapacity === null || usedSeats === null ? null : Math.max(0, seatCapacity - usedSeats)
-  const overCapacity = usedSeats === null ? null : seatCapacity !== null && usedSeats > seatCapacity
+  const overCapacity = usedSeats === null || seatCapacity === null ? null : usedSeats > seatCapacity
   const pendingPaymentUrl = pendingPayment?.paymentURL?.trim() ?? ""
   const hasPendingPayment = Boolean(pendingPaymentUrl)
   const shouldRecommendPro =
@@ -126,13 +124,11 @@ export function resolveTeamPendingPaymentTargets({
     return { additionalSeats: null, paymentUrl: "", plan: null }
   }
 
-  const pendingPlan = pendingPayment.plan
-  const pendingAdditionalSeats = Math.max(0, Math.floor(pendingPayment.additionalSeats))
+  const pendingPlan = pendingPayment.targetPlan
+  const pendingAdditionalSeats = Math.max(0, Math.floor(pendingPayment.targetAdditionalSeats))
   const additionalSeats =
-    pendingAdditionalSeats !== currentAdditionalSeats && (pendingPlan === null || pendingPlan === currentPlan)
-      ? pendingAdditionalSeats
-      : null
-  const plan = additionalSeats === null ? (pendingPlan ?? currentPlan) : null
+    pendingAdditionalSeats !== currentAdditionalSeats && pendingPlan === currentPlan ? pendingAdditionalSeats : null
+  const plan = additionalSeats === null ? pendingPlan : null
   return { additionalSeats, paymentUrl, plan }
 }
 

@@ -588,11 +588,23 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
             isCurrentAction()
           )
         }
-        const { authorizationUrl } = await startOAuthConnect(input, action.currentWorkspace)
+        const result = await startOAuthConnect(input, action.currentWorkspace)
         if (!isCurrentOAuthStart()) {
           return false
         }
-        await chatService.invoke("openExternalUrl", { url: authorizationUrl })
+        if (result.app) {
+          clearActiveOAuthPending(pending)
+          applyPolling(null)
+          const next = await refresh({ forceRefresh: true }, { silent: true, refreshProviders: false })
+          if (!isCurrentAction()) return false
+          connectionReadySequence.current += 1
+          setConnectionReadyEvent({
+            id: connectionReadySequence.current,
+            ...resolveOAuthConnectionReadyTarget(next?.apps ?? [result.app], pending),
+          })
+          return true
+        }
+        await chatService.invoke("openExternalUrl", { url: result.authorizationUrl })
         if (!isCurrentOAuthStart()) {
           return false
         }

@@ -133,167 +133,6 @@ function readCreditUsages(payload: unknown): CreditUsages {
   }
 }
 
-function readTeamPendingPayment(payload: unknown): TeamPendingPaymentResult | null {
-  const source = unwrapConsoleData<unknown>(payload)
-  if (!source || typeof source !== "object") {
-    return null
-  }
-  const record = source as Record<string, unknown>
-  return {
-    subscriptionID: readStringField(record, ["subscriptionID", "subscriptionId", "subscription_id"]),
-    status: readStringField(record, ["status"]),
-    plan: isTeamSubscriptionPlan(record["plan"]) ? record["plan"] : null,
-    additionalSeats: readIntegerField(record, ["additionalSeats", "additional_seats"]),
-    currentPeriodEnd: readOptionalTimestampField(record, ["currentPeriodEnd", "current_period_end"]),
-    latestInvoiceID: readStringField(record, ["latestInvoiceID", "latestInvoiceId", "latest_invoice_id"]),
-    paymentRequired: readBooleanField(record, ["paymentRequired", "payment_required"]),
-    paymentURL: readStringField(record, ["paymentURL", "paymentUrl", "payment_url"]),
-    invoiceStatus: readStringField(record, ["invoiceStatus", "invoice_status"]),
-    amountRemaining: readOptionalNumberField(record, ["amountRemaining", "amount_remaining"]),
-    currency: readStringField(record, ["currency"]),
-    pendingUpdate: readBooleanField(record, ["pendingUpdate", "pending_update"]),
-    pendingUpdateExpiresAt: readOptionalTimestampField(record, ["pendingUpdateExpiresAt", "pending_update_expires_at"]),
-  }
-}
-
-function readTeamSubscriptionUpdate(payload: unknown): TeamSubscriptionUpdateResult {
-  const source = unwrapConsoleData<unknown>(payload)
-  if (!source || typeof source !== "object") {
-    throw new Error("Team subscription response is invalid.")
-  }
-  const record = source as Record<string, unknown>
-  return {
-    subscriptionID: readStringField(record, ["subscriptionID", "subscriptionId", "subscription_id"]) ?? "",
-    status: readStringField(record, ["status"]) ?? "",
-    plan: readPlanField(record, ["plan"]),
-    additionalSeats: readIntegerField(record, ["additionalSeats", "additional_seats"]),
-    targetPlan: readPlanField(record, ["targetPlan", "target_plan"]),
-    targetAdditionalSeats: readIntegerField(record, ["targetAdditionalSeats", "target_additional_seats"]),
-    currentPeriodEnd: readTimestampField(record, ["currentPeriodEnd", "current_period_end"]) ?? 0,
-    latestInvoiceID: readStringField(record, ["latestInvoiceID", "latestInvoiceId", "latest_invoice_id"]),
-    paymentRequired: readBooleanField(record, ["paymentRequired", "payment_required"]),
-    paymentURL: readStringField(record, ["paymentURL", "paymentUrl", "payment_url"]),
-    invoiceStatus: readStringField(record, ["invoiceStatus", "invoice_status"]),
-    amountRemaining: readOptionalNumberField(record, ["amountRemaining", "amount_remaining"]),
-    currency: readStringField(record, ["currency"]),
-    pendingUpdate: readBooleanField(record, ["pendingUpdate", "pending_update"]),
-    pendingUpdateExpiresAt: readOptionalTimestampField(record, ["pendingUpdateExpiresAt", "pending_update_expires_at"]),
-    scheduledUpdate: readBooleanField(record, ["scheduledUpdate", "scheduled_update"]),
-    scheduledEffectiveAt: readOptionalTimestampField(record, ["scheduledEffectiveAt", "scheduled_effective_at"]),
-  }
-}
-
-function readTeamSubscriptionPreview(payload: unknown): TeamSubscriptionPreviewResult {
-  const source = unwrapConsoleData<unknown>(payload)
-  if (!source || typeof source !== "object") {
-    throw new Error("Team subscription preview response is invalid.")
-  }
-  const record = source as Record<string, unknown>
-  return {
-    amountDue: readOptionalNumberField(record, ["amountDue", "amount_due"]) ?? 0,
-    changeTiming:
-      record["changeTiming"] === "next_cycle" || record["change_timing"] === "next_cycle" ? "next_cycle" : "immediate",
-    currency: readStringField(record, ["currency"]),
-    mode: record["mode"] === "update" ? "update" : "create",
-    targetAdditionalSeats: readIntegerField(record, ["targetAdditionalSeats", "target_additional_seats"]),
-    targetPlan: readPlanField(record, ["targetPlan", "target_plan"]),
-    total: readOptionalNumberField(record, ["total"]) ?? 0,
-  }
-}
-
-function readPlanField(record: Record<string, unknown>, keys: string[]): TeamSubscriptionPlan | null {
-  for (const key of keys) {
-    const value = record[key]
-    if (isTeamSubscriptionPlan(value)) {
-      return value
-    }
-  }
-  return null
-}
-
-function isTeamSubscriptionPlan(value: unknown): value is TeamSubscriptionPlan {
-  return typeof value === "string" && teamSubscriptionPlans.includes(value as TeamSubscriptionPlan)
-}
-
-function readStringField(record: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === "string" && value.trim()) {
-      return value
-    }
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return String(value)
-    }
-  }
-  return null
-}
-
-function readTimestampField(record: Record<string, unknown>, keys: string[]): number | null {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-      return value > 0 && value < 10_000_000_000 ? value * 1000 : value
-    }
-    if (typeof value !== "string" || !value.trim()) {
-      continue
-    }
-    const numeric = Number(value)
-    if (Number.isFinite(numeric) && numeric > 0) {
-      return numeric < 10_000_000_000 ? numeric * 1000 : numeric
-    }
-    const parsed = Date.parse(value)
-    if (Number.isFinite(parsed)) {
-      return parsed
-    }
-  }
-  return null
-}
-
-function readOptionalTimestampField(record: Record<string, unknown>, keys: string[]): number | null {
-  return readTimestampField(record, keys)
-}
-
-function readIntegerField(record: Record<string, unknown>, keys: string[]): number {
-  for (const key of keys) {
-    const value = record[key]
-    const amount = typeof value === "number" || typeof value === "string" ? Number(value) : Number.NaN
-    if (Number.isFinite(amount)) {
-      return Math.max(0, Math.floor(amount))
-    }
-  }
-  return 0
-}
-
-function readOptionalNumberField(record: Record<string, unknown>, keys: string[]): number | null {
-  for (const key of keys) {
-    const value = record[key]
-    const amount = typeof value === "number" || typeof value === "string" ? Number(value) : Number.NaN
-    if (Number.isFinite(amount)) {
-      return amount
-    }
-  }
-  return null
-}
-
-function readBooleanField(record: Record<string, unknown>, keys: string[]): boolean {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === "boolean") {
-      return value
-    }
-    if (typeof value === "string") {
-      const normalized = value.trim().toLowerCase()
-      if (normalized === "true") {
-        return true
-      }
-      if (normalized === "false") {
-        return false
-      }
-    }
-  }
-  return false
-}
-
 export function ensureHttpUrl(rawUrl: string): string {
   const url = new URL(rawUrl)
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -304,9 +143,6 @@ export function ensureHttpUrl(rawUrl: string): string {
 
 function checkoutReturnUrl(): string {
   const target = new URL(consoleBaseUrl)
-  if (target.hostname.startsWith("console.")) {
-    target.hostname = `chat.${target.hostname.slice("console.".length)}`
-  }
   target.pathname = billingPath
   target.search = ""
   target.hash = ""
@@ -320,14 +156,9 @@ function statsRange(days: number): { endTime: number; startTime: number } {
 }
 
 function unwrapConsoleData<T>(payload: unknown): T {
-  if (payload && typeof payload === "object" && "success" in payload && "data" in payload) {
-    const wrapped = payload as { data: T; message?: unknown; success: unknown }
-    if (wrapped.success === false) {
-      throw new Error(typeof wrapped.message === "string" ? wrapped.message : "Request failed.")
-    }
-    return wrapped.data
-  }
-  return payload as T
+  const result = payload as { data?: T; success?: boolean; message?: string } | null
+  if (!result?.success) throw new Error(result?.message || "Request failed.")
+  return result.data as T
 }
 
 function unwrapApiData<T>(payload: unknown): T {
@@ -509,7 +340,11 @@ async function getSubscriptionStatus(
   if (!scope.canReadTeamSubscription) {
     return null
   }
-  const url = new URL(`/api/org/${encodeURIComponent(scope.teamId)}/subscriptions`, consoleServerBaseUrl)
+  return getTeamSubscriptionStatus(scope.teamId, signal)
+}
+
+export async function getTeamSubscriptionStatus(teamId: string, signal?: AbortSignal): Promise<SubscriptionStatus> {
+  const url = new URL(`/api/team/${encodeURIComponent(teamId)}/subscriptions`, consoleServerBaseUrl)
   return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url, undefined, signal))
 }
 
@@ -524,7 +359,7 @@ async function getTeamPendingPayment(
     `/api/team/${encodeURIComponent(scope.teamId)}/subscriptions/team/pending_payment`,
     consoleServerBaseUrl,
   )
-  return readTeamPendingPayment(await fetchAuthenticatedJson(url, undefined, signal))
+  return unwrapConsoleData<TeamPendingPaymentResult | null>(await fetchAuthenticatedJson(url, undefined, signal))
 }
 
 function optionalBillingSignal(signal?: AbortSignal): { cleanup: () => void; signal: AbortSignal } {
@@ -618,7 +453,7 @@ export async function updateTeamSubscription(
   payload: TeamSubscriptionChangePayload,
 ): Promise<TeamSubscriptionUpdateResult> {
   const url = new URL(`/api/team/${encodeURIComponent(teamId)}/subscriptions/team`, consoleServerBaseUrl)
-  return readTeamSubscriptionUpdate(
+  return unwrapConsoleData<TeamSubscriptionUpdateResult>(
     await oomolFetchJson<unknown>(url, {
       body: JSON.stringify(payload),
       headers: { "Content-Type": "application/json" },
@@ -633,7 +468,7 @@ export async function previewTeamSubscription(
   payload: TeamSubscriptionChangePayload,
 ): Promise<TeamSubscriptionPreviewResult> {
   const url = new URL(`/api/team/${encodeURIComponent(teamId)}/subscriptions/team/preview`, consoleServerBaseUrl)
-  return readTeamSubscriptionPreview(
+  return unwrapConsoleData<TeamSubscriptionPreviewResult>(
     await oomolFetchJson<unknown>(url, {
       body: JSON.stringify(payload),
       headers: { "Content-Type": "application/json" },
@@ -653,4 +488,17 @@ export async function topUpCheckoutUrl(price: RechargePrice): Promise<string> {
     throw new Error("Top-up URL response is invalid.")
   }
   return ensureHttpUrl(checkoutUrl)
+}
+
+export async function cancelTeamSubscriptionSchedule(teamId: string): Promise<TeamSubscriptionUpdateResult> {
+  const url = new URL(
+    `/api/team/${encodeURIComponent(teamId)}/subscriptions/team/schedule/cancel`,
+    consoleServerBaseUrl,
+  )
+  return unwrapConsoleData<TeamSubscriptionUpdateResult>(
+    await oomolFetchJson<unknown>(url, {
+      method: "POST",
+      timeoutMs: billingRequestTimeoutMs,
+    }),
+  )
 }

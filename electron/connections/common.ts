@@ -264,7 +264,7 @@ export type ConnectionConnectInput =
   | {
       appId?: string
       authType: "oauth2"
-      authorizationScopes?: string[]
+      authorizationOptionIds?: string[]
       extra?: Record<string, unknown>
       secretExtra?: Record<string, string>
       service: string

@@ -910,39 +910,36 @@ export interface SubscriptionStatus {
   plans: string[]
   plan: string | null
   features: string[]
+  team: TeamAdditionalSeatsData
   platforms: Record<string, string[]>
-  team?: TeamAdditionalSeatsData
+}
+
+export interface SubscriptionSchedule {
+  plan: string
+  scheduled: boolean
+  reason?: "cancel" | "update"
+  targetPlan?: string | null
+  targetAdditionalSeats?: number | null
+  cancelAt?: number
+  currentPeriodEnd?: number
+  scheduledEffectiveAt?: number | null
 }
 
 export interface TeamAdditionalSeatsData {
   additionalSeats: number
+  maxMembers?: number
   updatedAt: number | null
   cached: boolean
 }
 
-export interface TeamSubscriptionChangePayload {
-  additional_seats?: number
-  plan?: TeamSubscriptionPlan | null
-}
-
-export interface TeamSubscriptionPreviewResult {
-  amountDue: number
-  changeTiming: "immediate" | "next_cycle"
-  currency: string | null
-  mode: "create" | "update"
-  targetAdditionalSeats: number
-  targetPlan: TeamSubscriptionPlan | null
-  total: number
-}
-
 export interface TeamSubscriptionUpdateResult {
-  subscriptionID: string
-  status: string
+  subscriptionID: string | null
+  status: string | null
   plan: TeamSubscriptionPlan | null
   additionalSeats: number
   targetPlan: TeamSubscriptionPlan | null
   targetAdditionalSeats: number
-  currentPeriodEnd: number
+  currentPeriodEnd: number | null
   latestInvoiceID: string | null
   paymentRequired: boolean
   paymentURL: string | null
@@ -955,20 +952,55 @@ export interface TeamSubscriptionUpdateResult {
   scheduledEffectiveAt: number | null
 }
 
-export interface TeamPendingPaymentResult {
+export interface TeamPendingPaymentResult extends Omit<
+  TeamSubscriptionUpdateResult,
+  "subscriptionID" | "status" | "currentPeriodEnd"
+> {
   subscriptionID: string | null
   status: string | null
-  plan: TeamSubscriptionPlan | null
-  additionalSeats: number
   currentPeriodEnd: number | null
-  latestInvoiceID: string | null
-  paymentRequired: boolean
-  paymentURL: string | null
-  invoiceStatus: string | null
-  amountRemaining: number | null
+}
+
+export interface TeamSubscriptionPreviewLine {
+  id: string
+  description: string | null
+  amount: number
+  discountAmount?: number
+  amountAfterDiscount?: number
+  currency: string
+  quantity: number | null
+  plan: string | null
+  priceID: string | null
+  subscriptionItemID: string | null
+  periodStart: number
+  periodEnd: number
+  proration: boolean
+}
+
+export interface TeamSubscriptionPreviewResult {
+  mode: "create" | "update"
+  changeTiming: "immediate" | "next_cycle"
+  subscriptionID: string | null
+  currentPlan: TeamSubscriptionPlan | null
+  currentAdditionalSeats: number
+  targetPlan: TeamSubscriptionPlan | null
+  targetAdditionalSeats: number
+  currentPeriodEnd: number | null
+  effectiveAt: number | null
+  billingCycleAnchor: number | null
+  prorationDate: number
+  amountDue: number
+  amountRemaining: number
+  subtotal: number
+  total: number
   currency: string | null
-  pendingUpdate: boolean
-  pendingUpdateExpiresAt: number | null
+  nextPaymentAttempt: number | null
+  lines: TeamSubscriptionPreviewLine[]
+}
+
+export type TeamSubscriptionChangePayload = {
+  additional_seats?: number
+  plan?: TeamSubscriptionPlan | null
 }
 
 export interface BillingOverviewResult {

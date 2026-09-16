@@ -5,6 +5,7 @@ import * as React from "react"
 import { useAuth } from "@/hooks/useAuth"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { getCachedTeamMembers, getTeamMembersResource, subscribeTeamMembersResource } from "@/lib/team-details-resource"
+import { countOccupiedTeamSeats } from "@/lib/team-permissions"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 export interface UseBillableSeats {
@@ -19,7 +20,7 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
   const teamId = workspace.teamId || null
   const cachedMembers = accountId && teamId ? getCachedTeamMembers(accountId, teamId) : null
   const [count, setCount] = React.useState<number | null>(() =>
-    cachedMembers ? Math.max(1, cachedMembers.length) : null,
+    cachedMembers ? countOccupiedTeamSeats(cachedMembers) : null,
   )
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
@@ -45,7 +46,7 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
     let cancelled = false
     const cached = getCachedTeamMembers(accountId, teamId)
     if (cached) {
-      setCount(Math.max(1, cached.length))
+      setCount(countOccupiedTeamSeats(cached))
       setError(null)
       setLoading(false)
       return
@@ -56,7 +57,7 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
     void getTeamMembersResource(accountId, teamId)
       .then((members) => {
         if (!cancelled) {
-          setCount(Math.max(1, members.length))
+          setCount(countOccupiedTeamSeats(members))
         }
       })
       .catch((cause: unknown) => {

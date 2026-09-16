@@ -29,6 +29,8 @@ import { toast } from "sonner"
 import {
   canRestoreConnectionAccess,
   connectionRuleMembers,
+  connectionMemberLabel,
+  removeGuestConnectionAssignments,
   createConnectionPermissionRuleGrant,
   defaultRestrictedActionNames,
   isConnectionAccessConflict,
@@ -111,7 +113,8 @@ export function ConnectionAccessDialog({
   const { locale, t } = useI18n()
   const [snapshot, setSnapshot] = React.useState<AccessSnapshot | null>(null)
   const [actions, setActions] = React.useState<ConnectionActionCatalogItem[]>([])
-  const [members, setMembers] = React.useState<TeamMember[]>([])
+  const [allMembers, setAllMembers] = React.useState<TeamMember[]>([])
+  const members = React.useMemo(() => connectionRuleMembers(allMembers), [allMembers])
   const [lingxingUsers, setLingxingUsers] = React.useState<ConnectionLingxingErpUser[]>([])
   const [lingxingError, setLingxingError] = React.useState<string | null>(null)
   const [lingxingLoading, setLingxingLoading] = React.useState(false)
@@ -142,7 +145,7 @@ export function ConnectionAccessDialog({
       if (requestIdRef.current !== requestId) return
       setSnapshot(nextSnapshot)
       setActions(normalizeActions(localizeConnectionActions(app.service, nextActions.data, locale)))
-      setMembers(connectionRuleMembers(nextMembers))
+      setAllMembers(nextMembers)
       const userIds = uniqueStrings(
         nextMembers.filter((member) => member.user_type !== "service-account").map((member) => member.user_id),
       )
@@ -190,7 +193,7 @@ export function ConnectionAccessDialog({
     lingxingRequestIdRef.current += 1
     setSnapshot(null)
     setActions([])
-    setMembers([])
+    setAllMembers([])
     setLingxingUsers([])
     setLingxingError(null)
     setLingxingLoading(false)
@@ -241,9 +244,19 @@ export function ConnectionAccessDialog({
       if (!latestParsed.ok || !current || current.mode === "invalid")
         throw new Error(t("connections.accessInvalidDescription"))
       if (!latest.etag) throw new Error(t("connections.accessConcurrencyUnavailable"))
-      const updated = await updateTeamAppAccess(context.team.id, transform(latestParsed.access, current), {
-        etag: latest.etag,
-      })
+      const updated = await updateTeamAppAccess(
+        context.team.id,
+        transform(latestParsed.access, {
+          ...current,
+          permissionRules: {
+            ...current.permissionRules,
+            assignments: removeGuestConnectionAssignments(current.permissionRules.assignments, allMembers),
+          },
+        }),
+        {
+          etag: latest.etag,
+        },
+      )
       invalidateTeamDetailsResource(context.accountId, context.team.id)
       setSnapshot({ access: updated })
       setEditor(null)
@@ -468,6 +481,7 @@ function RuleManagement({
   summaries: Record<string, TeamUserSummary>
 }) {
   const t = useT()
+  const memberNames = new Map(members.map((member) => [member.user_id, member.name]))
   const assigned = new Set(Object.keys(access.permissionRules.assignments))
   const defaultMemberIds = members.map((member) => member.user_id).filter((userId) => !assigned.has(userId))
   return (
@@ -485,7 +499,9 @@ function RuleManagement({
       <RuleCard
         badge={t("connections.accessRemainingMembers", { count: defaultMemberIds.length })}
         grant={access.permissionRules.teamDefault}
-        memberNames={defaultMemberIds.slice(0, 4).map((id) => memberLabel(id, summaries))}
+        memberNames={defaultMemberIds
+          .slice(0, 4)
+          .map((id) => connectionMemberLabel(id, summaries, memberNames.get(id)))}
         name={t("connections.accessTeamDefault")}
         actions={actions}
         onEdit={onEditDefault}
@@ -497,7 +513,7 @@ function RuleManagement({
             key={rule.id}
             badge={t("connections.accessAssignedMembers", { count: userIds.length })}
             grant={rule}
-            memberNames={userIds.slice(0, 4).map((id) => memberLabel(id, summaries))}
+            memberNames={userIds.slice(0, 4).map((id) => connectionMemberLabel(id, summaries, memberNames.get(id)))}
             name={rule.name}
             actions={actions}
             onDelete={() => onDeleteRule(rule)}
@@ -591,8 +607,9 @@ function PermissionRuleEditor({
   const [query, setQuery] = React.useState("")
   const filteredMembers = members.filter(
     (member) =>
-      memberLabel(member.user_id, summaries).toLowerCase().includes(query.trim().toLowerCase()) ||
-      member.user_id.toLowerCase().includes(query.trim().toLowerCase()),
+      connectionMemberLabel(member.user_id, summaries, member.name)
+        .toLowerCase()
+        .includes(query.trim().toLowerCase()) || member.user_id.toLowerCase().includes(query.trim().toLowerCase()),
   )
   const valid = draft.kind === "default" || draft.name.trim().length > 0
   const lingxingAccess = getConnectionLingxingUserAccess(draft.grant)
@@ -677,7 +694,7 @@ function PermissionRuleEditor({
                   key={member.user_id}
                   checked={draft.userIds.includes(member.user_id)}
                   disabled={busy}
-                  label={memberLabel(member.user_id, summaries)}
+                  label={connectionMemberLabel(member.user_id, summaries, member.name)}
                   secondary={member.user_id}
                   onChange={(checked) =>
                     setDraft((current) => ({
@@ -1130,10 +1147,6 @@ function connectionLabel(app: ConnectionAppSummary): string {
   return (
     app.alias?.trim() || app.connectionName?.trim() || app.displayName?.trim() || app.accountLabel?.trim() || app.id
   )
-}
-function memberLabel(userId: string, summaries: Record<string, TeamUserSummary>): string {
-  const summary = summaries[userId]
-  return summary?.nickname?.trim() || summary?.username?.trim() || userId
 }
 function toggleString(values: string[], value: string, checked: boolean): string[] {
   const next = new Set(values)

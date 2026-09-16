@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest"
 import {
   connectionAccessSaveDisabled,
   connectionRuleMembers,
+  connectionMemberLabel,
+  removeGuestConnectionAssignments,
   canRestoreConnectionAccess,
   createConnectionPermissionRuleGrant,
   defaultRestrictedActionNames,
@@ -178,4 +180,35 @@ it("excludes unresolved guests from both default members and rule assignments, r
   if (access.mode === "invalid") throw new Error("Invalid app policy")
   expect(getConnectionRuleMemberIds(access.permissionRules, "writers")).toEqual(["assigned"])
   expect(ids.filter((id) => !access.permissionRules.assignments[id])).toEqual(["creator", "worker"])
+})
+
+it("removes known guest assignments on save without discarding unknown or ordinary service accounts", () => {
+  const members: TeamMember[] = [
+    { user_id: "guest", role: "guest", user_type: "service-account" },
+    { user_id: "worker", role: "member", user_type: "service-account", name: "guest" },
+    { user_id: "user", role: "member" },
+  ]
+  const assignments = { guest: "writers", worker: "writers", user: "writers", unknown: "writers" }
+  const cleaned = removeGuestConnectionAssignments(assignments, members)
+  expect(cleaned).toEqual({ worker: "writers", user: "writers", unknown: "writers" })
+  const merged = mergeConnectionRuleAssignments(cleaned, "writers", ["worker"], ["worker", "user"])
+  expect(merged).toEqual({ worker: "writers", unknown: "writers" })
+  const app = { id: "app-test", service: "github" }
+  const policy = setConnectionPermissionRules({}, app, {
+    assignments: merged,
+    rules: [{ id: "writers", name: "Writers", actionAccess: { mode: "unrestricted" } }],
+    teamDefault: { actionAccess: { mode: "restricted", actionNames: [] } },
+  })
+  const parsed = parseTeamConnectionAccess(policy, [app])
+  if (!parsed.ok || parsed.apps[0]?.mode === "invalid") throw new Error("Invalid policy")
+  expect(parsed.apps[0]?.permissionRules.assignments).toEqual({ worker: "writers", unknown: "writers" })
+  expect(assignments.guest).toBe("writers")
+})
+
+it("uses service-account names for labels while preserving user summaries and ID fallback", () => {
+  expect(connectionMemberLabel("sa-worker", {}, "  Deployment Bot  ")).toBe("Deployment Bot")
+  expect(connectionMemberLabel("sa-worker", {}, "  ")).toBe("sa-worker")
+  expect(connectionMemberLabel("sa-worker", {})).toBe("sa-worker")
+  expect(connectionMemberLabel("user", { user: { nickname: "Alice", username: "alice" } }, "Other")).toBe("Alice")
+  expect(connectionMemberLabel("user", { user: { nickname: "", username: "alice" } }, "Other")).toBe("alice")
 })

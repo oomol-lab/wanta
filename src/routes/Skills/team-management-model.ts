@@ -1,11 +1,14 @@
 import type {
   Team,
+  ServiceAccount,
   TeamMember,
   TeamRole,
   TeamUserSearchResult,
   TeamUserSummary,
 } from "../../../electron/teams/common.ts"
 import type { RuntimeSkillRemoveTarget } from "./skill-route-model.ts"
+
+import { isGuestTeamServiceAccount } from "../../lib/team-permissions.ts"
 
 export { teamCanManage, teamRole } from "../../lib/team-permissions.ts"
 
@@ -194,12 +197,22 @@ export function teamNameValidation(name: string): "empty" | "invalid" | "too-lon
   return "valid"
 }
 
-export function buildMemberViews(members: TeamMember[], summaries: Record<string, TeamUserSummary>): MemberView[] {
+export function buildMemberViews(
+  members: TeamMember[],
+  summaries: Record<string, TeamUserSummary>,
+  serviceAccounts: ServiceAccount[] = [],
+): MemberView[] {
+  const serviceAccountById = new Map(serviceAccounts.map((account) => [account.id, account]))
   return members.map((member) => {
     const summary = summaries[member.user_id]
-    const displayName = summary ? summary.nickname || summary.username || member.user_id : member.user_id
+    const serviceAccount = member.user_type === "service-account" ? serviceAccountById.get(member.user_id) : undefined
+    const displayName =
+      serviceAccount?.name ??
+      member.name ??
+      (summary ? summary.nickname || summary.username || member.user_id : member.user_id)
     return {
       ...member,
+      ...(serviceAccount ? { name: serviceAccount.name } : {}),
       avatar: summary?.url ?? "",
       displayName,
       fallback: userFallback(displayName),
@@ -214,12 +227,14 @@ export function buildTeamMemberViews({
   members,
   team,
   summaries,
+  serviceAccounts = [],
 }: {
   account?: AccountSummaryLike
   accountRole?: TeamRole | null
   members: TeamMember[]
   team: Team | null
   summaries: Record<string, TeamUserSummary>
+  serviceAccounts?: ServiceAccount[]
 }): MemberView[] {
   const nextMembers = [...members]
   const fallbackSummaries: Record<string, TeamUserSummary> = { ...summaries }
@@ -253,7 +268,7 @@ export function buildTeamMemberViews({
     upsertMember(account.id, accountRole ?? team.role ?? "member")
   }
 
-  return buildMemberViews(nextMembers, fallbackSummaries)
+  return buildMemberViews(nextMembers, fallbackSummaries, serviceAccounts)
 }
 
 /** Search results may use opaque IDs; unverified direct input must be a complete UUID. */
@@ -262,4 +277,13 @@ export function resolveMemberInput(input: string, search: MemberSearchState, sel
   if (search.loading || search.query !== query) return null
   if (search.items.length) return search.items.find((user) => user.userId === selectedId)?.userId ?? null
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query) ? query : null
+}
+
+/** Console excludes the guest service account from occupied seats. */
+export function countOccupiedTeamSeats(members: readonly TeamMember[]): number {
+  return members.filter((member) => !isGuestTeamServiceAccount(member)).length
+}
+
+export function isRemovableTeamMember(member: TeamMember): boolean {
+  return member.role !== "creator" && !isGuestTeamServiceAccount(member)
 }

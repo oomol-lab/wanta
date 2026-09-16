@@ -1,6 +1,7 @@
 import type { BusyAction, MemberView } from "./team-management-model.ts"
 
 import * as React from "react"
+import { isRemovableTeamMember } from "./team-management-model.ts"
 
 export function useMemberStatusSelection({
   busyAction,
@@ -108,5 +109,5 @@ export function hasMemberStatus(member: MemberView): member is MemberView & { di
 }
 
 export function isBulkEditableMember(member: MemberView): member is MemberView & { disable: boolean } {
-  return member.role !== "creator" && hasMemberStatus(member)
+  return isRemovableTeamMember(member) && hasMemberStatus(member)
 }

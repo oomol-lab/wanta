@@ -1,5 +1,8 @@
 import type { ConnectionActionCatalogItem } from "../../../electron/connections/common.ts"
+import type { TeamMember, TeamUserSummary } from "../../../electron/teams/common.ts"
 import type { ConnectionAppAccess, ConnectionPermissionGrant } from "@/lib/team-connection-access"
+
+import { isGuestTeamServiceAccount } from "@/lib/team-permissions"
 
 export function createConnectionPermissionRuleGrant(): ConnectionPermissionGrant {
   return { actionAccess: { actionNames: [], mode: "restricted" } }
@@ -67,4 +70,26 @@ export function connectionAccessSaveDisabled(input: {
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort()
+}
+
+/** Guest service accounts have a separate access scope, outside ordinary team rules. */
+export function connectionRuleMembers(members: readonly TeamMember[]): TeamMember[] {
+  return members.filter((member) => !isGuestTeamServiceAccount(member))
+}
+
+export function removeGuestConnectionAssignments(
+  assignments: Record<string, string>,
+  members: readonly TeamMember[],
+): Record<string, string> {
+  const guestIds = new Set(members.filter(isGuestTeamServiceAccount).map((member) => member.user_id))
+  return Object.fromEntries(Object.entries(assignments).filter(([userId]) => !guestIds.has(userId)))
+}
+
+export function connectionMemberLabel(
+  userId: string,
+  summaries: Record<string, TeamUserSummary>,
+  name?: string,
+): string {
+  const summary = summaries[userId]
+  return summary?.nickname?.trim() || summary?.username?.trim() || name?.trim() || userId
 }

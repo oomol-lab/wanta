@@ -55,3 +55,16 @@ describe("team member role permissions", () => {
     expect(canChange({ actorRole: "admin", actorUserId: "", memberRole: "member" })).toBe(false)
   })
 })
+
+it("does not allow changing service-account roles, matching Console", () => {
+  for (const role of ["guest", "member", "admin"] as const) {
+    expect(
+      canChangeTeamMemberRole({
+        actorCanManage: true,
+        actorRole: "creator",
+        actorUserId: "creator",
+        member: { user_id: "service", role, user_type: "service-account" },
+      }),
+    ).toBe(false)
+  }
+})

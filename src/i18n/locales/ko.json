@@ -1877,6 +1877,7 @@
   "teams.roleCreator": "생성자",
   "teams.roleAdmin": "관리자",
   "teams.roleMember": "멤버",
+  "teams.roleGuest": "게스트",
   "teams.changeMemberRole": "{{name}}님의 팀 역할 변경",
   "teams.createTeam": "팀 만들기",
   "teams.createNewTeam": "새 팀 만들기",

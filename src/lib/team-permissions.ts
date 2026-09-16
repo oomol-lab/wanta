@@ -1,4 +1,4 @@
-import type { Team, TeamMember, TeamOverview, TeamRole } from "../../electron/teams/common.ts"
+import type { Team, TeamMember, TeamOverview, TeamRole, TeamMemberRole } from "../../electron/teams/common.ts"
 
 export function teamRole(overview: TeamOverview | null, team: Team | null): TeamRole | null {
   if (!overview || !team) {
@@ -26,18 +26,21 @@ export function isTeamManagerRole(role: TeamRole | null): role is "creator" | "a
   return role === "creator" || role === "admin"
 }
 
-export function teamRoleLabelKey(role: TeamRole): "teams.roleAdmin" | "teams.roleCreator" | "teams.roleMember" {
+export function teamRoleLabelKey(
+  role: TeamMemberRole,
+): "teams.roleAdmin" | "teams.roleCreator" | "teams.roleMember" | "teams.roleGuest" {
   if (role === "creator") {
     return "teams.roleCreator"
   }
   if (role === "admin") {
     return "teams.roleAdmin"
   }
+  if (role === "guest") return "teams.roleGuest"
   return "teams.roleMember"
 }
 
-export function teamRoleHasDefaultConnectionAccess(role: TeamRole): boolean {
-  return isTeamManagerRole(role)
+export function teamRoleHasDefaultConnectionAccess(role: TeamMemberRole): boolean {
+  return role === "creator" || role === "admin"
 }
 
 export function canChangeTeamMemberRole({
@@ -51,11 +54,20 @@ export function canChangeTeamMemberRole({
   actorUserId: string | undefined
   member: TeamMember
 }): boolean {
-  if (!actorCanManage || !isTeamManagerRole(actorRole) || member.role === "creator") {
+  if (
+    !actorCanManage ||
+    !isTeamManagerRole(actorRole) ||
+    member.role === "creator" ||
+    member.user_type === "service-account"
+  ) {
     return false
   }
   if (actorRole !== "admin") {
     return true
   }
   return Boolean(actorUserId) && member.user_id !== actorUserId
+}
+
+export function isGuestTeamServiceAccount(member: TeamMember): boolean {
+  return member.user_type === "service-account" && member.role === "guest"
 }

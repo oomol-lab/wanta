@@ -4,6 +4,7 @@ import type { BusyAction, MemberView } from "./team-management-model.ts"
 import { PlusIcon, RefreshCwIcon, UsersIcon } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { countOccupiedTeamSeats } from "./team-management-model.ts"
 import { MembersTable } from "./TeamMembersTable.tsx"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
@@ -36,7 +37,7 @@ export function TeamMemberAccessButton({
   const countLabel = membersLoading
     ? t("teams.memberCountLoading")
     : membersComplete
-      ? t("teams.memberCountCompact", { count: members.length })
+      ? t("teams.memberCountCompact", { count: countOccupiedTeamSeats(members) })
       : t("teams.memberCountUnavailable")
 
   return (
@@ -147,7 +148,7 @@ export function TeamDetailPanel({
   const compactMemberCountLabel = membersLoading
     ? t("teams.memberCountLoading")
     : membersComplete
-      ? t("teams.memberCountCompact", { count: members.length })
+      ? t("teams.memberCountCompact", { count: countOccupiedTeamSeats(members) })
       : t("teams.memberCountUnavailable")
   const permissionModeLabel = canManage ? t("teams.canManage") : t("teams.readOnly")
 

@@ -1,6 +1,7 @@
 import type { ConnectionAppSummary } from "../../electron/connections/common.ts"
 import type {
   CreateTeamRequest,
+  ServiceAccount,
   EditableTeamMemberRole,
   Team,
   TeamAppAccess,
@@ -114,6 +115,7 @@ function normalizeTeam(value: unknown): Team | undefined {
     name,
     avatar: normalizeAvatarUrl(value["avatar"]),
     creator_user_id: creatorUserId,
+    ...(value["status"] === "normal" || value["status"] === "paused" ? { status: value["status"] } : {}),
     ...(role === "creator" || role === "admin" || role === "member" ? { role } : {}),
     ...(typeof systemCreated === "boolean" ? { system_created: systemCreated } : {}),
     ...(typeof writable === "boolean" ? { writable } : {}),
@@ -137,15 +139,22 @@ function normalizeTeamMember(value: unknown): TeamMember | undefined {
   }
   const userId = asString(value["user_id"])
   const role = value["role"]
-  if (!userId || (role !== "creator" && role !== "admin" && role !== "member")) {
+  if (!userId || (role !== "creator" && role !== "admin" && role !== "member" && role !== "guest")) {
     return undefined
   }
+  if (value["user_type"] !== undefined && value["user_type"] !== "user" && value["user_type"] !== "service-account")
+    return undefined
+  if (value["name"] !== undefined && typeof value["name"] !== "string") return undefined
   if (value["disable"] !== undefined && typeof value["disable"] !== "boolean") {
     return undefined
   }
   return {
     user_id: userId,
     role,
+    ...(value["user_type"] === "user" || value["user_type"] === "service-account"
+      ? { user_type: value["user_type"] }
+      : {}),
+    ...(typeof value["name"] === "string" ? { name: value["name"] } : {}),
     ...(typeof value["disable"] === "boolean" ? { disable: value["disable"] } : {}),
   }
 }
@@ -171,9 +180,18 @@ function normalizeTeamMembers(value: unknown): TeamMember[] {
       ? `expected object; received ${responseValueType(value)}`
       : !asString(value["user_id"])
         ? `user_id must be a non-empty string; received ${responseValueType(value["user_id"])}`
-        : value["role"] !== "creator" && value["role"] !== "admin" && value["role"] !== "member"
-          ? "role must be creator, admin, or member"
-          : `disable must be a boolean when provided; received ${responseValueType(value["disable"])}`
+        : value["role"] !== "creator" &&
+            value["role"] !== "admin" &&
+            value["role"] !== "member" &&
+            value["role"] !== "guest"
+          ? "role must be creator, admin, member, or guest"
+          : value["user_type"] !== undefined &&
+              value["user_type"] !== "user" &&
+              value["user_type"] !== "service-account"
+            ? "user_type must be user or service-account when provided"
+            : value["name"] !== undefined && typeof value["name"] !== "string"
+              ? "name must be a string when provided"
+              : `disable must be a boolean when provided; received ${responseValueType(value["disable"])}`
     throw new TeamMembersValidationError(
       `Team members response contains an invalid member. members[${index}]: ${reason}.`,
     )
@@ -624,4 +642,27 @@ export async function listTeamConnectionApps(
     .map(normalizeApp)
     .filter((app): app is ConnectionAppSummary => Boolean(app))
     .sort((left, right) => left.service.localeCompare(right.service) || left.id.localeCompare(right.id))
+}
+
+export async function listServiceAccounts(): Promise<ServiceAccount[]> {
+  const result = await requestApiJson("/v1/service-accounts")
+  if (!isPlainObject(result) || !Array.isArray(result["service_accounts"])) {
+    throw new Error("Service accounts response is invalid.")
+  }
+  return result["service_accounts"].map((value, index) => {
+    if (!isPlainObject(value))
+      throw new Error(`Service accounts response contains an invalid account at index ${index}.`)
+    const { id, name, creator_user_id, status, created_at, updated_at } = value
+    if (
+      typeof id !== "string" ||
+      typeof name !== "string" ||
+      typeof creator_user_id !== "string" ||
+      typeof status !== "string" ||
+      typeof created_at !== "string" ||
+      typeof updated_at !== "string"
+    ) {
+      throw new Error(`Service accounts response contains an invalid account at index ${index}.`)
+    }
+    return { id, name, creator_user_id, status, created_at, updated_at }
+  })
 }

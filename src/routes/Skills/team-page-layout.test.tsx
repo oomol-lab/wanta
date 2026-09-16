@@ -27,6 +27,7 @@ const { resource, service, details, translate } = vi.hoisted(() => ({
   details: {
     membersState: { data: [{ user_id: "owner", role: "creator" }], status: "ready", error: null },
     summariesState: { data: {} },
+    serviceAccountsState: { data: [] },
     refresh: vi.fn(),
     reload: vi.fn(),
   },

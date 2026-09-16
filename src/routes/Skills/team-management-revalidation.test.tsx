@@ -16,6 +16,7 @@ const { empty, details, resource, service, translate } = vi.hoisted(() => ({
   details: {
     membersState: { data: [], status: "ready", error: null },
     summariesState: { data: {} },
+    serviceAccountsState: { data: [] },
     refresh: vi.fn(),
     reload: vi.fn(),
   },

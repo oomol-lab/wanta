@@ -1877,6 +1877,7 @@
   "teams.roleCreator": "建立者",
   "teams.roleAdmin": "管理員",
   "teams.roleMember": "成員",
+  "teams.roleGuest": "訪客",
   "teams.changeMemberRole": "變更 {{name}} 的團隊角色",
   "teams.createTeam": "建立團隊",
   "teams.createNewTeam": "建立新團隊",

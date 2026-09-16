@@ -205,7 +205,18 @@ test("adding a user refreshes a team containing Console's guest service account"
         })
       }
       if (url.includes("/service-accounts"))
-        return Response.json({ service_accounts: [{ id: "guest-id", name: "guest" }] })
+        return Response.json({
+          service_accounts: [
+            {
+              id: "guest-id",
+              name: "guest",
+              creator_user_id: "creator",
+              status: "normal",
+              created_at: "2026-09-16T00:00:00Z",
+              updated_at: "2026-09-16T00:00:00Z",
+            },
+          ],
+        })
       summaryRequests.push(String(init?.body ?? url))
       return Response.json({ creator: { username: "Creator" }, [userId]: { username: "Added" } })
     }),

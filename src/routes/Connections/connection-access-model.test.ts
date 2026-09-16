@@ -1,8 +1,10 @@
 import type { ConnectionActionCatalogItem } from "../../../electron/connections/common.ts"
+import type { TeamMember } from "../../../electron/teams/common.ts"
 
 import { describe, expect, it } from "vitest"
 import {
   connectionAccessSaveDisabled,
+  connectionRuleMembers,
   canRestoreConnectionAccess,
   createConnectionPermissionRuleGrant,
   defaultRestrictedActionNames,
@@ -11,6 +13,11 @@ import {
   unavailableActionNames,
   updateActionSelection,
 } from "./connection-access-model.ts"
+import {
+  parseTeamConnectionAccess,
+  setConnectionPermissionRules,
+  getConnectionRuleMemberIds,
+} from "@/lib/team-connection-access"
 
 describe("connectionAccessSaveDisabled", () => {
   it("blocks catalog-dependent saves until the catalog finishes loading", () => {
@@ -147,3 +154,28 @@ function action(
     service: "github",
   }
 }
+
+it("excludes unresolved guests from both default members and rule assignments, retaining ordinary service accounts", () => {
+  const members: TeamMember[] = [
+    { user_id: "creator", role: "creator" },
+    { user_id: "guest", role: "guest", user_type: "service-account" },
+    { user_id: "assigned", role: "member" },
+    { user_id: "worker", role: "member", user_type: "service-account", name: "guest" },
+  ]
+  const eligible = connectionRuleMembers(members)
+  const ids = eligible.map((member) => member.user_id)
+  expect(ids).toEqual(["creator", "assigned", "worker"])
+  const app = { id: "app-test", service: "github" }
+  const policy = setConnectionPermissionRules({}, app, {
+    assignments: { assigned: "writers", guest: "writers" },
+    rules: [{ id: "writers", name: "Writers", actionAccess: { mode: "unrestricted" } }],
+    teamDefault: { actionAccess: { mode: "unrestricted" } },
+  })
+  const parsed = parseTeamConnectionAccess(policy, [app], ids)
+  expect(parsed.ok).toBe(true)
+  if (!parsed.ok) throw new Error("Invalid policy")
+  const access = parsed.apps[0]!
+  if (access.mode === "invalid") throw new Error("Invalid app policy")
+  expect(getConnectionRuleMemberIds(access.permissionRules, "writers")).toEqual(["assigned"])
+  expect(ids.filter((id) => !access.permissionRules.assignments[id])).toEqual(["creator", "worker"])
+})

@@ -9,6 +9,7 @@ import {
   getTeamAppAccessSnapshot,
   isTeamMemberLimitError,
   listCreatedTeams,
+  listServiceAccounts,
   listMyTeams,
   listTeamConnectionApps,
   listTeamMembers,
@@ -504,5 +505,37 @@ describe("Console team member contract", () => {
       vi.fn(async () => Response.json({ members: [{ user_id: "id", role: "guest", ...override }] })),
     )
     await expect(listTeamMembers("team-1")).rejects.toThrow(reason)
+  })
+})
+
+describe("service-account response validation", () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const valid = {
+    id: "sa-test",
+    name: "guest",
+    creator_user_id: "creator",
+    status: "normal",
+    created_at: "2026-09-16T00:00:00Z",
+    updated_at: "2026-09-16T00:00:00Z",
+  }
+  it("returns complete service-account records", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ service_accounts: [valid] })),
+    )
+    await expect(listServiceAccounts()).resolves.toEqual([valid])
+  })
+  it.each([
+    null,
+    [],
+    "account",
+    ...Object.keys(valid).map((key) => ({ ...valid, [key]: null })),
+    ...Object.keys(valid).map((key) => ({ ...valid, [key]: undefined })),
+  ])("rejects invalid entries before they reach member rendering: %j", async (invalid) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ service_accounts: [valid, invalid] })),
+    )
+    await expect(listServiceAccounts()).rejects.toThrow("invalid account at index 1")
   })
 })

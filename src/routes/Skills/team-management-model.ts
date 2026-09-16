@@ -8,6 +8,8 @@ import type {
 } from "../../../electron/teams/common.ts"
 import type { RuntimeSkillRemoveTarget } from "./skill-route-model.ts"
 
+import { isGuestTeamServiceAccount } from "../../lib/team-permissions.ts"
+
 export { teamCanManage, teamRole } from "../../lib/team-permissions.ts"
 
 export type BusyAction =
@@ -279,9 +281,9 @@ export function resolveMemberInput(input: string, search: MemberSearchState, sel
 
 /** Console excludes the guest service account from occupied seats. */
 export function countOccupiedTeamSeats(members: readonly TeamMember[]): number {
-  return members.filter((member) => member.user_type !== "service-account" || member.role !== "guest").length
+  return members.filter((member) => !isGuestTeamServiceAccount(member)).length
 }
 
 export function isRemovableTeamMember(member: TeamMember): boolean {
-  return member.role !== "creator" && !(member.user_type === "service-account" && member.name === "guest")
+  return member.role !== "creator" && !isGuestTeamServiceAccount(member)
 }

@@ -67,3 +67,7 @@ export function canChangeTeamMemberRole({
   }
   return Boolean(actorUserId) && member.user_id !== actorUserId
 }
+
+export function isGuestTeamServiceAccount(member: TeamMember): boolean {
+  return member.user_type === "service-account" && member.role === "guest"
+}

@@ -28,6 +28,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import {
   canRestoreConnectionAccess,
+  connectionRuleMembers,
   createConnectionPermissionRuleGrant,
   defaultRestrictedActionNames,
   isConnectionAccessConflict,
@@ -141,7 +142,7 @@ export function ConnectionAccessDialog({
       if (requestIdRef.current !== requestId) return
       setSnapshot(nextSnapshot)
       setActions(normalizeActions(localizeConnectionActions(app.service, nextActions.data, locale)))
-      setMembers(nextMembers)
+      setMembers(connectionRuleMembers(nextMembers))
       const userIds = uniqueStrings(
         nextMembers.filter((member) => member.user_type !== "service-account").map((member) => member.user_id),
       )

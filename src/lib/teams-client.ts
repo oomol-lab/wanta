@@ -649,5 +649,20 @@ export async function listServiceAccounts(): Promise<ServiceAccount[]> {
   if (!isPlainObject(result) || !Array.isArray(result["service_accounts"])) {
     throw new Error("Service accounts response is invalid.")
   }
-  return result["service_accounts"] as ServiceAccount[]
+  return result["service_accounts"].map((value, index) => {
+    if (!isPlainObject(value))
+      throw new Error(`Service accounts response contains an invalid account at index ${index}.`)
+    const { id, name, creator_user_id, status, created_at, updated_at } = value
+    if (
+      typeof id !== "string" ||
+      typeof name !== "string" ||
+      typeof creator_user_id !== "string" ||
+      typeof status !== "string" ||
+      typeof created_at !== "string" ||
+      typeof updated_at !== "string"
+    ) {
+      throw new Error(`Service accounts response contains an invalid account at index ${index}.`)
+    }
+    return { id, name, creator_user_id, status, created_at, updated_at }
+  })
 }

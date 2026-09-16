@@ -377,57 +377,60 @@ test.each([false, true])("member failure shows copyable diagnostics and retry (f
   }
 })
 
-test("guest service account has no role/delete actions and cannot enter bulk status changes", async () => {
-  const host = document.createElement("div")
-  const root = createRoot(host)
-  const disable = vi.fn()
-  const remove = vi.fn()
-  const members = buildMemberViews(
-    [
-      { user_id: "creator", role: "creator", disable: false },
-      { user_id: "guest", role: "guest", user_type: "service-account", name: "guest", disable: false },
-      { user_id: "user", role: "member", disable: false },
-    ],
-    {},
-  )
-  try {
-    await act(async () =>
-      root.render(
-        <TooltipProvider>
-          <TeamDetailPanel
-            actorRole="creator"
-            actorUserId="creator"
-            busyAction={null}
-            canManage
-            members={members}
-            membersComplete
-            membersError={null}
-            membersForbidden={false}
-            membersLoading={false}
-            team={{ id: "team", name: "Team", creator_user_id: "creator", avatar: "" }}
-            onAddMember={vi.fn()}
-            onDisableMembers={disable}
-            onEnableMembers={vi.fn()}
-            onRemoveMember={remove}
-            onRetryMembers={vi.fn()}
-            onUpdateMemberRole={vi.fn()}
-          />
-        </TooltipProvider>,
-      ),
+test.each([undefined, "guest", "Unresolved display name"])(
+  "guest service account with name %s has no role/delete/bulk actions",
+  async (name) => {
+    const host = document.createElement("div")
+    const root = createRoot(host)
+    const disable = vi.fn()
+    const remove = vi.fn()
+    const members = buildMemberViews(
+      [
+        { user_id: "creator", role: "creator", disable: false },
+        { user_id: "guest", role: "guest", user_type: "service-account", name, disable: false },
+        { user_id: "user", role: "member", disable: false },
+      ],
+      {},
     )
-    expect(host.textContent).toContain("teams.roleGuest")
-    const checkboxes = [...host.querySelectorAll<HTMLInputElement>('input[aria-label="teams.selectMember"]')]
-    expect(checkboxes.map((checkbox) => checkbox.disabled)).toEqual([true, true, false])
-    expect(host.querySelectorAll('[role="combobox"]')).toHaveLength(1)
-    expect(host.querySelectorAll('button[aria-label="teams.actions"]')).toHaveLength(1)
-    await act(async () => host.querySelector<HTMLInputElement>('input[aria-label="teams.selectAllMembers"]')!.click())
-    const disableButton = [...host.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("teams.disableSelectedMembers"),
-    )!
-    await act(async () => disableButton.click())
-    expect(disable).toHaveBeenCalledWith(["user"])
-    expect(remove).not.toHaveBeenCalled()
-  } finally {
-    await act(async () => root.unmount())
-  }
-})
+    try {
+      await act(async () =>
+        root.render(
+          <TooltipProvider>
+            <TeamDetailPanel
+              actorRole="creator"
+              actorUserId="creator"
+              busyAction={null}
+              canManage
+              members={members}
+              membersComplete
+              membersError={null}
+              membersForbidden={false}
+              membersLoading={false}
+              team={{ id: "team", name: "Team", creator_user_id: "creator", avatar: "" }}
+              onAddMember={vi.fn()}
+              onDisableMembers={disable}
+              onEnableMembers={vi.fn()}
+              onRemoveMember={remove}
+              onRetryMembers={vi.fn()}
+              onUpdateMemberRole={vi.fn()}
+            />
+          </TooltipProvider>,
+        ),
+      )
+      expect(host.textContent).toContain("teams.roleGuest")
+      const checkboxes = [...host.querySelectorAll<HTMLInputElement>('input[aria-label="teams.selectMember"]')]
+      expect(checkboxes.map((checkbox) => checkbox.disabled)).toEqual([true, true, false])
+      expect(host.querySelectorAll('[role="combobox"]')).toHaveLength(1)
+      expect(host.querySelectorAll('button[aria-label="teams.actions"]')).toHaveLength(1)
+      await act(async () => host.querySelector<HTMLInputElement>('input[aria-label="teams.selectAllMembers"]')!.click())
+      const disableButton = [...host.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("teams.disableSelectedMembers"),
+      )!
+      await act(async () => disableButton.click())
+      expect(disable).toHaveBeenCalledWith(["user"])
+      expect(remove).not.toHaveBeenCalled()
+    } finally {
+      await act(async () => root.unmount())
+    }
+  },
+)

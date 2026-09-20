@@ -103,7 +103,7 @@ describe("browser screenshot and native bounds coordination", () => {
     const screenshot = page.screenshot(true)
     page.show({ ...wide, width: 800 })
     page.show(wide)
-    expect(contentView.removeChildView).toHaveBeenCalledOnce()
+    expect(contentView.removeChildView).not.toHaveBeenCalled()
     expect(mocks.view.setBounds).not.toHaveBeenCalled()
     image.resolve(Buffer.from("png"))
     await screenshot
@@ -121,6 +121,19 @@ describe("browser screenshot and native bounds coordination", () => {
     await screenshot
     expect(mocks.view.setBounds).not.toHaveBeenCalled()
     expect(page.state().visible).toBe(false)
+  })
+
+  it("keeps the latest bounds when a resize returns to its original size during capture", async () => {
+    const { contentView, page } = await setup()
+    const image = capture()
+    const screenshot = page.screenshot(true)
+    page.show(wide)
+    page.show(narrow)
+    image.resolve(Buffer.from("png"))
+    await screenshot
+    expect(mocks.view.setBounds).not.toHaveBeenCalled()
+    expect(contentView.removeChildView).not.toHaveBeenCalled()
+    expect(page.state().visible).toBe(true)
   })
 
   it("waits for every overlapping capture before showing a hidden page", async () => {

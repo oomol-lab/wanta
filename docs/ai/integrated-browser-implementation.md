@@ -124,6 +124,8 @@ Stop and ask before adding any of the following:
   modal visibility changes do not enter the Playwright screenshot/viewport lifecycle.
   `BrowserPage` defers show/bounds requests during capture and applies only the latest request after
   all captures finish, including native CDP commands still completing after Playwright cancellation.
+  Bounds deferral keeps an already visible view attached; detaching it mid-capture can stall frame
+  production on long reports. A resize back to the original bounds replaces any pending resize too.
   Hide/dispose cancels a pending show immediately. Without this coordination, resizing during a
   full-page capture can leave a 1080 x 680 native view rendering a stale 400 x 500 viewport, producing
   blank regions and incorrect on-screen scrolling. The opt-in native regression probe is

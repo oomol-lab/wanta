@@ -116,9 +116,9 @@ export class BrowserPage {
     // CDP screenshots temporarily resize the native viewport and restore its old
     // size on completion. Resizing during capture leaves that restored viewport
     // out of sync with the View bounds, corrupting subsequent on-screen scrolling.
+    // Keep the view attached while waiting: detaching during capture can stall
+    // Chromium's frame production. Explicit hide requests still take precedence.
     if (this.screenshotsInFlight > 0) {
-      if (this.visible && sameBrowserBounds(this.currentBounds, bounds)) return
-      this.hide()
       this.pendingShowBounds = { ...bounds }
       return
     }

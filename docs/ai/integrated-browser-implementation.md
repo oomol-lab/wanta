@@ -120,6 +120,8 @@ Stop and ask before adding any of the following:
   then restores the live page at its measured bounds after the modal closes. Dialogs and full-screen
   viewers therefore cover the whole window without making the underlying page appear to vanish.
 - CDP screenshots temporarily change the native viewport and restore its previous size afterward.
+  Modal backdrop previews use Electron `capturePage` with `stayHidden: true` instead, so ordinary
+  modal visibility changes do not enter the Playwright screenshot/viewport lifecycle.
   `BrowserPage` defers show/bounds requests during capture and applies only the latest request after
   all captures finish, including native CDP commands still completing after Playwright cancellation.
   Hide/dispose cancels a pending show immediately. Without this coordination, resizing during a

@@ -244,6 +244,14 @@ export class BrowserPage {
     }
   }
 
+  public async capturePreview(): Promise<string | null> {
+    if (this.isCrashed()) return null
+    // Modal backdrops only need the current frame. Avoid Playwright's screenshot
+    // lifecycle here: it can alter viewport state while the user resizes the panel.
+    const image = await this.view.webContents.capturePage(undefined, { stayHidden: true })
+    return image.isEmpty() ? null : image.toDataURL()
+  }
+
   public async handleDialog(accept: boolean, promptText?: string): Promise<BrowserReadResult> {
     const dialog = this.currentDialog
     if (!dialog) throw new Error("There is no active browser dialog.")

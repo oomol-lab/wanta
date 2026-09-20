@@ -104,6 +104,32 @@ app.whenReady().then(async () => {
       assert.ok(scrollAfter > scrollBefore, "Each scroll must advance the page")
       console.log(JSON.stringify({ result: "pass", before, after, viewport }))
     }
+    // Opening/closing a renderer modal must not enter CDP's screenshot path.
+    const forbiddenPreviewCommands = []
+    debuggerApi.sendCommand = (method, ...args) => {
+      if (method === "Page.captureScreenshot" || method.includes("DeviceMetricsOverride")) {
+        forbiddenPreviewCommands.push(method)
+      }
+      return sendCommand(method, ...args)
+    }
+    try {
+      for (const bounds of [wide, narrow, wide]) {
+        page.show(bounds)
+        await pause(100)
+        const before = await contents.executeJavaScript("({width:innerWidth,height:innerHeight,scrollY})")
+        page.hide()
+        const preview = page.capturePreview()
+        page.show(bounds)
+        assert.match(await preview, /^data:image\/png;base64,/)
+        await pause(100)
+        const after = await contents.executeJavaScript("({width:innerWidth,height:innerHeight,scrollY})")
+        assert.deepEqual(after, before, "Backdrop capture must preserve the viewport and scroll position")
+      }
+      assert.deepEqual(forbiddenPreviewCommands, [], "Backdrop previews must not change CDP viewport state")
+      console.log(JSON.stringify({ result: "pass", scenario: "native modal preview and reopen" }))
+    } finally {
+      debuggerApi.sendCommand = sendCommand
+    }
   } catch (error) {
     console.error(error)
     process.exitCode = 1

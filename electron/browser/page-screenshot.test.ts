@@ -3,6 +3,7 @@ import { BrowserPage } from "./page.ts"
 
 const mocks = vi.hoisted(() => {
   const contents = {
+    capturePage: vi.fn(),
     close: vi.fn(),
     focus: vi.fn(),
     getTitle: () => "Test",
@@ -74,6 +75,28 @@ function capture() {
 }
 
 describe("browser screenshot and native bounds coordination", () => {
+  it("captures a hidden preview without CDP or deferring panel resize", async () => {
+    const { contentView, page } = await setup()
+    page.hide()
+    contentView.addChildView.mockClear()
+    const image = Promise.withResolvers<{ isEmpty(): boolean; toDataURL(): string }>()
+    mocks.contents.capturePage.mockReturnValueOnce(image.promise)
+    const preview = page.capturePreview()
+    expect(contentView.addChildView).not.toHaveBeenCalled()
+    expect(mocks.contents.capturePage).toHaveBeenCalledWith(undefined, { stayHidden: true })
+    page.show(wide)
+    expect(mocks.view.setBounds).toHaveBeenCalledWith(wide)
+    image.resolve({ isEmpty: () => false, toDataURL: () => "data:image/png;base64,preview" })
+    await expect(preview).resolves.toBe("data:image/png;base64,preview")
+    expect(mocks.page.screenshot).not.toHaveBeenCalled()
+  })
+
+  it("omits an empty native preview", async () => {
+    const { page } = await setup()
+    mocks.contents.capturePage.mockResolvedValueOnce({ isEmpty: () => true })
+    await expect(page.capturePreview()).resolves.toBeNull()
+  })
+
   it("applies only the latest bounds after CDP restores the capture viewport", async () => {
     const { contentView, page } = await setup()
     const image = capture()

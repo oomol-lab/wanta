@@ -170,6 +170,10 @@ app.whenReady().then(async () => {
     } finally {
       debuggerApi.sendCommand = sendCommand
     }
+    const closingPreview = page.capturePreview()
+    await page.dispose()
+    assert.equal(await closingPreview, null, "Disposal during preview must return an unavailable preview")
+    console.log(JSON.stringify({ result: "pass", scenario: "native preview disposal race" }))
   } catch (error) {
     console.error(error)
     process.exitCode = 1

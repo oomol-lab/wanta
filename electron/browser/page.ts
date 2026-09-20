@@ -39,6 +39,7 @@ export interface BrowserTypeInput {
 export class BrowserPage {
   public readonly sessionId: string
   private crashed = false
+  private disposed = false
   private currentBounds: BrowserViewBounds | null = null
   private pendingShowBounds: BrowserViewBounds | null = null
   private screenshotsInFlight = 0
@@ -109,7 +110,7 @@ export class BrowserPage {
   }
 
   public isCrashed(): boolean {
-    return this.crashed || this.view.webContents.isDestroyed()
+    return this.disposed || this.crashed || this.view.webContents.isDestroyed()
   }
 
   public show(bounds: BrowserViewBounds): void {
@@ -248,8 +249,13 @@ export class BrowserPage {
     if (this.isCrashed()) return null
     // Modal backdrops only need the current frame. Avoid Playwright's screenshot
     // lifecycle here: it can alter viewport state while the user resizes the panel.
-    const image = await this.view.webContents.capturePage(undefined, { stayHidden: true })
-    return image.isEmpty() ? null : image.toDataURL()
+    try {
+      const image = await this.view.webContents.capturePage(undefined, { stayHidden: true })
+      return this.isCrashed() || image.isEmpty() ? null : image.toDataURL()
+    } catch (error) {
+      if (this.isCrashed()) return null
+      throw error
+    }
   }
 
   public async handleDialog(accept: boolean, promptText?: string): Promise<BrowserReadResult> {
@@ -263,6 +269,8 @@ export class BrowserPage {
   }
 
   public async dispose(): Promise<void> {
+    if (this.disposed) return
+    this.disposed = true
     nativeTheme.off("updated", this.applyTheme)
     this.hide()
     const relay = this.relay

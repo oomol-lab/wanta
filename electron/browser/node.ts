@@ -119,8 +119,7 @@ export class BrowserManager {
   public async capturePreview(sessionId: string): Promise<string | null> {
     const page = this.pages.get(sessionId)?.page
     if (!page || page.isCrashed()) return null
-    const image = await page.screenshot(false)
-    return `data:image/png;base64,${image.toString("base64")}`
+    return page.capturePreview()
   }
 
   public async clearData(): Promise<void> {

@@ -3,6 +3,7 @@ import { BrowserPage } from "./page.ts"
 
 const mocks = vi.hoisted(() => {
   const contents = {
+    capturePage: vi.fn(),
     close: vi.fn(),
     focus: vi.fn(),
     getTitle: () => "Test",
@@ -74,13 +75,67 @@ function capture() {
 }
 
 describe("browser screenshot and native bounds coordination", () => {
+  it("captures a hidden preview without CDP or deferring panel resize", async () => {
+    const { contentView, page } = await setup()
+    page.hide()
+    contentView.addChildView.mockClear()
+    const image = Promise.withResolvers<{ isEmpty(): boolean; toDataURL(): string }>()
+    mocks.contents.capturePage.mockReturnValueOnce(image.promise)
+    const preview = page.capturePreview()
+    expect(contentView.addChildView).not.toHaveBeenCalled()
+    expect(mocks.contents.capturePage).toHaveBeenCalledWith(undefined, { stayHidden: true })
+    page.show(wide)
+    expect(mocks.view.setBounds).toHaveBeenCalledWith(wide)
+    image.resolve({ isEmpty: () => false, toDataURL: () => "data:image/png;base64,preview" })
+    await expect(preview).resolves.toBe("data:image/png;base64,preview")
+    expect(mocks.page.screenshot).not.toHaveBeenCalled()
+  })
+
+  it("omits an empty native preview", async () => {
+    const { page } = await setup()
+    mocks.contents.capturePage.mockResolvedValueOnce({ isEmpty: () => true })
+    await expect(page.capturePreview()).resolves.toBeNull()
+  })
+
+  it.each(["crash", "dispose"])("omits a preview rejected after page %s", async (reason) => {
+    const { page } = await setup()
+    const capture = Promise.withResolvers<never>()
+    mocks.contents.capturePage.mockReturnValueOnce(capture.promise)
+    const preview = page.capturePreview()
+    if (reason === "dispose") {
+      await page.dispose()
+    } else {
+      const listener = mocks.contents.on.mock.calls.find(([event]) => event === "render-process-gone")?.[1]
+      listener()
+    }
+    capture.reject(new Error("Render frame was disposed"))
+    await expect(preview).resolves.toBeNull()
+  })
+
+  it("preserves unexpected capture failures on a live page", async () => {
+    const { page } = await setup()
+    const error = new Error("Capture failed")
+    mocks.contents.capturePage.mockRejectedValueOnce(error)
+    await expect(page.capturePreview()).rejects.toBe(error)
+  })
+
+  it("discards a successful capture if the page was disposed while waiting", async () => {
+    const { page } = await setup()
+    const capture = Promise.withResolvers<{ isEmpty(): boolean; toDataURL(): string }>()
+    mocks.contents.capturePage.mockReturnValueOnce(capture.promise)
+    const preview = page.capturePreview()
+    await page.dispose()
+    capture.resolve({ isEmpty: () => false, toDataURL: () => "stale" })
+    await expect(preview).resolves.toBeNull()
+  })
+
   it("applies only the latest bounds after CDP restores the capture viewport", async () => {
     const { contentView, page } = await setup()
     const image = capture()
     const screenshot = page.screenshot(true)
     page.show({ ...wide, width: 800 })
     page.show(wide)
-    expect(contentView.removeChildView).toHaveBeenCalledOnce()
+    expect(contentView.removeChildView).not.toHaveBeenCalled()
     expect(mocks.view.setBounds).not.toHaveBeenCalled()
     image.resolve(Buffer.from("png"))
     await screenshot
@@ -98,6 +153,19 @@ describe("browser screenshot and native bounds coordination", () => {
     await screenshot
     expect(mocks.view.setBounds).not.toHaveBeenCalled()
     expect(page.state().visible).toBe(false)
+  })
+
+  it("keeps the latest bounds when a resize returns to its original size during capture", async () => {
+    const { contentView, page } = await setup()
+    const image = capture()
+    const screenshot = page.screenshot(true)
+    page.show(wide)
+    page.show(narrow)
+    image.resolve(Buffer.from("png"))
+    await screenshot
+    expect(mocks.view.setBounds).not.toHaveBeenCalled()
+    expect(contentView.removeChildView).not.toHaveBeenCalled()
+    expect(page.state().visible).toBe(true)
   })
 
   it("waits for every overlapping capture before showing a hidden page", async () => {

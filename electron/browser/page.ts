@@ -39,6 +39,7 @@ export interface BrowserTypeInput {
 export class BrowserPage {
   public readonly sessionId: string
   private crashed = false
+  private disposed = false
   private currentBounds: BrowserViewBounds | null = null
   private pendingShowBounds: BrowserViewBounds | null = null
   private screenshotsInFlight = 0
@@ -109,16 +110,16 @@ export class BrowserPage {
   }
 
   public isCrashed(): boolean {
-    return this.crashed || this.view.webContents.isDestroyed()
+    return this.disposed || this.crashed || this.view.webContents.isDestroyed()
   }
 
   public show(bounds: BrowserViewBounds): void {
     // CDP screenshots temporarily resize the native viewport and restore its old
     // size on completion. Resizing during capture leaves that restored viewport
     // out of sync with the View bounds, corrupting subsequent on-screen scrolling.
+    // Keep the view attached while waiting: detaching during capture can stall
+    // Chromium's frame production. Explicit hide requests still take precedence.
     if (this.screenshotsInFlight > 0) {
-      if (this.visible && sameBrowserBounds(this.currentBounds, bounds)) return
-      this.hide()
       this.pendingShowBounds = { ...bounds }
       return
     }
@@ -244,6 +245,19 @@ export class BrowserPage {
     }
   }
 
+  public async capturePreview(): Promise<string | null> {
+    if (this.isCrashed()) return null
+    // Modal backdrops only need the current frame. Avoid Playwright's screenshot
+    // lifecycle here: it can alter viewport state while the user resizes the panel.
+    try {
+      const image = await this.view.webContents.capturePage(undefined, { stayHidden: true })
+      return this.isCrashed() || image.isEmpty() ? null : image.toDataURL()
+    } catch (error) {
+      if (this.isCrashed()) return null
+      throw error
+    }
+  }
+
   public async handleDialog(accept: boolean, promptText?: string): Promise<BrowserReadResult> {
     const dialog = this.currentDialog
     if (!dialog) throw new Error("There is no active browser dialog.")
@@ -255,6 +269,8 @@ export class BrowserPage {
   }
 
   public async dispose(): Promise<void> {
+    if (this.disposed) return
+    this.disposed = true
     nativeTheme.off("updated", this.applyTheme)
     this.hide()
     const relay = this.relay

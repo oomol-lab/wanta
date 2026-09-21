@@ -115,6 +115,7 @@ import {
 } from "./context-system.ts"
 import { normalizeChatError } from "./error.ts"
 import { GenerationRegistry } from "./generation-registry.ts"
+import { assertKnowledgeSelection, buildKnowledgeSystem } from "./knowledge-context.ts"
 import {
   evaluateLocalAccessRequest,
   localAccessGrantForRequest,
@@ -2189,6 +2190,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       throw new Error("Message text is empty.")
     }
     const bugReport = parseBugReportCommand(req.text)
+    if (!bugReport) assertKnowledgeSelection(req.contextMentions, req.scope, this.activeLinkRuntime)
     const externalKind = externalAgentKindForSessionId(req.sessionId)
     if (externalKind) {
       return this.sendExternalMessage(req, externalKind, bugReport)
@@ -2360,6 +2362,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               ...(bugReport
                 ? [bugReportSystem]
                 : [
+                    buildKnowledgeSystem(this.activeLinkRuntime, teamName),
                     buildTeamSkillsSystem(req.teamSkills),
                     buildContextMentionsSystemPrompt(req.contextMentions),
                     buildProjectContextSystem(req.projectContext),
@@ -2673,6 +2676,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
                   ]
                 : [
                     buildLinkRuntimeSystem(this.activeLinkRuntime, teamName),
+                    buildKnowledgeSystem(this.activeLinkRuntime, teamName),
                     buildTeamSkillsSystem(req.teamSkills),
                     buildContextMentionsSystemPrompt(req.contextMentions),
                     buildProjectContextSystem(req.projectContext),

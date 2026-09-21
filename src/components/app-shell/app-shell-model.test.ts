@@ -94,9 +94,9 @@ describe("team route and scope migration", () => {
     expect(initialRoute()).toBe("teams")
   })
 
-  test("falls back to chat for the removed knowledge route", () => {
+  test("accepts the cloud knowledge route", () => {
     vi.stubEnv("VITE_WANTA_ROUTE", "knowledge")
-    expect(initialRoute()).toBe("chat")
+    expect(initialRoute()).toBe("knowledge")
   })
 
   test("accepts team and legacy organization scope keys", () => {
@@ -141,6 +141,8 @@ describe("local workspace", () => {
     expect(routeAvailableForRuntime("teams", false)).toBe(false)
     expect(routeAvailableForRuntime("billing", false)).toBe(false)
     expect(routeAvailableForRuntime("billing", true)).toBe(true)
+    expect(routeAvailableForRuntime("knowledge", false)).toBe(false)
+    expect(routeAvailableForRuntime("knowledge", true)).toBe(true)
   })
 
   test("keeps project controls available without a running session", () => {

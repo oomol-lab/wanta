@@ -1,7 +1,7 @@
 import type { ChatContextMention } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 
-import { Plug, X } from "lucide-react"
+import { BookOpen, Plug, X } from "lucide-react"
 import { connectionAppDisplayLabel } from "../../../electron/connections/summary.ts"
 import { contextMentionKey } from "./composer-state.ts"
 import { skillContextMentionLabel } from "./context-mention-label.ts"
@@ -39,6 +39,7 @@ function contextMentionLabel(mention: ChatContextMention, provider?: ConnectionP
   if (mention.kind === "skill") {
     return skillContextMentionLabel(mention)
   }
+  if (mention.kind === "cloud-knowledge") return mention.displayName
   const accountLabel = connectionAccountLabel(mention, provider)
   return accountLabel ? `${mention.displayName} ${accountLabel}` : mention.displayName
 }
@@ -97,7 +98,13 @@ export function ContextMentionChips({
               <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
             ) : (
               <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                {mention.kind === "skill" ? <SkillMentionIcon icon={mention.icon} /> : <Plug className="size-3.5" />}
+                {mention.kind === "skill" ? (
+                  <SkillMentionIcon icon={mention.icon} />
+                ) : mention.kind === "cloud-knowledge" ? (
+                  <BookOpen className="size-3.5" />
+                ) : (
+                  <Plug className="size-3.5" />
+                )}
               </span>
             )}
             <span className="flex min-w-0 flex-1 items-center">

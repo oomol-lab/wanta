@@ -190,3 +190,11 @@ test.each(["constructor", "toString", "__proto__"])("treats %s as an own draft a
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test("preserves cloud knowledge intent without reviving legacy WikiGraph references", () => {
+  const mention = { kind: "cloud-knowledge" as const, id: "team-1", displayName: "Knowledge" }
+  const restored = normalizeComposerDraft(
+    JSON.parse(JSON.stringify({ ...value, contextMentions: [mention, { kind: "knowledge", id: "old-book" }] })),
+  )
+  expect(restored.contextMentions).toEqual([mention])
+})

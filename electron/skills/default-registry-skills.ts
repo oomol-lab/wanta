@@ -6,10 +6,17 @@ export interface DefaultRegistrySkillSpec {
   skillId: string
 }
 
-export const defaultRegistrySkillSetVersion = 6
+export const defaultRegistrySkillSetVersion = 7
 
 // 默认安装清单：登录后后台补装，必须使用 registry 中稳定的 packageName + skillId。
 export const defaultRegistrySkills: readonly DefaultRegistrySkillSpec[] = [
+  {
+    category: "document",
+    enabled: true,
+    minimumVersion: "1.0.0",
+    packageName: "oo-oomol-rag",
+    skillId: "oo-oomol-rag",
+  },
   {
     category: "productivity",
     enabled: true,

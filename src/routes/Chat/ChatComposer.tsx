@@ -17,6 +17,7 @@ import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { ArrowRight, BrainCircuit, Bug, Copy, Loader2, LogIn, RefreshCw, Server, Trash2, X } from "lucide-react"
+import { BookOpen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { AGENT_PROFILES, isExternalAgentKind } from "../../../electron/agent/contract/profile.ts"
@@ -79,6 +80,7 @@ import { cn } from "@/lib/utils"
 import { authTypeLabel } from "@/routes/Connections/shared"
 
 interface ChatComposerProps {
+  knowledgeTeamId?: string
   error: string | null
   agentEffortId?: string
   agentKind?: AgentKind
@@ -187,6 +189,7 @@ function paletteLabels({
 }
 
 export function ChatComposer({
+  knowledgeTeamId,
   agentEffortId,
   agentKind = "opencode",
   agentModelId,
@@ -891,6 +894,25 @@ export function ChatComposer({
         />
       </PromptInputBody>
       <PromptInputToolbar className="oo-composer-toolbar min-w-0 flex-nowrap overflow-hidden">
+        {knowledgeTeamId ? (
+          <Button
+            type="button"
+            variant={contextMentions.some((m) => m.kind === "cloud-knowledge") ? "secondary" : "ghost"}
+            size="icon"
+            disabled={composerDisabled || command !== null}
+            aria-label={t("knowledge.useInChat")}
+            title={t("knowledge.useInChat")}
+            aria-pressed={contextMentions.some((m) => m.kind === "cloud-knowledge")}
+            onClick={() => {
+              const selected = contextMentions.find((m) => m.kind === "cloud-knowledge")
+              if (selected) removeContextMention(selected)
+              else
+                addContextMention({ kind: "cloud-knowledge", id: knowledgeTeamId, displayName: t("knowledge.title") })
+            }}
+          >
+            <BookOpen />
+          </Button>
+        ) : null}
         <ComposerAttachmentMenu
           disabled={composerDisabled || composerAttachmentsDisabled}
           fileInputRef={composerAttachments.fileInputRef}

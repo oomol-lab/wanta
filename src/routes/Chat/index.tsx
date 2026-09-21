@@ -40,6 +40,7 @@ import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 interface ChatAreaProps {
+  knowledgeTeamId?: string
   activeSessionId: string | null
   agentKind?: AgentKind
   agentModesEnabled?: boolean
@@ -249,6 +250,7 @@ function EmptyCapabilityAction({
 }
 
 export const ChatArea = React.memo(function ChatArea({
+  knowledgeTeamId,
   activeSessionId,
   agentKind = "opencode",
   agentModesEnabled = true,
@@ -347,6 +349,7 @@ export const ChatArea = React.memo(function ChatArea({
   const showCenteredEmptyState = showEmptyState && !hasMessages && !isGenerating
   const composer = (
     <ChatComposer
+      knowledgeTeamId={knowledgeTeamId}
       key={composerDraftKey}
       agentKind={agentKind}
       agentEffortId={agentEffortId}

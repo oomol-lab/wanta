@@ -118,6 +118,9 @@ import { hasComposerDraftContent } from "@/routes/Chat/composer-state"
 import { summarizeEmptyStateConnections } from "@/routes/Chat/empty-state-connections"
 import { normalizeConnectionCatalogFilter } from "@/routes/Connections/connection-route-model.ts"
 
+const KnowledgeRoute = React.lazy(() =>
+  import("@/routes/Knowledge").then((module) => ({ default: module.KnowledgeRoute })),
+)
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
 )
@@ -904,19 +907,21 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const showComposerProjectContext = route === "chat"
   const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
   const titlebarTitle =
-    route === "settings"
-      ? t("settings.title")
-      : route === "billing"
-        ? t("billing.title")
-        : route === "connections"
-          ? t("connections.title")
-          : route === "skills"
-            ? t("skills.title")
-            : route === "teams"
-              ? t("teams.title")
-              : route === "archived"
-                ? t("archived.title")
-                : (activeSession?.title ?? t("chat.newSession"))
+    route === "knowledge"
+      ? t("knowledge.title")
+      : route === "settings"
+        ? t("settings.title")
+        : route === "billing"
+          ? t("billing.title")
+          : route === "connections"
+            ? t("connections.title")
+            : route === "skills"
+              ? t("skills.title")
+              : route === "teams"
+                ? t("teams.title")
+                : route === "archived"
+                  ? t("archived.title")
+                  : (activeSession?.title ?? t("chat.newSession"))
   const titlebarEditable = route === "chat" && Boolean(activeSession)
 
   React.useEffect(() => {
@@ -2110,7 +2115,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
 
           <main className="oo-content-surface min-h-0 min-w-0 overflow-hidden">
             <React.Suspense fallback={<RouteLoadingFallback />}>
-              {route === "connections" ? (
+              {route === "knowledge" && oomolEnabled ? (
+                <KnowledgeRoute
+                  key={`${accountId}:${teamWorkspace.activeWorkspace.teamId}`}
+                  teamId={teamWorkspace.activeWorkspace.team?.id ?? ""}
+                  writable={teamWorkspace.activeWorkspace.canManage}
+                />
+              ) : route === "connections" ? (
                 linkRuntime.state?.active === "openconnector" ? (
                   <OpenConnectorConnectionsPanel runtime={linkRuntime} onOpenSettings={handleOpenSettingsCommand} />
                 ) : oomolLinkActive ? (
@@ -2146,6 +2157,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 <div className="flex h-full min-h-0 overflow-hidden">
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <ChatArea
+                      knowledgeTeamId={oomolLinkActive ? teamWorkspace.activeWorkspace.team?.id : undefined}
                       activeSessionId={activeChatSessionId}
                       agentKind={displayedAgentKind}
                       agentModesEnabled={agentModesEnabled}

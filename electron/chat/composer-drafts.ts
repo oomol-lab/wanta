@@ -48,7 +48,13 @@ export function normalizeComposerDraft(input: unknown): ComposerDraftRecord {
   const contextMentions: ComposerDraftRecord["contextMentions"] = []
   for (const mention of value.contextMentions as Array<{ kind?: unknown } | null | undefined>) {
     if (!mention || typeof mention !== "object") throw new Error("Invalid draft reference")
-    if (mention.kind === "skill" || mention.kind === "connection") {
+    if (
+      mention.kind === "skill" ||
+      mention.kind === "connection" ||
+      (mention.kind === "cloud-knowledge" &&
+        typeof (mention as { id?: unknown }).id === "string" &&
+        typeof (mention as { displayName?: unknown }).displayName === "string")
+    ) {
       contextMentions.push(mention as ComposerDraftRecord["contextMentions"][number])
       continue
     }

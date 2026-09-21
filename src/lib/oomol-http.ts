@@ -35,8 +35,8 @@ export class OomolAuthRequiredError extends Error {
 }
 
 export interface OomolFetchOptions extends Omit<RequestInit, "credentials"> {
-  /** 默认 15s，超时即 abort；调用方 signal 与超时同时生效。 */
-  timeoutMs?: number
+  /** Defaults to 15s; null disables the deadline while preserving caller cancellation. */
+  timeoutMs?: number | null
 }
 
 function assertNoRendererCredentialHeaders(headers: Headers): void {
@@ -71,8 +71,8 @@ export function oomolFetch(input: string | URL, options: OomolFetchOptions = {})
   if (!mergedHeaders.has("Accept")) {
     mergedHeaders.set("Accept", "application/json")
   }
-  const timeoutSignal = AbortSignal.timeout(timeoutMs)
-  const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
+  const timeoutSignal = timeoutMs === null ? undefined : AbortSignal.timeout(timeoutMs)
+  const requestSignal = signal && timeoutSignal ? AbortSignal.any([signal, timeoutSignal]) : (signal ?? timeoutSignal)
   return fetch(input, {
     ...init,
     credentials: "include",

@@ -527,6 +527,7 @@ export interface ChatTeamSkillContext {
 }
 
 export type ChatContextMention =
+  | { kind: "cloud-knowledge"; id: string; displayName: string }
   | {
       description?: string
       displayName?: string

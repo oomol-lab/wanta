@@ -70,3 +70,6 @@ export const externalModelProviderBaseUrls = {
   xiaomiTokenSgp: "https://token-plan-sgp.xiaomimimo.com/v1",
   xiaomiTokenAms: "https://token-plan-ams.xiaomimimo.com/v1",
 } as const
+
+/** Team-scoped cloud knowledge gateway. */
+export const knowledgeBaseUrl = `https://knowledge-base.${ooEndpoint}`

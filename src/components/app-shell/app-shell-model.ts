@@ -287,7 +287,8 @@ export function createQueuedChatMessage(
 export function initialRoute(): Route {
   const configuredRoute = (import.meta.env as Record<string, string | undefined>)["VITE_WANTA_ROUTE"]
   const route = configuredRoute === "organizations" ? "teams" : configuredRoute
-  return route === "settings" ||
+  return route === "knowledge" ||
+    route === "settings" ||
     route === "connections" ||
     route === "skills" ||
     route === "teams" ||
@@ -298,7 +299,7 @@ export function initialRoute(): Route {
 }
 
 export function routeAvailableForRuntime(route: Route, cloudEnabled: boolean): boolean {
-  return cloudEnabled || (route !== "billing" && route !== "teams")
+  return cloudEnabled || (route !== "billing" && route !== "teams" && route !== "knowledge")
 }
 
 export function authorizationHandlingForLinkRuntime(runtime: ActiveLinkRuntime): "connections" | "drawer" | "external" {

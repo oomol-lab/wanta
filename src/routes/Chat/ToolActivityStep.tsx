@@ -26,6 +26,7 @@ import {
   Wrench,
 } from "lucide-react"
 import * as React from "react"
+import { KnowledgeSources } from "./KnowledgeSources.tsx"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { shouldShowRunningNoOutput } from "./tool-activity.ts"
 import { shouldHideToolDetailsImmediately } from "./tool-details-visibility.ts"
@@ -411,6 +412,7 @@ export function ToolActivityStep({
             {detailsVisible && part.error && !stopped && (
               <div className="oo-text-caption text-muted-foreground">{t("chat.toolRecoverableIssue")}</div>
             )}
+            {detailsVisible && !auth ? <KnowledgeSources part={part} /> : null}
             {outputPreview ? (
               <ToolDetailSection label={t("chat.toolResult")}>
                 <ToolPre>{outputPreview.text}</ToolPre>

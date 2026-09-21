@@ -3,7 +3,14 @@ import { defaultRegistrySkillSetVersion, defaultRegistrySkills } from "./default
 
 describe("default Registry Skills", () => {
   it("includes the enabled Registry skills installed by default", () => {
-    expect(defaultRegistrySkillSetVersion).toBe(6)
+    expect(defaultRegistrySkillSetVersion).toBe(7)
+    expect(defaultRegistrySkills).toContainEqual({
+      category: "document",
+      enabled: true,
+      minimumVersion: "1.0.0",
+      packageName: "oo-oomol-rag",
+      skillId: "oo-oomol-rag",
+    })
     expect(defaultRegistrySkills).toContainEqual({
       category: "productivity",
       enabled: true,

@@ -115,7 +115,7 @@ import {
 } from "./context-system.ts"
 import { normalizeChatError } from "./error.ts"
 import { GenerationRegistry } from "./generation-registry.ts"
-import { assertKnowledgeSelection } from "./knowledge-context.ts"
+import { assertKnowledgeSelection, buildKnowledgeSystem } from "./knowledge-context.ts"
 import {
   evaluateLocalAccessRequest,
   localAccessGrantForRequest,
@@ -2362,6 +2362,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               ...(bugReport
                 ? [bugReportSystem]
                 : [
+                    buildKnowledgeSystem(this.activeLinkRuntime, teamName),
                     buildTeamSkillsSystem(req.teamSkills),
                     buildContextMentionsSystemPrompt(req.contextMentions),
                     buildProjectContextSystem(req.projectContext),
@@ -2675,6 +2676,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
                   ]
                 : [
                     buildLinkRuntimeSystem(this.activeLinkRuntime, teamName),
+                    buildKnowledgeSystem(this.activeLinkRuntime, teamName),
                     buildTeamSkillsSystem(req.teamSkills),
                     buildContextMentionsSystemPrompt(req.contextMentions),
                     buildProjectContextSystem(req.projectContext),

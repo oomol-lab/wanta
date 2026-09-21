@@ -12,6 +12,20 @@ Uploads have no fixed deadline and retain cancellation on route/account/team
 changes. Listing and retrieval retain bounded deadlines. Upload acceptance means
 queued processing, not search readiness. Read-only workspaces disable mutations.
 
+## Default RAG Skill and upload guidance
+
+The published `oo-oomol-rag` Registry Skill is enabled by default in the document
+category (minimum version 1.0.0). The normal post-login installer installs missing
+Skills and respects explicit user removals. This is a runtime Skill, not a document
+uploaded into the knowledge index.
+
+Both agent paths receive the same conditional RAG guidance in the per-turn system
+context whenever an OOMOL team is active. Relevant requests load the Skill when
+available and direct manual ingestion to Wanta or the current environment's
+`/team/<encoded-team-name>/knowledge` Console page. Users upload, wait for Ready,
+and return to chat to retrieve. Guidance does not turn every message into a
+retrieval, invent an upload action, or imply a queued document is indexed.
+
 ## Chat
 
 The composer book button adds a `cloud-knowledge` context mention bound to the

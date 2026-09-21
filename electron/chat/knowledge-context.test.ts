@@ -1,8 +1,9 @@
 import type { ChatContextMention } from "./common.ts"
 
 import { describe, expect, it } from "vitest"
+import { consoleBaseUrl } from "../domain.ts"
 import { buildContextMentionsSystem } from "./context-system.ts"
-import { assertKnowledgeSelection } from "./knowledge-context.ts"
+import { assertKnowledgeSelection, buildKnowledgeSystem } from "./knowledge-context.ts"
 
 const mention: ChatContextMention = { kind: "cloud-knowledge", id: "team-1", displayName: "Knowledge" }
 const scope = { kind: "team" as const, teamId: "team-1", teamName: "current" }
@@ -22,4 +23,17 @@ describe("cloud knowledge context", () => {
     expect(buildContextMentionsSystem([mention])).toContain("untrusted source material")
     expect(buildContextMentionsSystem([mention])).toContain("Cite source filenames")
   })
+})
+
+it("provides a team-scoped upload link and honest ingestion guidance only for OOMOL", () => {
+  const prompt = buildKnowledgeSystem("oomol", "team / 中文")!
+  const url = new URL(`/team/${encodeURIComponent("team / 中文")}/knowledge`, consoleBaseUrl).toString()
+  expect(prompt).toContain(`](${url})`)
+  expect(prompt).toContain("oo-oomol-rag")
+  expect(prompt).toContain("wait until the file status is Ready")
+  expect(prompt).toContain("Retrieval does not upload files")
+  expect(prompt).toContain("No separate vector database")
+  expect(buildKnowledgeSystem("openconnector", "team")).toBeUndefined()
+  expect(buildKnowledgeSystem("none", "team")).toBeUndefined()
+  expect(buildKnowledgeSystem("oomol", " ")).toBeUndefined()
 })

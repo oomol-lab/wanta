@@ -2239,5 +2239,6 @@
   "knowledge.status.failed": "Error",
   "knowledge.status.uncertain": "Requiere atención",
   "knowledge.status.deleting": "Eliminando",
-  "knowledge.status.deleted": "Eliminado"
+  "knowledge.status.deleted": "Eliminado",
+  "knowledge.cancelUpload": "Cancelar subida"
 }

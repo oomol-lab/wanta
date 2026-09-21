@@ -1,6 +1,7 @@
 import { skillsMessages } from "./skills-messages.ts"
 
 export const enMessages = {
+  "knowledge.cancelUpload": "Cancel upload",
   "knowledge.title": "Knowledge base",
   "knowledge.files": "Files",
   "knowledge.upload": "Upload file",

@@ -22,19 +22,19 @@ export function KnowledgeRoute({ teamId, writable }: { teamId: string; writable:
   const [revision, refresh] = React.useReducer((v: number) => v + 1, 0)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState("")
-  const [busy, setBusy] = React.useState(false)
+  const [listError, setListError] = React.useState("")
+  const [mutation, setMutation] = React.useState<"upload" | "delete" | null>(null)
+  const busy = mutation !== null
   const [deleteTarget, setDeleteTarget] = React.useState<KnowledgeFile | null>(null)
   const [query, setQuery] = React.useState("")
   const [results, setResults] = React.useState<KnowledgeResults | null>(null)
   const [searching, setSearching] = React.useState(false)
   const input = React.useRef<HTMLInputElement>(null)
-  const lifecycle = React.useRef<AbortController | null>(null)
+  const mutationRequest = React.useRef<AbortController | null>(null)
   const searchRequest = React.useRef<AbortController | null>(null)
   React.useEffect(() => {
-    const controller = new AbortController()
-    lifecycle.current = controller
     return () => {
-      controller.abort()
+      mutationRequest.current?.abort()
       searchRequest.current?.abort()
     }
   }, [])
@@ -45,6 +45,7 @@ export function KnowledgeRoute({ teamId, writable }: { teamId: string; writable:
     }
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
+    setListError("")
     setLoading(true)
     void (async () => {
       try {
@@ -61,7 +62,7 @@ export function KnowledgeRoute({ teamId, writable }: { teamId: string; writable:
         setNextCursor(cursor)
         if (items.some((file) => knowledgeFilePending(file.status))) timer = setTimeout(refresh, 3_000)
       } catch (cause) {
-        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause))
+        if (!controller.signal.aborted) setListError(cause instanceof Error ? cause.message : String(cause))
       } finally {
         if (!controller.signal.aborted) setLoading(false)
       }
@@ -71,25 +72,39 @@ export function KnowledgeRoute({ teamId, writable }: { teamId: string; writable:
       clearTimeout(timer)
     }
   }, [teamId, pages, revision])
-  async function mutate(operation: (signal: AbortSignal) => Promise<unknown>) {
-    const controller = lifecycle.current
-    if (!controller || busy || !writable) return
+  async function mutate(kind: "upload" | "delete", operation: (signal: AbortSignal) => Promise<unknown>) {
+    if (mutationRequest.current || !writable) return
+    const controller = new AbortController()
+    mutationRequest.current = controller
     searchRequest.current?.abort()
     setSearching(false)
-    setBusy(true)
+    setMutation(kind)
     setError("")
     try {
       await operation(controller.signal)
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && mutationRequest.current === controller) {
         setDeleteTarget(null)
         setResults(null)
         refresh()
       }
     } catch (cause) {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause))
+      if (!controller.signal.aborted && mutationRequest.current === controller) {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      }
     } finally {
-      if (!controller.signal.aborted) setBusy(false)
+      if (!controller.signal.aborted && mutationRequest.current === controller) {
+        mutationRequest.current = null
+        setMutation(null)
+      }
     }
+  }
+  function cancelUpload() {
+    if (mutation !== "upload") return
+    mutationRequest.current?.abort()
+    mutationRequest.current = null
+    setMutation(null)
+    // Aborting the request cannot roll back a file already accepted by the server.
+    refresh()
   }
   async function search() {
     const normalized = query.trim()
@@ -137,6 +152,11 @@ export function KnowledgeRoute({ teamId, writable }: { teamId: string; writable:
             {t("knowledge.search")}
           </Button>
         </form>
+        {listError ? (
+          <div role="alert" className="text-sm text-destructive">
+            {listError}
+          </div>
+        ) : null}
         {error ? (
           <div role="alert" className="text-sm text-destructive">
             {error}
@@ -175,7 +195,6 @@ export function KnowledgeRoute({ teamId, writable }: { teamId: string; writable:
                 aria-label={t("knowledge.refresh")}
                 disabled={loading}
                 onClick={() => {
-                  setError("")
                   refresh()
                 }}
               >
@@ -185,6 +204,11 @@ export function KnowledgeRoute({ teamId, writable }: { teamId: string; writable:
                 {busy ? <LoaderCircle className="animate-spin" /> : <Upload />}
                 {t("knowledge.upload")}
               </Button>
+              {mutation === "upload" ? (
+                <Button variant="outline" onClick={cancelUpload}>
+                  {t("knowledge.cancelUpload")}
+                </Button>
+              ) : null}
               <input
                 ref={input}
                 type="file"
@@ -199,7 +223,7 @@ export function KnowledgeRoute({ teamId, writable }: { teamId: string; writable:
                     setError(t(error === "tooLarge" ? "knowledge.tooLarge" : "knowledge.unsupportedType"))
                     return
                   }
-                  void mutate((signal) => uploadKnowledgeFile(teamId, file, signal))
+                  void mutate("upload", (signal) => uploadKnowledgeFile(teamId, file, signal))
                 }}
               />
             </div>
@@ -257,7 +281,8 @@ export function KnowledgeRoute({ teamId, writable }: { teamId: string; writable:
                 variant="destructive"
                 disabled={busy || !writable}
                 onClick={() => {
-                  if (deleteTarget) void mutate((signal) => deleteKnowledgeFile(teamId, deleteTarget.id, signal))
+                  if (deleteTarget)
+                    void mutate("delete", (signal) => deleteKnowledgeFile(teamId, deleteTarget.id, signal))
                 }}
               >
                 {t("knowledge.delete")}

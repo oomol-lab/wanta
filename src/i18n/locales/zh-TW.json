@@ -2239,5 +2239,6 @@
   "knowledge.status.failed": "失敗",
   "knowledge.status.uncertain": "需要處理",
   "knowledge.status.deleting": "刪除中",
-  "knowledge.status.deleted": "已刪除"
+  "knowledge.status.deleted": "已刪除",
+  "knowledge.cancelUpload": "取消上傳"
 }

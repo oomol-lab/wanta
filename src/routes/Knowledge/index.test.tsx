@@ -88,3 +88,65 @@ it("polls processing files until ready", async () => {
   })
   expect(api.listKnowledgeFiles).toHaveBeenCalledTimes(2)
 })
+
+async function selectUpload() {
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]')!
+  Object.defineProperty(picker, "files", { configurable: true, value: [new File(["data"], "guide.pdf")] })
+  await act(async () => picker.dispatchEvent(new Event("change", { bubbles: true })))
+}
+function buttonNamed(name: string) {
+  return [...document.querySelectorAll("button")].find((button) => button.textContent === name)!
+}
+it("cancels a stalled upload immediately and ignores its late completion during another upload", async () => {
+  vi.mocked(api.listKnowledgeFiles).mockResolvedValue({ items: [file], next_cursor: "" })
+  let rejectOld!: (error: Error) => void
+  vi.mocked(api.uploadKnowledgeFile)
+    .mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectOld = reject
+        }),
+    )
+    .mockImplementation(() => new Promise(() => {}))
+  await act(async () => render("team"))
+  await selectUpload()
+  const oldSignal = vi.mocked(api.uploadKnowledgeFile).mock.calls[0][2]!
+  expect(buttonNamed("Upload file").disabled).toBe(true)
+  await act(async () => buttonNamed("Cancel upload").click())
+  expect(oldSignal.aborted).toBe(true)
+  expect(buttonNamed("Upload file").disabled).toBe(false)
+  expect(document.querySelector<HTMLButtonElement>('[aria-label="Delete file policy.pdf"]')?.disabled).toBe(false)
+  await selectUpload()
+  const newSignal = vi.mocked(api.uploadKnowledgeFile).mock.calls[1][2]!
+  await act(async () => rejectOld(new Error("late failure")))
+  expect(newSignal.aborted).toBe(false)
+  expect(buttonNamed("Upload file").disabled).toBe(true)
+  expect(document.querySelector('[role="alert"]')).toBeNull()
+  await act(async () => render("different-team"))
+  expect(newSignal.aborted).toBe(true)
+})
+it("clears a failed pagination request on retry", async () => {
+  let failed = false
+  vi.mocked(api.listKnowledgeFiles).mockImplementation(async (_team, cursor) => {
+    if (!cursor) return { items: [file], next_cursor: "next" }
+    if (!failed) {
+      failed = true
+      throw new Error("list failed")
+    }
+    return { items: [{ ...file, id: "second", name: "second.pdf" }], next_cursor: "" }
+  })
+  await act(async () => render("team"))
+  await act(async () => buttonNamed("Load more").click())
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe("list failed")
+  await act(async () => buttonNamed("Load more").click())
+  expect(document.body.textContent).toContain("second.pdf")
+  expect(document.querySelector('[role="alert"]')).toBeNull()
+})
+it("does not erase upload failures when the list refreshes", async () => {
+  vi.mocked(api.listKnowledgeFiles).mockResolvedValue({ items: [file], next_cursor: "" })
+  vi.mocked(api.uploadKnowledgeFile).mockRejectedValue(new Error("upload failed"))
+  await act(async () => render("team"))
+  await selectUpload()
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Refresh"]')!.click())
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe("upload failed")
+})

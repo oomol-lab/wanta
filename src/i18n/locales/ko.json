@@ -2239,5 +2239,6 @@
   "knowledge.status.failed": "실패",
   "knowledge.status.uncertain": "확인 필요",
   "knowledge.status.deleting": "삭제 중",
-  "knowledge.status.deleted": "삭제됨"
+  "knowledge.status.deleted": "삭제됨",
+  "knowledge.cancelUpload": "업로드 취소"
 }

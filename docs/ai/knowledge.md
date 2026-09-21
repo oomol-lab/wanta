@@ -8,9 +8,12 @@ not the team name used by the Connector CLI.
 
 The page supports uploads up to 150 MiB, cursor pagination, asynchronous file
 status polling, deletion confirmation, and manual retrieval with source snippets.
-Uploads have no fixed deadline and retain cancellation on route/account/team
-changes. Listing and retrieval retain bounded deadlines. Upload acceptance means
-queued processing, not search readiness. Read-only workspaces disable mutations.
+Uploads have no fixed deadline and offer an in-page Cancel upload action, as well
+as cancellation on route/account/team changes. Cancellation releases management
+controls immediately and ignores late completion of the cancelled request. It
+refreshes the list because files already accepted by the server may still process.
+Listing and retrieval retain bounded deadlines. Upload acceptance means queued
+processing, not search readiness. Read-only workspaces disable mutations.
 
 ## Default RAG Skill and upload guidance
 

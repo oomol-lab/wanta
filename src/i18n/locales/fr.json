@@ -2239,5 +2239,6 @@
   "knowledge.status.failed": "Échec",
   "knowledge.status.uncertain": "À vérifier",
   "knowledge.status.deleting": "Suppression",
-  "knowledge.status.deleted": "Supprimé"
+  "knowledge.status.deleted": "Supprimé",
+  "knowledge.cancelUpload": "Annuler l’envoi"
 }

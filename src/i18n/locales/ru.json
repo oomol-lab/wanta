@@ -2239,5 +2239,6 @@
   "knowledge.status.failed": "Ошибка",
   "knowledge.status.uncertain": "Требует внимания",
   "knowledge.status.deleting": "Удаление",
-  "knowledge.status.deleted": "Удален"
+  "knowledge.status.deleted": "Удален",
+  "knowledge.cancelUpload": "Отменить загрузку"
 }

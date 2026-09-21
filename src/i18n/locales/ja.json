@@ -2239,5 +2239,6 @@
   "knowledge.status.failed": "失敗",
   "knowledge.status.uncertain": "要確認",
   "knowledge.status.deleting": "削除中",
-  "knowledge.status.deleted": "削除済み"
+  "knowledge.status.deleted": "削除済み",
+  "knowledge.cancelUpload": "アップロードをキャンセル"
 }

@@ -1,6 +1,7 @@
 import { skillsMessages } from "./skills-messages.ts"
 
 export const zhCNMessages = {
+  "knowledge.cancelUpload": "取消上传",
   "knowledge.title": "知识库",
   "knowledge.files": "文件",
   "knowledge.upload": "上传文件",

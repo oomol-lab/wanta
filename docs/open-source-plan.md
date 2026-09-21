@@ -59,7 +59,7 @@ The first open-source release must satisfy:
 - local session and project management;
 - attachments, Artifacts, PDF, Word, image, and Univer spreadsheet previews;
 - custom OpenAI-compatible models;
-- local Skills and knowledge capabilities that do not depend on an OOMOL account;
+- local Skills that do not depend on an OOMOL account;
 - the local workspace;
 - the client-side implementation of OOMOL login and OpenConnector;
 - development, build, test, security, and contribution documentation.
@@ -206,7 +206,7 @@ and dependencies.
 2. Add `NOTICE`, `TRADEMARKS.md`, and `THIRD_PARTY_NOTICES.md` (`LICENSE` is already in; these
    three still do not exist);
 3. Audit `@oomol/connection`, `@oomol/connection-electron-adapter`, the oo CLI, built-in Skills,
-   OpenCode, WikiGraph, ai-elements, Univer, and third-party app logos (the two
+   OpenCode, ai-elements, Univer, and third-party app logos (the two
    `@oomol/connection*` packages are already on public npm — see Stage 8);
 4. For every dependency, record: can the source be published, can it be redistributed, is it
    required for a community build, and what is the planned handling;
@@ -379,8 +379,7 @@ Make the tools, permissions, and system prompt the model sees match actual capab
 
 #### Work items
 
-1. Split the system prompt into sections such as core, local work, knowledge, connector, output,
-   and plan;
+1. Split the system prompt into sections such as core, local work, connector, output, and plan;
 2. Add a capability-based prompt composition function;
 3. In local mode, never write `list_apps`, `search_actions`, `inspect_action`, or `call_action`;
 4. In local mode, inject no `OO_API_KEY`, Connector URL, or team scope;

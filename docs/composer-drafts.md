@@ -14,7 +14,7 @@ Submission consumes only the captured draft state after acceptance. A later edit
 
 The main process stores draft metadata in `composer-drafts.json` under userData, using serialized atomic writes and mode 0600. Text edits are coalesced for 250 ms; attachment and destructive transitions are written immediately. Storage failure is visible and has a retry action. The retry action independently retries loading and outstanding writes, so a persistent load failure cannot strand newly edited drafts in memory. This is local persistence, not cloud synchronization.
 
-Only attachment metadata is persisted. Blob and temporary resource URLs are regenerated from the original snapshots. Draft preferences include the agent, native model/effort selection, knowledge references and permission mode; full access is never restored as a saved default.
+Only attachment metadata is persisted. Blob and temporary resource URLs are regenerated from the original snapshots. Draft preferences include the agent, native model/effort selection, and permission mode; full access is never restored as a saved default.
 
 The main process verifies the active account and validates newly introduced attachment paths before writing. Existing draft references remain visible if a file disappears. Only original draft snapshot paths participate in normal trusted-path checks, so an attachment does not lose access merely because the file-picker grant expired. Account changes are checked again after asynchronous reads.
 

@@ -32,8 +32,8 @@ test("SettingsStore persists dismissal of the optional self-managed setup remind
 test("SettingsStore round-trips update channel and Beta features without leaving a tmp file", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wanta-settings-"))
   const store = new SettingsStore(dir)
-  store.write({ knowledgeBaseBetaEnabled: true, themeSource: "dark", updateChannel: "beta" })
-  assert.deepEqual(store.read(), { knowledgeBaseBetaEnabled: true, themeSource: "dark", updateChannel: "beta" })
+  store.write({ themeSource: "dark", updateChannel: "beta" })
+  assert.deepEqual(store.read(), { themeSource: "dark", updateChannel: "beta" })
   // 原子写收尾后目录里只应有 settings.json，不残留 .tmp-* 中间文件。
   assert.deepEqual(readdirSync(dir), ["settings.json"])
 })

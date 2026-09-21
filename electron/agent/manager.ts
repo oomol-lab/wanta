@@ -59,7 +59,6 @@ import { managedPythonEnvironmentPath, managedPythonExecutable } from "./python-
 import { opencodeReasoningVariant } from "./reasoning.ts"
 import { generateSessionTitle as generateTitle } from "./session-title-generator.ts"
 import { OpencodeSidecar } from "./sidecar.ts"
-import { ensureWikiGraphCommandBin } from "./wikigraph-bin.ts"
 import { ensureAgentWorkspace } from "./workspace.ts"
 
 export type { GeneratedSessionTitle } from "./session-title-generator.ts"
@@ -77,9 +76,6 @@ export interface AgentManagerOptions {
   ooBinPath?: string
   /** Electron-as-Node entrypoint that scopes and redacts built-in OpenCode oo business calls. */
   opencodeOoGuardCliPath?: string
-  /** Wanta-owned WikiGraph CLI entrypoint used by the sidecar PATH `wg` shim. */
-  wikiGraphCliPath?: string
-  wikiGraphStateDir?: string
   listOpenConnectorAuthorizedServices?: (signal?: AbortSignal) => Promise<string[]>
   /** 内置 skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
@@ -123,15 +119,6 @@ function normalizeTeamName(teamName: string | undefined): string | undefined {
 function requireOoBinPath(ooBinPath: string | undefined): string {
   if (!ooBinPath) throw new Error("The Link runtime requires the oo binary path.")
   return ooBinPath
-}
-
-function normalizeKnowledgeBaseIds(ids: readonly string[]): string[] {
-  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))]
-}
-
-function sameStringArray(left: readonly string[] | undefined, right: readonly string[]): boolean {
-  if (!left) return right.length === 0
-  return left.length === right.length && left.every((item, index) => item === right[index])
 }
 
 function sessionTitleRequestProfile(
@@ -537,7 +524,6 @@ export class AgentManager {
   private teamScopePath: string | undefined
   private teamUpdateChain: Promise<void> = Promise.resolve()
   private sessionTeamNames = new Map<string, string>()
-  private sessionKnowledgeBaseIds = new Map<string, string[]>()
   private authorizedServicesCache = new Map<string, { loadedAt: number; services: string[] }>()
   private authorizedServicesLoadControllers = new Map<string, AbortController>()
   private authorizedServicesLoads = new Map<string, Promise<string[]>>()
@@ -610,58 +596,6 @@ export class AgentManager {
         return
       }
       await this.writeTeamScope(this.teamName)
-    })
-  }
-
-  /** 记录本轮选中的知识库；提示词按 OpenCode sessionID 注入对应 archive URI。 */
-  public async setSessionKnowledgeBaseIds(sessionId: string, knowledgeBaseIds: readonly string[]): Promise<void> {
-    const normalizedSessionId = sessionId.trim()
-    if (!normalizedSessionId) throw new Error("Session id is required")
-    const normalizedIds = normalizeKnowledgeBaseIds(knowledgeBaseIds)
-    await this.queueTeamUpdate(async () => {
-      if (sameStringArray(this.sessionKnowledgeBaseIds.get(normalizedSessionId), normalizedIds)) return
-      if (normalizedIds.length > 0) this.sessionKnowledgeBaseIds.set(normalizedSessionId, normalizedIds)
-      else this.sessionKnowledgeBaseIds.delete(normalizedSessionId)
-      await this.writeTeamScope(this.teamName)
-    })
-  }
-
-  public async clearSessionKnowledgeBaseIds(sessionId: string): Promise<void> {
-    const normalizedSessionId = sessionId.trim()
-    if (!normalizedSessionId) return
-    await this.queueTeamUpdate(async () => {
-      if (!this.sessionKnowledgeBaseIds.delete(normalizedSessionId)) return
-      await this.writeTeamScope(this.teamName)
-    })
-  }
-
-  /** task 子会话使用独立 sessionID，必须显式继承父会话选中的知识库。 */
-  public async inheritSessionKnowledgeBaseIds(parentSessionId: string, childSessionId: string): Promise<void> {
-    const normalizedParentId = parentSessionId.trim()
-    const normalizedChildId = childSessionId.trim()
-    if (!normalizedParentId || !normalizedChildId || normalizedParentId === normalizedChildId) return
-    await this.queueTeamUpdate(async () => {
-      const parentIds = this.sessionKnowledgeBaseIds.get(normalizedParentId) ?? []
-      if (sameStringArray(this.sessionKnowledgeBaseIds.get(normalizedChildId), parentIds)) return
-      if (parentIds.length > 0) this.sessionKnowledgeBaseIds.set(normalizedChildId, [...parentIds])
-      else this.sessionKnowledgeBaseIds.delete(normalizedChildId)
-      await this.writeTeamScope(this.teamName)
-    })
-  }
-
-  public async removeKnowledgeBaseAccess(knowledgeBaseId: string): Promise<void> {
-    const normalizedId = knowledgeBaseId.trim()
-    if (!normalizedId) return
-    await this.queueTeamUpdate(async () => {
-      let changed = false
-      for (const [sessionId, ids] of this.sessionKnowledgeBaseIds) {
-        const next = ids.filter((id) => id !== normalizedId)
-        if (next.length === ids.length) continue
-        changed = true
-        if (next.length > 0) this.sessionKnowledgeBaseIds.set(sessionId, next)
-        else this.sessionKnowledgeBaseIds.delete(sessionId)
-      }
-      if (changed) await this.writeTeamScope(this.teamName)
     })
   }
 
@@ -757,8 +691,6 @@ export class AgentManager {
       disableServerAuth,
       customModels,
       defaultModel,
-      wikiGraphCliPath,
-      wikiGraphStateDir,
       larkCliBinPath,
       larkCliConfigDir,
       wecomCliBinPath,
@@ -789,14 +721,6 @@ export class AgentManager {
         binDir: commandBinDir,
         nodeBin: process.execPath,
         ooGuardCliPath: opencodeOoGuardCliPath,
-      })
-    }
-    if (wikiGraphCliPath && wikiGraphStateDir) {
-      await ensureWikiGraphCommandBin({
-        binDir: commandBinDir,
-        nodeBin: process.execPath,
-        stateDir: wikiGraphStateDir,
-        wikiGraphCliPath,
       })
     }
     const commandPath = `${commandBinDir}${path.delimiter}${baseCommandPath}`
@@ -1460,7 +1384,6 @@ export class AgentManager {
     }
     const content = JSON.stringify({
       teamName: teamName ?? "",
-      sessionKnowledgeBaseIds: Object.fromEntries(this.sessionKnowledgeBaseIds),
       sessionTeams: Object.fromEntries(this.sessionTeamNames),
     })
     await atomicWriteText(this.teamScopePath, content)

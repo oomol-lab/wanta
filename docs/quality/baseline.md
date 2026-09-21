@@ -59,10 +59,9 @@ Later performance findings must stay `hypothesis` until there is same-environmen
 - `ts-check`, `lint`, `format`, 234 test files, and the production build pass;
 - `npm run dev` starts Vite within 322ms, main/preload build successfully, and the Agent sidecar
   becomes ready normally;
-- no authentication- or knowledge-base-related errors during the startup observation window; after
+- no authentication-related errors during the startup observation window; after
   the dev process was ended deliberately, only the expected renderer `clean-exit` was recorded;
-- real login callback, account switching, and toggling the knowledge-base beta switch still need
-  verification in an account environment.
+- real login callback and account switching still need verification in an account environment.
 
 ## Results after the third round of performance fixes
 

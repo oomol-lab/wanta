@@ -81,7 +81,7 @@ export class HostCapabilityInvokeServer {
       if (!this.allowed.has(capability)) throw new Error("Host capability is not exposed to the sidecar.")
       const context = this.contexts.get(sessionId)
       if (!context) throw new Error("Wanta host capability context is unavailable for this session.")
-      const signal = requestSignal(request)
+      const signal = requestSignal(request, response)
       const result = await this.kernel.execute(capability, tool, context, body.input ?? {}, signal)
       respond(response, 200, { result: result.text })
     } catch (error) {
@@ -96,10 +96,14 @@ export class HostCapabilityInvokeServer {
   }
 }
 
-function requestSignal(request: IncomingMessage): AbortSignal {
+function requestSignal(request: IncomingMessage, response: ServerResponse): AbortSignal {
   const controller = new AbortController()
-  if (request.aborted || request.destroyed) controller.abort()
+  // A fully consumed IncomingMessage is normally destroyed; it is not a cancelled tool call.
+  if (request.aborted || (request.destroyed && !request.complete)) controller.abort()
   else request.once("aborted", () => controller.abort())
+  response.once("close", () => {
+    if (!response.writableEnded) controller.abort()
+  })
   return controller.signal
 }
 

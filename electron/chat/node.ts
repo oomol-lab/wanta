@@ -276,7 +276,7 @@ function metadataString(value: unknown): string | undefined {
 
 function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): string | undefined {
   // Task fan-out is a kernel mechanism: the child ids live in the kernel's
-  // session space and feed kernel-only knowledge-scope APIs. External adapter
+  // session space. External adapter
   // events flow through the same pipeline, so they must never claim a pair.
   if (data.tool !== "task" || externalAgentKindForSessionId(data.sessionId)) {
     return undefined
@@ -294,6 +294,7 @@ function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): s
 interface ChatServiceDeps {
   browserAvailable?: () => boolean
   hostQuestions?: HostQuestionBroker
+  cancelHostOperations?: (sessionId: string) => void
   managedTurnDirectories?: ManagedTurnDirectories
   createArtifactResourceUrl?: CreateArtifactResourceUrl
   createSpreadsheetPreview?: (path: string, mime: string, size: number) => Promise<LocalArtifactPreviewResult>
@@ -984,11 +985,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       const childSessionId = taskChildSessionId(translated.data)
       if (childSessionId) {
         this.subagentSessions.remember(translated.data.sessionId, childSessionId)
-        void this.agent
-          ?.inheritSessionKnowledgeBaseIds(translated.data.sessionId, childSessionId)
-          .catch((error: unknown) => {
-            console.warn("[wanta] failed to inherit task subagent knowledge scope:", error)
-          })
       }
     }
     if (translated.event === "toolCallResult") {
@@ -1020,9 +1016,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       const childSessionId = taskChildSessionId(translated.data)
       if (childSessionId) {
         this.subagentSessions.forget(translated.data.sessionId, childSessionId)
-        void this.agent?.clearSessionKnowledgeBaseIds(childSessionId).catch((error: unknown) => {
-          console.warn("[wanta] failed to clear task subagent knowledge scope:", error)
-        })
       }
       if (translated.data.authorization) {
         void this.rememberAuthorizationOverlay(
@@ -1880,18 +1873,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         },
       )
     }
-    const childSessionIds = this.subagentSessions.childSessionIds(sessionId)
     this.subagentSessions.forgetAll(sessionId)
     this.forgetSessionPendingPermissionRequests(sessionId)
     this.removeGenerationPermissionGrants(sessionId, generation?.id)
     this.activeRuns.delete(sessionId, generationId)
     const agent = this.agent
     if (agent) {
-      void Promise.all([
-        agent.clearSessionTeamName(sessionId),
-        agent.clearSessionKnowledgeBaseIds(sessionId),
-        ...childSessionIds.map((childSessionId) => agent.clearSessionKnowledgeBaseIds(childSessionId)),
-      ]).catch((error: unknown) => {
+      void agent.clearSessionTeamName(sessionId).catch((error: unknown) => {
         console.warn("[wanta] failed to clear session agent scope:", error)
       })
     }
@@ -2101,6 +2089,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     const generationId = generation?.id
+    this.deps.cancelHostOperations?.(sessionId)
     this.deps.hostQuestions?.cancelSession(sessionId)
     const messageId = this.activeAssistantMessages.get(sessionId)
     const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
@@ -2245,18 +2234,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         )
       }
       const activeGeneration = generation
-      const knowledgeBaseIds = (req.contextMentions ?? []).flatMap((mention) =>
-        mention.kind === "knowledge" && mention.id.trim() ? [mention.id.trim()] : [],
-      )
       if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
         if (attachmentsRecorded)
           await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
         return
       }
-      await Promise.all([
-        this.agent.setSessionTeamName(req.sessionId, teamName),
-        this.agent.setSessionKnowledgeBaseIds(req.sessionId, knowledgeBaseIds),
-      ])
+      await this.agent.setSessionTeamName(req.sessionId, teamName)
       if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         await removeUnsubmittedTurnDirectories(artifactDir, processDir)

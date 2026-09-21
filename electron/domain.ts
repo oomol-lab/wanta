@@ -28,6 +28,9 @@ export const consoleServerBaseUrl = `https://console-server.${ooEndpoint}`
 /** 用量 / 余额查询服务基址，如 `https://insight.oomol.com`。 */
 export const insightBaseUrl = `https://insight.${ooEndpoint}`
 
+/** Full-stack website control plane. Credentials stay in the host. */
+export const spacesBaseUrl = `https://spaces.${ooEndpoint}`
+
 /** 账号 API 基址，如 `https://api.oomol.com`（登录换 token / api-key / profile）。 */
 export const apiBaseUrl = `https://api.${ooEndpoint}`
 

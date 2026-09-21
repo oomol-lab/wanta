@@ -71,23 +71,6 @@
 - Priority: P1
 - Decision: fix
 
-## Q-2026-005: Knowledge-base list reads lack request-version isolation
-
-- Category: bug | state
-- Status: verified
-- Area: knowledge
-- User impact: When rapidly toggling the beta switch, refreshing, or receiving back-to-back change events, an old list response may overwrite the new list, and the state-update path still runs after unmount.
-- Evidence: Two deferred list requests settle in the order new-first, old-last; the old implementation has no condition preventing the last-arriving old list from writing.
-- Root cause: Every `load()` call wrote items/error/loading directly, and the effect cleanup only cancelled the event subscription without invalidating an already-started request.
-- Scope: `src/hooks/useKnowledgeBases.ts`, `src/hooks/knowledge-base-list-observer.ts`, and their unit tests.
-- Guardrails: When beta is off, must not request or inject knowledge bases; on error, preserve the existing recovery semantics.
-- Before metric: The old list, old error, and post-unmount result all have a state-write path.
-- Target: Only the last read of the currently enabled generation may update state.
-- Verification: 3 unit tests covering out-of-order, errors, and dispose, plus the full quality gate, production build, and dev-mode startup.
-- Risk and rollback: Medium-low.
-- Priority: P2
-- Decision: fix
-
 ## Q-2026-006: The billing cache lacks cleanup on auth switch
 
 - Category: performance | maintainability

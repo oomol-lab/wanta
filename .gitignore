@@ -72,3 +72,4 @@ resources/agent-tool-runtime
 
 # Local dev Electron userData
 wanta/
+.spaces-bin/

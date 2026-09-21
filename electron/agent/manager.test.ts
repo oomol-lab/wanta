@@ -212,7 +212,7 @@ describe("AgentManager", () => {
     expect(inventory).toHaveBeenCalledTimes(2)
   })
 
-  it("does not expose Wanta WikiGraph control variables to the sidecar", () => {
+  it("does not expose unused sidecar control variables", () => {
     const env = buildAgentSidecarEnv({
       commandPath: "/usr/bin:/bin",
       linkRuntime: null,
@@ -224,10 +224,6 @@ describe("AgentManager", () => {
       WANTA_TEAM_SCOPE_PATH: "/tmp/wanta-agent/team-scope.json",
       PATH: "/usr/bin:/bin",
     })
-    expect(env).not.toHaveProperty("WANTA_WIKIGRAPH_COMMAND")
-    expect(env).not.toHaveProperty("WANTA_WIKIGRAPH_STATE_DIR")
-    expect(env).not.toHaveProperty("WANTA_WIKIGRAPH_WRAPPER_PATH")
-    expect(env).not.toHaveProperty("WIKIGRAPH_STATE_DIR")
     expect(env).not.toHaveProperty("WANTA_LARK_CLI_BIN")
     expect(env).not.toHaveProperty("LARKSUITE_CLI_CONFIG_DIR")
     expect(env).not.toHaveProperty("WANTA_WECOM_CLI_BIN")
@@ -562,15 +558,9 @@ describe("AgentManager", () => {
       await manager.setTeamName("workspace-default")
       await manager.setSessionTeamName("session-a", "team-a")
       await manager.setSessionTeamName("session-b", undefined)
-      await manager.setSessionKnowledgeBaseIds("session-a", [" knowledge-a ", "knowledge-a", "knowledge-b"])
-      await manager.inheritSessionKnowledgeBaseIds("session-a", "session-child")
 
       await expect(readFile(scopePath, "utf8").then((content) => JSON.parse(content))).resolves.toEqual({
         teamName: "workspace-default",
-        sessionKnowledgeBaseIds: {
-          "session-a": ["knowledge-a", "knowledge-b"],
-          "session-child": ["knowledge-a", "knowledge-b"],
-        },
         sessionTeams: {
           "session-a": "team-a",
           "session-b": "",
@@ -578,14 +568,9 @@ describe("AgentManager", () => {
       })
 
       await manager.clearSessionTeamName("session-a")
-      await manager.removeKnowledgeBaseAccess("knowledge-a")
 
       await expect(readFile(scopePath, "utf8").then((content) => JSON.parse(content))).resolves.toEqual({
         teamName: "workspace-default",
-        sessionKnowledgeBaseIds: {
-          "session-a": ["knowledge-b"],
-          "session-child": ["knowledge-b"],
-        },
         sessionTeams: {
           "session-b": "",
         },

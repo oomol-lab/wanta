@@ -459,30 +459,6 @@
     "one": "{count} connection",
     "other": "{count} connections"
   },
-  "knowledge.folderCount": {
-    "one": "{count} knowledge file",
-    "other": "{count} knowledge files"
-  },
-  "knowledge.searchResultCount": {
-    "one": "{count} file",
-    "other": "{count} files"
-  },
-  "knowledge.chapterCount": {
-    "one": "{count} content chapter",
-    "other": "{count} content chapters"
-  },
-  "knowledge.wordCount": {
-    "one": "{count} word total",
-    "other": "{count} words total"
-  },
-  "knowledge.contextCount": {
-    "one": "{count} selected",
-    "other": "{count} selected"
-  },
-  "knowledge.contextQueueNotice": {
-    "one": "Changes won't affect the {count} message already queued.",
-    "other": "Changes won't affect the {count} messages already queued."
-  },
   "teams.teamCount": {
     "one": "Teams: {{count}}",
     "other": "Teams: {{count}}"

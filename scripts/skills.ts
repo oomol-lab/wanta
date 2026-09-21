@@ -26,7 +26,7 @@ export const skillOverridesDir = path.join(repoRoot, "resources", "skill-overrid
 export const skillLockDir = path.join(repoRoot, "resources", "skill-lock")
 
 const ooBundledSkillIds = ["oo", "oo-find-skills", "oo-create-skill", "oo-publish-skill"] as const
-export const wantaBundledSkillIds = ["browser", "wikigraph-knowledge"] as const
+export const wantaBundledSkillIds = ["browser"] as const
 
 // 需内置到 Wanta agent workspace 的 skill；用于导出后的完整性校验（数量/缺失）。
 export const bundledSkillIds = [...ooBundledSkillIds, ...wantaBundledSkillIds] as const

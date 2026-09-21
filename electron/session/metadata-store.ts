@@ -14,7 +14,6 @@ export interface SessionMetadata {
   permissionMode?: SessionPermissionMode
   agentModelId?: string
   agentEffortId?: string
-  knowledgeBaseIds?: string[]
   pinnedAt?: number
   archivedAt?: number
 }
@@ -30,12 +29,6 @@ function validTimestamp(value: unknown): value is number {
 
 function normalizePermissionMode(value: unknown): SessionPermissionMode | undefined {
   return AGENT_PERMISSION_MODES.includes(value as SessionPermissionMode) ? (value as SessionPermissionMode) : undefined
-}
-
-export function normalizeKnowledgeBaseIds(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const ids = [...new Set(value.flatMap((item) => (typeof item === "string" && item.trim() ? [item.trim()] : [])))]
-  return ids.length > 0 ? ids : undefined
 }
 
 function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
@@ -68,9 +61,6 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
     if (typeof source.agentEffortId === "string" && source.agentEffortId.trim()) {
       next.agentEffortId = source.agentEffortId.trim()
     }
-    // Do not restore legacy Wanta-owned knowledge registry references from disk. WikiGraph
-    // default-lib archive ids are applied only from the current runtime/session context after the
-    // user selects them again.
     if (validTimestamp(source.pinnedAt)) {
       next.pinnedAt = source.pinnedAt
     }
@@ -83,7 +73,6 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
       next.permissionMode ||
       next.agentModelId ||
       next.agentEffortId ||
-      next.knowledgeBaseIds ||
       next.pinnedAt ||
       next.archivedAt
     ) {
@@ -117,8 +106,6 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
     if (typeof entry.agentEffortId === "string" && entry.agentEffortId.trim()) {
       next.agentEffortId = entry.agentEffortId.trim()
     }
-    const knowledgeBaseIds = normalizeKnowledgeBaseIds(entry.knowledgeBaseIds)
-    if (knowledgeBaseIds) next.knowledgeBaseIds = knowledgeBaseIds
     if (validTimestamp(entry.pinnedAt)) {
       next.pinnedAt = entry.pinnedAt
     }
@@ -131,7 +118,6 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
       next.permissionMode ||
       next.agentModelId ||
       next.agentEffortId ||
-      next.knowledgeBaseIds ||
       next.pinnedAt ||
       next.archivedAt
     ) {

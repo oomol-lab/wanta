@@ -14,7 +14,6 @@ import {
   FileText,
   FolderOpen,
   Globe,
-  LibraryBig,
   ListChecks,
   Loader2,
   Package,
@@ -30,12 +29,7 @@ import * as React from "react"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { shouldShowRunningNoOutput } from "./tool-activity.ts"
 import { shouldHideToolDetailsImmediately } from "./tool-details-visibility.ts"
-import {
-  isWikigraphKnowledgeActivityPart,
-  parseToolAuthorization,
-  toolDisplayInput,
-  toolDisplayLine,
-} from "./tool-display.ts"
+import { parseToolAuthorization, toolDisplayInput, toolDisplayLine } from "./tool-display.ts"
 import { formatToolOutputPreview, toolOutputPreviewLimitChars } from "./tool-output-preview.ts"
 import { isActiveToolPart, isToolCancellation } from "./tool-state.ts"
 import { Button } from "@/components/ui/button"
@@ -149,8 +143,6 @@ function ToolActionIcon({ part }: { part: ChatMessagePart }) {
       return <SlidersHorizontal className={className} />
     case "call_action":
       return <PlayCircle className={className} />
-    case "query_knowledge":
-      return <LibraryBig className={className} />
     case "bash":
       return <SquareTerminal className={className} />
     case "read":
@@ -192,9 +184,6 @@ function ToolStepIcon({
   recovered?: boolean
   stopped?: boolean
 }) {
-  if (isWikigraphKnowledgeActivityPart(part) && part.status !== "error" && !stopped) {
-    return <LibraryBig className="size-3.5 text-muted-foreground" />
-  }
   if (provider && part.status !== "error" && !stopped) {
     return <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
   }
@@ -271,9 +260,8 @@ export function ToolActivityStep({
   const activePart = isActiveToolPart(part)
   const stopped = isToolCancellation(part) || (!live && activePart)
   const answerSummary = questionAnswerSummary(part)
-  const hideDetails = isWikigraphKnowledgeActivityPart(part)
   const displayInput = toolDisplayInput(part)
-  const details = !hideDetails && hasToolDetails(part, auth, answerSummary, displayInput, stopped)
+  const details = hasToolDetails(part, auth, answerSummary, displayInput, stopped)
   const [open, setOpen] = React.useState(false)
   const [detailsVisible, setDetailsVisible] = React.useState(false)
   const outputPreviewRef = React.useRef<{ output: string; text: string; truncated: boolean } | null>(null)
@@ -285,7 +273,7 @@ export function ToolActivityStep({
   const showShimmer = active || shimmer
   const displayLine = toolDisplayLine(t, part)
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
-  const hideCompletedMeta = part.status === "completed" && !auth && !hideDetails
+  const hideCompletedMeta = part.status === "completed" && !auth
   const outputPreview = React.useMemo(() => {
     if (!detailsVisible || !part.output || auth) {
       return null

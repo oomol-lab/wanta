@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { SPACES_AGENT_TOOL_FILES } from "./spaces-tool-sources.ts"
 import { AGENT_TOOL_FILES, agentToolFiles, BROWSER_AGENT_TOOL_FILES } from "./tool-sources.ts"
 
 describe("runtime tool assembly", () => {
@@ -6,6 +7,7 @@ describe("runtime tool assembly", () => {
     expect(Object.keys(agentToolFiles(true))).toEqual([
       ...Object.keys(AGENT_TOOL_FILES),
       ...Object.keys(BROWSER_AGENT_TOOL_FILES),
+      ...Object.keys(SPACES_AGENT_TOOL_FILES),
     ])
     expect(Object.keys(agentToolFiles(false))).toEqual(Object.keys(BROWSER_AGENT_TOOL_FILES))
   })
@@ -151,7 +153,6 @@ afterEach(() => {
   delete process.env.WANTA_TEAM_SCOPE_PATH
   delete process.env.WANTA_ORGANIZATION_NAME
   delete process.env.WANTA_ORGANIZATION_SCOPE_PATH
-  delete process.env.WIKIGRAPH_STATE_DIR
   delete process.env.OO_API_KEY
   delete process.env.OO_CONNECTOR_TOKEN
   delete process.env.WANTA_HOST_CAPABILITY_TOKEN

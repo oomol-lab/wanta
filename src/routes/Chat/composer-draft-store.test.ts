@@ -94,7 +94,7 @@ test("successful submission preserves updated preferences while clearing sent co
   const binding = drafts.binding("new")
   binding.dispatch({ type: "set-draft", draft: "first", selection: { start: 5, end: 5 } })
   const submitted = binding.getSnapshot()
-  const preferences = { agentKind: "opencode" as const, permissionMode: "default" as const, knowledgeBaseIds: [] }
+  const preferences = { agentKind: "opencode" as const, permissionMode: "default" as const }
   drafts.preferences("new", preferences)
   binding.dispatch({ type: "set-draft-selection", selection: { start: 0, end: 0 } })
   drafts.consume("new", submitted)

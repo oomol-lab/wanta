@@ -689,42 +689,6 @@
     "many": "{count} подключений",
     "other": "{count} подключения"
   },
-  "knowledge.folderCount": {
-    "one": "{count} файл базы знаний",
-    "few": "{count} файла базы знаний",
-    "many": "{count} файлов базы знаний",
-    "other": "{count} файла базы знаний"
-  },
-  "knowledge.searchResultCount": {
-    "one": "{count} файл",
-    "few": "{count} файла",
-    "many": "{count} файлов",
-    "other": "{count} файла"
-  },
-  "knowledge.chapterCount": {
-    "one": "{count} раздел контента",
-    "few": "{count} раздела контента",
-    "many": "{count} разделов контента",
-    "other": "{count} раздела контента"
-  },
-  "knowledge.wordCount": {
-    "one": "Всего {count} слово",
-    "few": "Всего {count} слова",
-    "many": "Всего {count} слов",
-    "other": "Всего {count} слова"
-  },
-  "knowledge.contextCount": {
-    "one": "Выбрано: {count}",
-    "few": "Выбрано: {count}",
-    "many": "Выбрано: {count}",
-    "other": "Выбрано: {count}"
-  },
-  "knowledge.contextQueueNotice": {
-    "one": "Изменения не повлияют на {count} сообщение, уже добавленное в очередь.",
-    "few": "Изменения не повлияют на {count} сообщения, уже добавленные в очередь.",
-    "many": "Изменения не повлияют на {count} сообщений, уже добавленных в очередь.",
-    "other": "Изменения не повлияют на {count} сообщения, уже добавленные в очередь."
-  },
   "teams.teamCount": {
     "one": "Команды: {{count}}",
     "few": "Команды: {{count}}",

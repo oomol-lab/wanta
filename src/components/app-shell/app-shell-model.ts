@@ -290,7 +290,6 @@ export function initialRoute(): Route {
   return route === "settings" ||
     route === "connections" ||
     route === "skills" ||
-    route === "knowledge" ||
     route === "teams" ||
     route === "billing" ||
     route === "archived"

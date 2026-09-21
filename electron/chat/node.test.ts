@@ -65,10 +65,8 @@ function createBridgeAgent(): {
   getPendingPermissionsForSessions: ReturnType<typeof vi.fn>
   getPendingQuestions: ReturnType<typeof vi.fn>
   getPendingQuestionsForSessions: ReturnType<typeof vi.fn>
-  inheritSessionKnowledgeBaseIds: ReturnType<typeof vi.fn>
   promptStreaming: ReturnType<typeof vi.fn>
   rejectQuestion: ReturnType<typeof vi.fn>
-  setSessionKnowledgeBaseIds: ReturnType<typeof vi.fn>
   setSessionTeamName: ReturnType<typeof vi.fn>
 } {
   let listener:
@@ -91,7 +89,6 @@ function createBridgeAgent(): {
     const results = await Promise.all(sessionIds.map((sessionId) => getPendingQuestions(sessionId)))
     return results.flat()
   })
-  const inheritSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const promptStreaming = vi.fn(
     async (_sessionId: string, _text: string, _options: { messageId?: string }) => undefined,
   )
@@ -117,8 +114,6 @@ function createBridgeAgent(): {
   })
   const rejectQuestion = vi.fn(async () => undefined)
   const clearSessionTeamName = vi.fn(async () => undefined)
-  const clearSessionKnowledgeBaseIds = vi.fn(async () => undefined)
-  const setSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const setSessionTeamName = vi.fn(async () => undefined)
   const scrubSessionSensitiveOoOutputs = vi.fn(async () => 0)
   const manager = {
@@ -138,10 +133,8 @@ function createBridgeAgent(): {
     createArtifactDir,
     createProcessDir,
     clearSessionTeamName,
-    clearSessionKnowledgeBaseIds,
     rejectQuestion,
     setSessionTeamName,
-    setSessionKnowledgeBaseIds,
     scrubSessionSensitiveOoOutputs,
     promptStreaming,
     getMessages,
@@ -149,7 +142,6 @@ function createBridgeAgent(): {
     getPendingPermissionsForSessions,
     getPendingQuestions,
     getPendingQuestionsForSessions,
-    inheritSessionKnowledgeBaseIds,
   } as unknown as AgentManager
   const agent = new OpencodeAgentAdapter(manager)
   // The stub manager reports ready, so start() only attaches the translated event stream (synchronous).
@@ -175,11 +167,9 @@ function createBridgeAgent(): {
     getPendingPermissionsForSessions,
     getPendingQuestions,
     getPendingQuestionsForSessions,
-    inheritSessionKnowledgeBaseIds,
     getMessages,
     promptStreaming,
     rejectQuestion,
-    setSessionKnowledgeBaseIds,
     setSessionTeamName,
   }
 }
@@ -2689,7 +2679,6 @@ test("sendMessage passes selected context, team skills, and project as per-turn 
         kind: "connection",
         service: "gmail",
       },
-      { id: "knowledge-1", kind: "knowledge", name: "Product handbook" },
     ],
     teamSkills: [
       {
@@ -2729,7 +2718,6 @@ test("sendMessage passes selected context, team skills, and project as per-turn 
   assert.match(options?.system ?? "", /User-selected context for this turn/)
   assert.match(options?.system ?? "", /ecommerce-image-studio/)
   assert.match(options?.system ?? "", /gmail/)
-  assert.match(options?.system ?? "", /Product handbook/)
   assert.doesNotMatch(options?.system ?? "", /account: "work"/)
   assert.match(options?.system ?? "", /consider the selected connection first/)
   assert.match(options?.system ?? "", /Do not use it for unrelated local files/)
@@ -2742,7 +2730,6 @@ test("sendMessage passes selected context, team skills, and project as per-turn 
   assert.match(options?.system ?? "", /Respond in English/)
   assert.match(options?.system ?? "", /primary language of the user's latest substantive request/)
   assert.match(options?.system ?? "", /application interface language: English/)
-  assert.deepEqual(bridge.setSessionKnowledgeBaseIds.mock.calls, [["session-1", ["knowledge-1"]]])
   assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", undefined]])
 })
 
@@ -3142,7 +3129,6 @@ test("trusted project permissions are approved for task subagent sessions", asyn
 
   await service.sendMessage({
     scope: testTeamScope,
-    contextMentions: [{ id: "knowledge-1", kind: "knowledge", name: "Product handbook" }],
     projectContext: {
       id: "project-1",
       name: "wanta",
@@ -3173,8 +3159,7 @@ test("trusted project permissions are approved for task subagent sessions", asyn
       },
     },
   })
-  await waitForCondition(() => bridge.inheritSessionKnowledgeBaseIds.mock.calls.length === 1)
-  assert.deepEqual(bridge.inheritSessionKnowledgeBaseIds.mock.calls, [["parent-session", "child-session"]])
+  await waitForCondition(() => events.some((event) => event.event === "toolCallStarted"))
   bridge.emit({
     type: "permission.v2.asked",
     properties: {
@@ -5202,7 +5187,6 @@ test("late tool and activity events cannot mutate the replacement run or registe
   })
   expect(await service.getActiveRun("session-1")).toEqual(before)
   expect(events).toHaveLength(eventCount)
-  expect(bridge.inheritSessionKnowledgeBaseIds).not.toHaveBeenCalled()
   bridge.emit({
     type: "message.part.updated",
     properties: {

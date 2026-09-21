@@ -102,7 +102,6 @@ export interface UseSessions {
   listArchived: () => Promise<SessionInfo[]>
   createProject: (req: Omit<CreateProjectRequest, "scope">) => Promise<SessionProject>
   assignSessionProject: (sessionId: string, projectId?: string) => Promise<void>
-  setSessionKnowledgeBases: (id: string, update: KnowledgeBaseIdsUpdate) => Promise<void>
   renameProject: (id: string, name: string) => Promise<void>
   pinProject: (id: string, pinned: boolean) => Promise<void>
   archiveProject: (id: string) => Promise<void>
@@ -118,34 +117,10 @@ export interface UseSessions {
   refresh: () => Promise<void>
 }
 
-export type KnowledgeBaseIdsUpdate = string[] | ((current: string[]) => string[])
-
 interface SessionRefreshFlight {
   activation: number
   promise: Promise<void>
   trailing: boolean
-}
-
-export function resolveKnowledgeBaseIdsUpdate(current: string[], update: KnowledgeBaseIdsUpdate): string[] {
-  const next = typeof update === "function" ? update(current) : update
-  return [...new Set(next.map((item) => item.trim()).filter(Boolean))]
-}
-
-function applySessionKnowledgeBaseIds(session: SessionInfo, knowledgeBaseIds: string[]): SessionInfo {
-  const next = { ...session }
-  if (knowledgeBaseIds.length > 0) next.knowledgeBaseIds = knowledgeBaseIds
-  else delete next.knowledgeBaseIds
-  return next
-}
-
-function applyIntendedKnowledgeBaseIds(
-  sessions: SessionInfo[],
-  intendedBySession: ReadonlyMap<string, string[]>,
-): SessionInfo[] {
-  return sessions.map((session) => {
-    const intended = intendedBySession.get(session.id)
-    return intended ? applySessionKnowledgeBaseIds(session, intended) : session
-  })
 }
 
 export function useSessions({ enabled = true, scope }: { enabled?: boolean; scope: SessionScope | null }): UseSessions {
@@ -154,8 +129,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const scopeName = scope?.kind === "local" ? scope.workspaceName : scope?.teamName
   const requestScope = React.useMemo<SessionScope>(() => scope ?? DEFAULT_LOCAL_WORKSPACE, [scopeKey, scopeName])
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
-  const sessionsRef = React.useRef(sessions)
-  sessionsRef.current = sessions
   const [projects, setProjects] = React.useState<SessionProject[]>([])
   const [loaded, setLoaded] = React.useState(false)
   const [loadedScopeKey, setLoadedScopeKey] = React.useState<string | null>(null)
@@ -165,11 +138,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const refreshActivationRef = React.useRef(0)
   const refreshFlightsRef = React.useRef(new Map<string, SessionRefreshFlight>())
   const localCreatedSessionsRef = React.useRef(new Map<string, SessionInfo>())
-  const knowledgeBasesWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
-  const knowledgeBasesWriteVersionsRef = React.useRef(new Map<string, number>())
-  const knowledgeBasesNextWriteVersionRef = React.useRef(0)
-  const knowledgeBasesIntendedIdsRef = React.useRef(new Map<string, string[]>())
-  const knowledgeBasesPersistedIdsRef = React.useRef(new Map<string, string[]>())
   const currentScopeKeyRef = React.useRef(scopeKey)
   currentScopeKeyRef.current = scopeKey
   const taskSessions = React.useMemo(
@@ -195,20 +163,12 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     if (!enabled) {
       requestSequenceRef.current += 1
       localCreatedSessionsRef.current.clear()
-      knowledgeBasesWriteQueuesRef.current.clear()
-      knowledgeBasesWriteVersionsRef.current.clear()
-      knowledgeBasesIntendedIdsRef.current.clear()
-      knowledgeBasesPersistedIdsRef.current.clear()
     }
   }, [enabled])
 
   React.useEffect(() => {
     requestSequenceRef.current += 1
     localCreatedSessionsRef.current.clear()
-    knowledgeBasesWriteQueuesRef.current.clear()
-    knowledgeBasesWriteVersionsRef.current.clear()
-    knowledgeBasesIntendedIdsRef.current.clear()
-    knowledgeBasesPersistedIdsRef.current.clear()
     setSessions([])
     setProjects([])
     setLoaded(false)
@@ -240,17 +200,9 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       }
       for (const session of nextSessions) {
         localCreatedSessionsRef.current.delete(session.id)
-        if (!knowledgeBasesWriteQueuesRef.current.has(session.id)) {
-          knowledgeBasesPersistedIdsRef.current.set(session.id, session.knowledgeBaseIds ?? [])
-        }
       }
       const localCreatedSessions = [...localCreatedSessionsRef.current.values()]
-      setSessions(
-        applyIntendedKnowledgeBaseIds(
-          mergeSessionsWithLocalCreated(nextSessions, localCreatedSessions),
-          knowledgeBasesIntendedIdsRef.current,
-        ),
-      )
+      setSessions(mergeSessionsWithLocalCreated(nextSessions, localCreatedSessions))
       setProjects(nextProjects)
       setError(null)
     } catch (error) {
@@ -388,57 +340,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     [isCurrentScope, scopeKey, sessionService],
   )
 
-  const setSessionKnowledgeBases = React.useCallback(
-    async (id: string, update: KnowledgeBaseIdsUpdate) => {
-      const mutationScopeKey = scopeKey
-      const session = sessionsRef.current.find((item) => item.id === id)
-      const currentIds = knowledgeBasesIntendedIdsRef.current.get(id) ?? session?.knowledgeBaseIds ?? []
-      const normalizedIds = resolveKnowledgeBaseIdsUpdate(currentIds, update)
-      if (!knowledgeBasesPersistedIdsRef.current.has(id)) {
-        knowledgeBasesPersistedIdsRef.current.set(id, session?.knowledgeBaseIds ?? [])
-      }
-      knowledgeBasesIntendedIdsRef.current.set(id, normalizedIds)
-      setSessions((current) =>
-        current.map((item) => (item.id === id ? applySessionKnowledgeBaseIds(item, normalizedIds) : item)),
-      )
-      const version = knowledgeBasesNextWriteVersionRef.current + 1
-      knowledgeBasesNextWriteVersionRef.current = version
-      knowledgeBasesWriteVersionsRef.current.set(id, version)
-      const previousWrite = knowledgeBasesWriteQueuesRef.current.get(id) ?? Promise.resolve()
-      const queuedWrite = previousWrite
-        .catch(() => undefined)
-        .then(async () => {
-          await sessionService.invoke("setKnowledgeBases", { id, knowledgeBaseIds: normalizedIds })
-          if (isCurrentScope(mutationScopeKey)) {
-            knowledgeBasesPersistedIdsRef.current.set(id, normalizedIds)
-          }
-        })
-      const trackedWrite = queuedWrite.catch(() => undefined).then(() => undefined)
-      knowledgeBasesWriteQueuesRef.current.set(id, trackedWrite)
-      void trackedWrite.finally(() => {
-        if (knowledgeBasesWriteQueuesRef.current.get(id) === trackedWrite) {
-          knowledgeBasesWriteQueuesRef.current.delete(id)
-        }
-      })
-
-      try {
-        await queuedWrite
-      } catch (error) {
-        if (knowledgeBasesWriteVersionsRef.current.get(id) === version && isCurrentScope(mutationScopeKey)) {
-          knowledgeBasesIntendedIdsRef.current.delete(id)
-          const persistedIds = knowledgeBasesPersistedIdsRef.current.get(id) ?? []
-          setSessions((current) =>
-            current.map((item) => (item.id === id ? applySessionKnowledgeBaseIds(item, persistedIds) : item)),
-          )
-        }
-        throw error
-      }
-      if (knowledgeBasesWriteVersionsRef.current.get(id) !== version || !isCurrentScope(mutationScopeKey)) return
-      knowledgeBasesIntendedIdsRef.current.delete(id)
-    },
-    [isCurrentScope, scopeKey, sessionService],
-  )
-
   const removeProject = React.useCallback(
     async (id: string) => {
       const mutationScopeKey = scopeKey
@@ -552,10 +453,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
         return
       }
       localCreatedSessionsRef.current.delete(id)
-      knowledgeBasesWriteQueuesRef.current.delete(id)
-      knowledgeBasesWriteVersionsRef.current.delete(id)
-      knowledgeBasesIntendedIdsRef.current.delete(id)
-      knowledgeBasesPersistedIdsRef.current.delete(id)
       setSessions((current) => current.filter((session) => session.id !== id))
     },
     [isCurrentScope, scopeKey, sessionService],
@@ -571,10 +468,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       const succeeded = new Set(result.succeededIds)
       for (const id of succeeded) {
         localCreatedSessionsRef.current.delete(id)
-        knowledgeBasesWriteQueuesRef.current.delete(id)
-        knowledgeBasesWriteVersionsRef.current.delete(id)
-        knowledgeBasesIntendedIdsRef.current.delete(id)
-        knowledgeBasesPersistedIdsRef.current.delete(id)
       }
       setSessions((current) => current.filter((session) => !succeeded.has(session.id)))
       return result
@@ -597,10 +490,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
         return
       }
       localCreatedSessionsRef.current.delete(id)
-      knowledgeBasesWriteQueuesRef.current.delete(id)
-      knowledgeBasesWriteVersionsRef.current.delete(id)
-      knowledgeBasesIntendedIdsRef.current.delete(id)
-      knowledgeBasesPersistedIdsRef.current.delete(id)
       setSessions((current) => current.filter((session) => session.id !== id))
     },
     [isCurrentScope, scopeKey, sessionService],
@@ -616,10 +505,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       const succeeded = new Set(result.succeededIds)
       for (const id of succeeded) {
         localCreatedSessionsRef.current.delete(id)
-        knowledgeBasesWriteQueuesRef.current.delete(id)
-        knowledgeBasesWriteVersionsRef.current.delete(id)
-        knowledgeBasesIntendedIdsRef.current.delete(id)
-        knowledgeBasesPersistedIdsRef.current.delete(id)
       }
       setSessions((current) => current.filter((session) => !succeeded.has(session.id)))
       return result
@@ -639,7 +524,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     listArchived,
     createProject,
     assignSessionProject,
-    setSessionKnowledgeBases,
     renameProject,
     pinProject,
     archiveProject,

@@ -49,8 +49,7 @@ export function initialComposerState(): ComposerState {
 }
 
 export function contextMentionKey(mention: ChatContextMention): string {
-  if (mention.kind === "skill") return `skill:${mention.id}`
-  if (mention.kind === "knowledge") return `knowledge:${mention.id}`
+  if (mention.kind !== "connection") return `${mention.kind}:${mention.id}`
   return `connection:${mention.service}:${mention.appId ?? ""}`
 }
 

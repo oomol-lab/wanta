@@ -58,10 +58,6 @@ export class SettingsServiceImpl
     return {
       browserEnabled: booleanSetting(persisted.browserEnabled, DEFAULT_APP_SETTINGS.browserEnabled),
       completionNotificationCondition,
-      knowledgeBaseBetaEnabled: booleanSetting(
-        persisted.knowledgeBaseBetaEnabled,
-        DEFAULT_APP_SETTINGS.knowledgeBaseBetaEnabled,
-      ),
       notificationSoundEnabled: booleanSetting(
         persisted.notificationSoundEnabled,
         DEFAULT_APP_SETTINGS.notificationSoundEnabled,
@@ -101,12 +97,6 @@ export class SettingsServiceImpl
 
   public setBrowserEnabled(enabled: boolean): Promise<void> {
     this.deps.store.write({ ...this.deps.store.read(), browserEnabled: enabled })
-    this.settingsChanged()
-    return Promise.resolve()
-  }
-
-  public setKnowledgeBaseBetaEnabled(enabled: boolean): Promise<void> {
-    this.deps.store.write({ ...this.deps.store.read(), knowledgeBaseBetaEnabled: enabled })
     this.settingsChanged()
     return Promise.resolve()
   }

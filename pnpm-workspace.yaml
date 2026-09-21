@@ -1,12 +1,10 @@
 # pnpm 10+ blocks dependency install/postinstall scripts by default. This list
-# allows the dependencies that actually ran build scripts under pnpm 9 (sqlite3
-# is a native module required for packaging; the rest keep behavior unchanged).
+# allows the dependencies that actually ran build scripts under pnpm 9.
 allowBuilds:
   electron-winstaller: true
   msgpackr-extract: true
   opencode-ai: true
   protobufjs: true
-  sqlite3: true
 
 # The Claude and Codex ACP bridges pull the native Claude Code / Codex CLI as
 # platform-specific optional packages (~550 MB per host). Wanta never uses them:
@@ -29,10 +27,6 @@ ignoredOptionalDependencies:
   - "@openai/codex-linux-x64"
   - "@openai/codex-win32-arm64"
   - "@openai/codex-win32-x64"
-
-patchedDependencies:
-  wiki-graph-core@0.6.0: patches/wiki-graph-core@0.6.0.patch
-  wiki-graph@0.6.0: patches/wiki-graph@0.6.0.patch
 
 # Keep the bridges' runtime libraries on audited stable releases. Native CLI
 # binaries remain external and are still excluded above.

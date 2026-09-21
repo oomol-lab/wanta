@@ -29,7 +29,6 @@ function appContext(chatService: { invoke: ReturnType<typeof vi.fn> }): AppConte
     chatService: chatService as unknown as AppContextValue["chatService"],
     connectionsService: mockService,
     gitService: mockService,
-    knowledgeService: mockService,
     linkRuntimeService: mockService,
     modelsService: mockService,
     sessionService: mockService,

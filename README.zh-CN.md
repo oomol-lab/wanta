@@ -10,7 +10,7 @@
 
 使用 Wanta 托管模型或自己的 OpenAI-compatible API Key 运行内置 Agent，也可以直接接入本机
 已经登录的 Claude Code、Codex 和 Grok，继续使用它们原生的模型目录、账号和额度。Wanta 为不同
-Agent 提供统一的跨平台工作环境，包括本地工具、Skills、浏览器、知识库、受治理的应用连接、
+Agent 提供统一的跨平台工作环境，包括本地工具、Skills、浏览器、受治理的应用连接、
 可见的执行过程和任务产物。Wanta 可连接 1,400+ 个常用 App，让你日常使用的服务都能进入同一套
 Agent 工作流。
 
@@ -42,7 +42,7 @@ Wanta 由 [OOMOL](https://oomol.com/) 打造，面向希望掌握完整 Agent �
 | **你的工作应用** | 连接覆盖日常工作场景的 1,400+ 个常用 App，并渐进式发现 10,000+ 个预构建 Action，无需将成千上万个工具塞进模型上下文。 |
 | **你的团队**     | 在个人和团队工作区间切换，共享 Connections 与 Skills，并通过具名权限规则控制成员可用的 Action。                      |
 
-Wanta 负责可移植的 Host 能力：项目、本地工具、Skills、浏览器、知识库、Connections、权限、
+Wanta 负责可移植的 Host 能力：项目、本地工具、Skills、浏览器、Connections、权限、
 可见的工具活动和任务产物。每个外部 Agent 则保留自身独特的原生能力。界面只展示 Agent 实际声明
 支持的控制项，不会假装所有 Agent 都具有相同能力。
 
@@ -104,12 +104,12 @@ Wanta 内置四种 Agent 选择：内置 Agent、Claude Code、Codex 和 Grok。
 模型目录并支持 BYOK；外部 Agent 通过自己的本机 CLI 认证，只使用各自原生的 Provider 路由、
 模型目录和用量额度。Wanta 不会将自己的账号 Token、BYOK Key、Base URL 或模型别名注入外部 Agent。
 
-| Agent       | 模型和账号归属                                   | Wanta Host 能力                                           |
-| ----------- | ------------------------------------------------ | --------------------------------------------------------- |
-| 内置 Agent  | Wanta 托管模型或你的 OpenAI-compatible BYOK 配置 | 完整的 Wanta 运行时与 Host 集成                           |
-| Claude Code | 你的本机 Claude Code 账号和原生模型目录          | 项目、Skills、Connections、浏览器、知识库、权限和任务产物 |
-| Codex       | 你的本机 Codex 账号和原生模型目录                | 项目、Skills、Connections、浏览器、知识库、权限和任务产物 |
-| Grok        | 你的本机 Grok 账号和原生模型目录                 | 项目、Skills、Connections、浏览器、知识库、权限和任务产物 |
+| Agent       | 模型和账号归属                                   | Wanta Host 能力                                   |
+| ----------- | ------------------------------------------------ | ------------------------------------------------- |
+| 内置 Agent  | Wanta 托管模型或你的 OpenAI-compatible BYOK 配置 | 完整的 Wanta 运行时与 Host 集成                   |
+| Claude Code | 你的本机 Claude Code 账号和原生模型目录          | 项目、Skills、Connections、浏览器、权限和任务产物 |
+| Codex       | 你的本机 Codex 账号和原生模型目录                | 项目、Skills、Connections、浏览器、权限和任务产物 |
+| Grok        | 你的本机 Grok 账号和原生模型目录                 | 项目、Skills、Connections、浏览器、权限和任务产物 |
 
 BYOA 层采用规范化、默认拒绝的适配器契约。新的 ACP 集成通过注册表接入，能力声明和契约测试则确保
 运行时行为与界面控制项始终真实一致。
@@ -198,7 +198,7 @@ flowchart TB
   UI --> BYOA["Claude Code · Codex · Grok<br/>BYOA 适配器"]
   BuiltIn --> Host["Wanta Host 能力"]
   BYOA --> Host
-  Host --> Local["本地文件、Shell、浏览器、Skills 和知识库"]
+  Host --> Local["本地文件、Shell、浏览器和 Skills"]
   Host --> Link["受治理的 Connector Action"]
   Link --> Hosted["OOMOL 托管连接器"]
   Link -.-> SelfHosted["自托管 OpenConnector<br/>应用内设置尚在规划"]

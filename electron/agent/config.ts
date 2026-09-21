@@ -128,9 +128,7 @@ export function buildOpencodeConfig({
     },
     agent: {
       [WANTA_BUILD_AGENT_NAME]: {
-        description: linkRuntime
-          ? "Link connector + local knowledge and coding assistant"
-          : "Local knowledge and coding assistant",
+        description: linkRuntime ? "Link connector and coding assistant" : "Local coding assistant",
         mode: "primary",
         prompt: systemPrompt,
         // 不再下发 tools 禁用表：所有内置工具默认启用。

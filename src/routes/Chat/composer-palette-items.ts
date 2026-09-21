@@ -2,16 +2,14 @@ import type { ChatContextMention, ChatTeamSkillContext } from "../../../electron
 import type { LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
 import type { ConnectionAppSummary } from "../../../electron/connections/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { ComposerPaletteItem } from "./ComposerPalette.tsx"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 
-import { Bug, File, FileImage, Folder, LibraryBig, Package, Plug, SlidersHorizontal } from "lucide-react"
+import { Bug, File, FileImage, Folder, Package, Plug, SlidersHorizontal } from "lucide-react"
 import * as React from "react"
 import { connectionAppDisplayLabel as connectionAppUiDisplayLabel } from "../../../electron/connections/summary.ts"
-import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../../../electron/knowledge/common.ts"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source"
 import { SkillIcon } from "@/components/SkillIcon"
 import { artifactGroupDisplayItem } from "@/routes/Chat/artifact-metadata"
@@ -22,7 +20,6 @@ export const creatorSkillId = "oo-create-skill"
 export const browserSkillId = "browser"
 const browserSkillIcon = ":lucide:search:"
 const builtInSkillIds = new Set([browserSkillId, creatorSkillId, "oo", "oo-find-skills", "oo-publish-skill"])
-const knowledgeContextPreviewLimit = 4
 
 export type SlashCommandAction =
   | "attach-file-or-folder"
@@ -83,24 +80,11 @@ export interface ArtifactPaletteItem extends ComposerPaletteItem {
   kind: "artifact"
 }
 
-export interface KnowledgePaletteItem extends ComposerPaletteItem {
-  kind: "knowledge"
-  knowledgeBase: KnowledgeBaseSummary
-  scope: "archive" | "library"
-  selected: boolean
-}
-
-export interface KnowledgeLibraryPaletteItem extends ComposerPaletteItem {
-  kind: "knowledge-library"
-}
-
 export type ChatComposerPaletteItem =
   | ArtifactPaletteItem
   | AttachmentPaletteItem
   | ConnectionAccountPaletteItem
   | ConnectionProviderPaletteItem
-  | KnowledgeLibraryPaletteItem
-  | KnowledgePaletteItem
   | SkillPaletteItem
   | SlashCommandPaletteItem
 
@@ -123,18 +107,6 @@ export function skillPaletteContextMention(item: SkillPaletteItem): Extract<Chat
     kind: "skill",
     name: item.skillName,
   }
-}
-
-export interface KnowledgePaletteCopy {
-  emptyDescription: string
-  emptyTitle: string
-  failedDescription: string
-  failedTitle: string
-  libraryDescription: string
-  libraryTitle: string
-  loadingDescription: string
-  loadingTitle: string
-  selected: string
 }
 
 function supportsCombinedAttachmentPicker(platform: NodeJS.Platform | undefined): boolean {
@@ -513,130 +485,17 @@ export function buildConnectionAccountPaletteItems(
     })
 }
 
-function knowledgeDescription(item: KnowledgeBaseSummary): string {
-  return [item.relativePath, ...item.authors, item.publisher].filter(Boolean).join(" · ")
-}
-
-function knowledgeIcon(item: KnowledgeBaseSummary): React.ReactNode {
-  if (item.coverDataUrl) {
-    return React.createElement("img", {
-      alt: "",
-      className: "size-6 rounded-sm object-cover",
-      src: item.coverDataUrl,
-    })
-  }
-  return React.createElement(LibraryBig, { className: "size-4" })
-}
-
-function knowledgeLibrarySummary(copy: KnowledgePaletteCopy): KnowledgeBaseSummary {
-  return {
-    authors: [],
-    capabilities: {
-      fullTextSearch: true,
-      knowledgeGraph: true,
-      readingGraph: true,
-      summary: true,
-    },
-    id: KNOWLEDGE_LIBRARY_CONTEXT_ID,
-    importedAt: Number.MAX_SAFE_INTEGER,
-    relativePath: KNOWLEDGE_LIBRARY_CONTEXT_ID,
-    size: 0,
-    sourceFileName: "",
-    statistics: {},
-    title: copy.libraryTitle,
-  }
-}
-
-export function buildKnowledgePaletteItems(
-  items: KnowledgeBaseSummary[],
-  selectedIds: readonly string[],
-  copy: KnowledgePaletteCopy,
-  state: { error: boolean; loading: boolean },
-): Array<KnowledgeLibraryPaletteItem | KnowledgePaletteItem> {
-  const selected = new Set(selectedIds)
-  if (state.loading || state.error) {
-    const unavailable = state.loading
-      ? { description: copy.loadingDescription, disabled: true, title: copy.loadingTitle }
-      : { description: copy.failedDescription, title: copy.failedTitle }
-    return [
-      {
-        ...unavailable,
-        icon: React.createElement(LibraryBig, { className: "size-4" }),
-        id: "knowledge-library",
-        keywords: ["knowledge", "library", "book", "知识库", "书"],
-        kind: "knowledge-library",
-        meta: "knowledge",
-      },
-    ]
-  }
-
-  const librarySelected = selected.has(KNOWLEDGE_LIBRARY_CONTEXT_ID)
-  const libraryItem: KnowledgePaletteItem = {
-    description: items.length > 0 ? copy.libraryDescription : copy.emptyDescription,
-    icon: React.createElement(LibraryBig, { className: "size-4" }),
-    id: `knowledge:${KNOWLEDGE_LIBRARY_CONTEXT_ID}`,
-    keywords: ["knowledge", "library", "book", "all", "global", "知识库", "全局", "全部", "书"],
-    kind: "knowledge",
-    knowledgeBase: knowledgeLibrarySummary(copy),
-    meta: librarySelected ? copy.selected : "knowledge",
-    scope: "library",
-    selected: librarySelected,
-    title: copy.libraryTitle,
-  }
-
-  const archiveItems = items
-    .slice()
-    .sort((left, right) => {
-      const leftSelected = selected.has(left.id)
-      const rightSelected = selected.has(right.id)
-      if (leftSelected !== rightSelected) return leftSelected ? -1 : 1
-      return right.importedAt - left.importedAt || left.title.localeCompare(right.title)
-    })
-    .map((item): KnowledgePaletteItem => {
-      const isSelected = selected.has(item.id)
-      return {
-        description: knowledgeDescription(item),
-        icon: knowledgeIcon(item),
-        id: `knowledge:${item.id}`,
-        keywords: [
-          item.title,
-          ...item.authors,
-          item.publisher,
-          item.publishedAt,
-          item.sourceFileName,
-          item.relativePath,
-        ].filter((value): value is string => Boolean(value)),
-        kind: "knowledge",
-        knowledgeBase: item,
-        meta: isSelected ? copy.selected : "knowledge",
-        scope: "archive",
-        selected: isSelected,
-        title: item.title,
-      }
-    })
-
-  return [libraryItem, ...archiveItems]
-}
-
 export function buildContextPaletteItems({
   artifactItems = [],
   connectionItems,
-  knowledgeItems = [],
   platform,
   t,
 }: {
   artifactItems?: ArtifactPaletteItem[]
   connectionItems: ConnectionProviderPaletteItem[]
-  knowledgeItems?: Array<KnowledgeLibraryPaletteItem | KnowledgePaletteItem>
   platform?: NodeJS.Platform
   t: TranslateFn
-}): Array<
-  | ArtifactPaletteItem
-  | AttachmentPaletteItem
-  | ConnectionProviderPaletteItem
-  | KnowledgeLibraryPaletteItem
-  | KnowledgePaletteItem
-> {
+}): Array<ArtifactPaletteItem | AttachmentPaletteItem | ConnectionProviderPaletteItem> {
   const attachmentItems: AttachmentPaletteItem[] = supportsCombinedAttachmentPicker(platform)
     ? [
         {
@@ -669,13 +528,7 @@ export function buildContextPaletteItems({
           title: t("chat.attachFolderAction"),
         },
       ]
-  return [
-    ...knowledgeItems.slice(0, knowledgeContextPreviewLimit),
-    ...attachmentItems,
-    ...artifactItems,
-    ...connectionItems,
-    ...knowledgeItems.slice(knowledgeContextPreviewLimit),
-  ]
+  return [...attachmentItems, ...artifactItems, ...connectionItems]
 }
 
 function packDisplayItems(pack: LocalArtifactPack): LocalArtifactItem[] {

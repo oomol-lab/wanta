@@ -67,9 +67,7 @@ export function useComposerSubmission({
   messages,
   messagesLoaded,
   teamSkills,
-  knowledgeBaseIds,
   persistPermissionMode,
-  persistKnowledgeBaseIds,
   send,
   sessionScope,
   setIsDraftSession,
@@ -95,9 +93,7 @@ export function useComposerSubmission({
   messages: Parameters<typeof buildSessionTitleInput>[0]
   messagesLoaded: boolean
   teamSkills: ChatTeamSkillContext[]
-  knowledgeBaseIds: string[]
   persistPermissionMode: (sessionId: string, mode: AgentPermissionMode) => Promise<void>
-  persistKnowledgeBaseIds: (sessionId: string, ids: string[]) => void
   send: UseChat["send"]
   sessionScope: SessionScope | null
   setIsDraftSession: React.Dispatch<React.SetStateAction<boolean>>
@@ -248,7 +244,6 @@ export function useComposerSubmission({
           }
           return { error, status: "failed" }
         }
-        persistKnowledgeBaseIds(sessionId, knowledgeBaseIds)
         if (shouldRefreshTitle) {
           void titleGeneration.refreshGeneratedTitle(
             sessionId,
@@ -318,8 +313,6 @@ export function useComposerSubmission({
       messages,
       messagesLoaded,
       teamSkills,
-      knowledgeBaseIds,
-      persistKnowledgeBaseIds,
       persistPermissionMode,
       retainRecentSession,
       send,

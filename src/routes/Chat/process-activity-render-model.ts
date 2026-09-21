@@ -10,7 +10,6 @@ import {
   summarizeTurnProcess,
 } from "./chat-turns.ts"
 import { isActiveToolPart } from "./tool-state.ts"
-import { groupedWikigraphToolActivityBlocks } from "./wikigraph-tool-grouping.ts"
 
 export interface TurnProcessActivityRenderModel {
   activityBlocks: AssistantTimelineBlock[]
@@ -60,8 +59,8 @@ export function buildTurnProcessActivityRenderModel({
     process.tools.map((part) => `${part.partId}:${part.status}`).join("|"),
     process.errors.map((part) => part.partId).join("|"),
   ].join(":")
-  const activityBlocks = groupedWikigraphToolActivityBlocks(blocks, { live })
-  const renderBlocks = activityBlocks.map((item) => item.block)
+  const activityBlocks = blocks
+  const renderBlocks = blocks.map((item) => item.block)
   return {
     activityBlocks,
     renderBlocks,

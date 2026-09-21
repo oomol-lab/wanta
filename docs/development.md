@@ -147,7 +147,7 @@ non-persisting sidecar environment.
   electron-free).
 - **UI real-machine verification bypasses** (dev-only env vars, harmless in production):
   `VITE_WANTA_SMOKE` (auto-sends one message once AppShell is ready, `AppShell.tsx`),
-  `VITE_WANTA_ROUTE=settings` (also supports `knowledge` and other AppShell pages),
+  `VITE_WANTA_ROUTE=settings` (also supports other AppShell pages),
   `VITE_WANTA_LOCALE` (forces the locale, `src/i18n/i18n.ts`); pair with macOS `screencapture` for
   screenshot evidence. Electron 42's macOS native notifications require a valid app signature; the
   ad-hoc dev signature of `.electron-dist/Electron.app` cannot be used for notification
@@ -191,9 +191,7 @@ corepack pnpm run build:mac     # = build:app + prepare:binaries + electron-buil
 - `electron-builder.ts`: appId / productName / protocols derive from `electron/branding.ts`; asar;
   output `release/${version}`; files only dist + dist-electron (excluding map/d.ts, **no electron/
   sources or tests**); extraResources include `resources/bin → bin`, `resources/skills → skills`,
-  and `resources/agent-tool-runtime → agent-tool-runtime`; the `sqlite3` native module is unpacked
-  from asar (used by the exactly pinned `wiki-graph@0.6.0` / `wiki-graph-core@0.6.0` runtime);
-  afterPack
+  and `resources/agent-tool-runtime → agent-tool-runtime`; afterPack
   `scripts/electron-builder-after-pack.cjs` (deletes the ~20MB LICENSES.chromium.html; the hook is
   .cjs because electron-builder's require hook does not support .ts). mac dmg+zip arm64; win nsis
   x64 (signtool certificate fingerprint); linux AppImage.

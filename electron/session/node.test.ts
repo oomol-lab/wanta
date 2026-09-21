@@ -128,9 +128,7 @@ test("local session metadata remains writable while the agent is temporarily una
   const persistedMetadata = metadataStore()
   const service = new SessionServiceImpl(null, { metadataStore: persistedMetadata })
 
-  await Promise.all([
-    service.pin({ id: "session", pinned: true }),
-  ])
+  await service.pin({ id: "session", pinned: true })
 
   assert.equal(typeof (await persistedMetadata.read()).get("session")?.pinnedAt, "number")
   await assert.rejects(service.rename({ id: "session", title: "Title" }), /Agent not configured/)

@@ -209,7 +209,7 @@ extension or file length. Suggested order:
    mapping, and races;
 5. App shell and page state: navigation, current session, panels, dialogs, drafts, and derived
    state;
-6. Update, notification, Git, knowledge, and build/release paths;
+6. Update, notification, Git, and build/release paths;
 7. scripts, resources, CI, dependencies, and the packaging manifest.
 
 For each domain, first draw a text map of "single source of state/data → transformations →

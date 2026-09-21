@@ -726,9 +726,8 @@ Every Agent runtime also receives:
 WANTA_TEAM_SCOPE_PATH
 ```
 
-The legacy environment name remains because this file also carries
-sessionKnowledgeBaseIds for query_knowledge; renaming it is outside this
-feature. Resolve OO_DATA_DIR according to the Phase 0 schema-cache probe so
+The environment file carries per-session team scope. Resolve OO_DATA_DIR
+according to the Phase 0 schema-cache probe so
 incompatible endpoint schemas never share a cache namespace.
 
 OOMOL adds:
@@ -789,8 +788,7 @@ ensureAgentWorkspace({
 })
 ```
 
-connectors controls the four Link tools; query_knowledge is written for every
-Agent runtime. It does not control bundled Skills.
+connectors controls the four Link tools. It does not control bundled Skills.
 
 For the first release, bundledOoSkills is true only when the active Link
 runtime is OOMOL. Keep the existing oo, oo-find-skills, oo-create-skill, and
@@ -817,8 +815,6 @@ runtime.
 - The runtime token exists in plaintext only in the trusted OpenConnector
   sidecar/process environment and its child oo process environment.
 - The full isolated OO\_\* environment is present for spawned oo commands.
-- query_knowledge remains available in an OpenConnector runtime and reads
-  sessionKnowledgeBaseIds from WANTA_TEAM_SCOPE_PATH.
 - With an OOMOL account signed in and OpenConnector active, Skill registry
   install, update, and delete still use the OOMOL maintenance environment.
 - No bundled oo Skill is copied into an OpenConnector workspace; an OOMOL Link
@@ -851,8 +847,6 @@ Behavior:
 - OpenConnector Link identity ignores teamName and sessionTeams.
 - OpenConnector appends neither --team nor --personal.
 - OpenConnector's cache key includes its normalized endpoint.
-- query_knowledge remains independent of Link identity and continues reading
-  sessionKnowledgeBaseIds from WANTA_TEAM_SCOPE_PATH in every Agent runtime.
 - Schema caches use the endpoint-aware OO_DATA_DIR strategy decided in Phase 0.
 
 This is mandatory: the bundled oo CLI rejects --team before sending a request
@@ -980,8 +974,7 @@ Tests with a mock runtime prove:
 - provider URLs are encoded correctly;
 - caches and circuit breakers do not cross endpoints;
 - direct /v1/apps inventory maps alias to connectionName and matches oo CLI
-  list_apps semantics;
-- query_knowledge remains usable while OpenConnector is active.
+  list_apps semantics.
 
 ## 10. Phase 5: align tools, permissions, and prompts
 
@@ -1346,7 +1339,6 @@ Agent configuration:
   and its inventory has no Gmail;
 - OOMOL Link workspaces retain all four bundled oo Skills while OpenConnector
   workspaces receive none;
-- query_knowledge in an OpenConnector Agent runtime;
 - OOMOL Skill registry maintenance while OpenConnector is active.
 
 Tool source:
@@ -1442,8 +1434,7 @@ Scenario D, OOMOL regression:
 - while OpenConnector remains active, install, update, and delete an OOMOL
   registry Skill and verify those commands still use the OOMOL account;
 - verify the OpenConnector Agent workspace has no bundled oo Skills while an
-  OOMOL Link workspace retains all four;
-- verify query_knowledge still uses the current sessionKnowledgeBaseIds.
+  OOMOL Link workspace retains all four.
 
 Scenario E, Link available but model missing:
 
@@ -1548,8 +1539,6 @@ The feature is complete only when:
 - all four Link tools work against OpenConnector;
 - OpenConnector may remain active without a model, but Agent connector
   capability stays false until the Agent can actually start;
-- query_knowledge continues using sessionKnowledgeBaseIds with OpenConnector
-  active;
 - OpenConnector calls never carry OOMOL organization identity;
 - OOMOL team-scoped connector behavior does not regress;
 - OOMOL Skill registry maintenance continues using OOMOL credentials while

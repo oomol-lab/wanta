@@ -13,8 +13,6 @@ export interface PersistedSettings {
   notificationSoundEnabled?: boolean
   /** 支持的平台是否在应用图标显示未读任务数；缺失时默认开启。 */
   unreadBadgeEnabled?: boolean
-  /** 知识库仍为 Beta 功能；缺失或非 true 时默认关闭。 */
-  knowledgeBaseBetaEnabled?: boolean
   /** Active runtime profile; "unselected" records an intentional return to the welcome chooser. */
   operatingMode?: string
   /** Whether the optional self-managed setup reminder was dismissed. */
@@ -23,7 +21,7 @@ export interface PersistedSettings {
   updateChannel?: string
 }
 
-/** 设置持久化到 userData/settings.json。仅存非密配置（主题、通知、Beta 开关等），不存凭证（R8）。 */
+/** 设置持久化到 userData/settings.json。仅存非密配置（主题、通知等），不存凭证（R8）。 */
 export class SettingsStore {
   private readonly file: string
 

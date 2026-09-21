@@ -19,6 +19,7 @@ import { downloadLarkCliBinary, exportLarkCliSkills, larkCliBinaryName } from ".
 import { downloadOoBinary, ooExecutableName, OO_CLI_VERSION } from "./oo-cli.ts"
 import { downloadRipgrepBinary, ripgrepExecutableName } from "./ripgrep.ts"
 import { bundledOoSkillHashes, bundledSkillsDir, exportBundledSkills, verifyBundledOoSkillLock } from "./skills.ts"
+import { downloadSpacesBinary } from "./spaces-cli.ts"
 import { downloadWecomCliBinary, exportWecomCliSkills, wecomCliBinaryName } from "./wecom-cli.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -75,6 +76,9 @@ const dingTalkCliSrc = await downloadDingTalkCliBinary()
 bundle("DingTalk CLI", dingTalkCliSrc, dingTalkCliBinaryName())
 await exportDingTalkCliSkills()
 console.log("[wanta] bundled DingTalk CLI skills")
+
+const spacesBinary = await downloadSpacesBinary()
+if (spacesBinary) bundle("Spaces runtime", spacesBinary, "spaces")
 
 // 内置 4 个 oo skill：导出到 resources/skills/，由 electron-builder extraResources 打入 Resources/skills，
 // 运行时拷进 OpenCode workspace 的 .opencode/skill/（见 electron/agent/workspace.ts）。

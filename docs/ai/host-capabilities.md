@@ -12,11 +12,11 @@ data-safety policy, or UI semantics.
 
 The target split is:
 
-| Owner         | Responsibilities                                                                                                                                                                                                   |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Wanta host    | session identity, team/workspace scope, Link connections, browser and knowledge services, artifacts, redaction, authorization signals, audit records, normalized tool UI, and built-in OpenCode model/BYOK routing |
-| Agent adapter | native session lifecycle, native account and provider route, native model/effort catalog and selection, reasoning loop, local-tool enforcement, and translation to/from the normalized adapter contract            |
-| Model         | intent understanding, planning, tool choice, synthesis, and response generation; for BYOA, usage is charged by the user's local agent account                                                                      |
+| Owner         | Responsibilities                                                                                                                                                                                        |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wanta host    | session identity, team/workspace scope, Link connections, browser services, artifacts, redaction, authorization signals, audit records, normalized tool UI, and built-in OpenCode model/BYOK routing    |
+| Agent adapter | native session lifecycle, native account and provider route, native model/effort catalog and selection, reasoning loop, local-tool enforcement, and translation to/from the normalized adapter contract |
+| Model         | intent understanding, planning, tool choice, synthesis, and response generation; for BYOA, usage is charged by the user's local agent account                                                           |
 
 Agent-native behavior is not expected to be identical. Host capability
 identity, business safety, and result semantics are expected to be identical.
@@ -53,6 +53,13 @@ per-turn system-prompt field. The recorded user message remains the original use
 
 ## Capability transport
 
+Spaces full-stack websites use a stateful host capability for native paid
+consent, scope enforcement and isolated builds. Static website requests remain
+on the existing website upload workflow. Exact pricing is mandatory before new
+resource creation; the initial integration keeps creation blocked until an
+authoritative quote source is connected. See [Spaces integration](spaces.md)
+for supported operations, transport parity, runtime distribution and recovery.
+
 Capability ownership and transport are separate decisions. Wanta owns identity,
 workspace, credentials, validation, redaction, authorization, and audit
 semantics regardless of the wire used by an agent.
@@ -61,7 +68,7 @@ semantics regardless of the wire used by an agent.
   and actions. This preserves their native command and Skill workflow without
   eagerly loading the Link catalog as MCP tools.
 - MCP is reserved for stateful Wanta-native capabilities without an equivalent
-  managed CLI, such as the integrated browser, structured questions, knowledge,
+  managed CLI, such as the integrated browser, structured questions,
   current-turn Skill snapshots, and isolated direct-provider runtimes.
 - OpenCode keeps its in-process host invoke path.
 - Every transport normalizes into the same tool UI and permission vocabulary.
@@ -266,13 +273,11 @@ creation reports duplicate ids, missing references, hardcoded agent/workspace
 paths, and embedded credentials; a Skill containing an embedded credential is
 excluded.
 
-### Phase 5: browser and knowledge
+### Phase 5: browser
 
 Delivered: all agents operate the same visible `BrowserManager`; Wanta supplies
 the session id. Host tool results support MCP-native image content, so browser
 screenshots reach external agents as images rather than file-URL text.
-WikiGraph reads use Wanta's managed state and are restricted to read-only,
-bounded `wikg://lib` queries.
 
 ### Phase 6: artifacts, processes, and user interaction
 

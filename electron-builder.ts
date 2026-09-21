@@ -8,7 +8,6 @@ export default {
     "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   appId: branding.appId,
   asar: true,
-  asarUnpack: ["node_modules/sqlite3/**"],
   productName: branding.appName,
   directories: {
     buildResources: "resources",
@@ -36,7 +35,6 @@ export default {
   // resources/skills 是 oo 自带的 4 个内置 skill（同由 prepare-binaries.ts 导出）；运行时拷进 OpenCode
   // workspace 的 .opencode/skill/，使 Wanta agent 直接读到。
   extraResources: [
-    { from: "resources/licenses/wiki-graph-LICENSE", to: "licenses/wiki-graph-LICENSE" },
     {
       from: "LICENSE",
       to: "licenses/Wanta-LICENSE",

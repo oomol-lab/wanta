@@ -3,7 +3,6 @@ import type { AuthService } from "../../electron/auth/common.ts"
 import type { BrowserService } from "../../electron/browser/common.ts"
 import type { ChatService } from "../../electron/chat/common.ts"
 import type { GitService } from "../../electron/git/common.ts"
-import type { KnowledgeService } from "../../electron/knowledge/common.ts"
 import type { LinkRuntimeService } from "../../electron/link-runtime/common.ts"
 import type { ModelsService } from "../../electron/models/common.ts"
 import type { SessionService } from "../../electron/session/common.ts"
@@ -19,7 +18,6 @@ export interface AppContextValue {
   browserService: ConnectionClientService<BrowserService>
   chatService: ConnectionClientService<ChatService>
   gitService: ConnectionClientService<GitService>
-  knowledgeService: ConnectionClientService<KnowledgeService>
   linkRuntimeService: ConnectionClientService<LinkRuntimeService>
   sessionService: ConnectionClientService<SessionService>
   skillService: ConnectionClientService<SkillService>
@@ -57,10 +55,6 @@ export function useSessionService(): ConnectionClientService<SessionService> {
 
 export function useGitService(): ConnectionClientService<GitService> {
   return useAppContext().gitService
-}
-
-export function useKnowledgeService(): ConnectionClientService<KnowledgeService> {
-  return useAppContext().knowledgeService
 }
 
 export function useLinkRuntimeService(): ConnectionClientService<LinkRuntimeService> {

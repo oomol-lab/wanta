@@ -128,10 +128,6 @@ export class OpencodeAgentAdapter extends BaseAgentAdapter implements ChatAgentB
     return this.manager.setTeamName(teamName)
   }
 
-  public removeKnowledgeBaseAccess(knowledgeBaseId: string): Promise<void> {
-    return this.manager.removeKnowledgeBaseAccess(knowledgeBaseId)
-  }
-
   public getMessages(sessionId: string): Promise<ChatMessage[]> {
     return this.manager.getMessages(sessionId)
   }
@@ -166,18 +162,6 @@ export class OpencodeAgentAdapter extends BaseAgentAdapter implements ChatAgentB
 
   public clearSessionTeamName(sessionId: string): Promise<void> {
     return this.manager.clearSessionTeamName(sessionId)
-  }
-
-  public setSessionKnowledgeBaseIds(sessionId: string, knowledgeBaseIds: readonly string[]): Promise<void> {
-    return this.manager.setSessionKnowledgeBaseIds(sessionId, knowledgeBaseIds)
-  }
-
-  public clearSessionKnowledgeBaseIds(sessionId: string): Promise<void> {
-    return this.manager.clearSessionKnowledgeBaseIds(sessionId)
-  }
-
-  public inheritSessionKnowledgeBaseIds(parentSessionId: string, childSessionId: string): Promise<void> {
-    return this.manager.inheritSessionKnowledgeBaseIds(parentSessionId, childSessionId)
   }
 
   public listSessions(): Promise<SessionInfo[]> {

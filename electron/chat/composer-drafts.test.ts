@@ -112,6 +112,21 @@ test("does not replace an unreadable store if quarantine fails", async () => {
   }
 })
 
+test("drops removed knowledge mentions without quarantining the draft", () => {
+  const normalized = normalizeComposerDraft({
+    ...value,
+    contextMentions: [
+      { id: "skill-1", kind: "skill", name: "Research" },
+      { id: "book", kind: "knowledge", name: "Journey to the West" },
+      { displayName: "Gmail", kind: "connection", service: "gmail" },
+    ],
+  })
+  expect(normalized.contextMentions).toEqual([
+    { id: "skill-1", kind: "skill", name: "Research" },
+    { displayName: "Gmail", kind: "connection", service: "gmail" },
+  ])
+})
+
 test("normalizes only supported preference fields and string selections", () => {
   const normalized = normalizeComposerDraft({
     ...value,
@@ -127,7 +142,6 @@ test("normalizes only supported preference fields and string selections", () => 
   expect(normalized.preferences).toEqual({
     agentKind: "opencode",
     permissionMode: "default",
-    knowledgeBaseIds: ["book"],
   })
   expect(
     normalizeComposerDraft({
@@ -135,7 +149,6 @@ test("normalizes only supported preference fields and string selections", () => 
       preferences: {
         agentKind: "opencode",
         permissionMode: "default",
-        knowledgeBaseIds: [],
         modelId: "model",
         effortId: "high",
       },

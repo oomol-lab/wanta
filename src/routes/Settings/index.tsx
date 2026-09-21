@@ -164,16 +164,6 @@ export function SettingsRoute({
             <UpdateChannelSettings update={update} />
           </SettingsItem>
         </SettingsSection>
-
-        <SettingsSection title={t("settings.groupBetaFeatures")}>
-          <SettingsItem title={t("settings.knowledgeBeta")} description={t("settings.knowledgeBetaDescription")}>
-            <KnowledgeBetaToggle
-              enabled={appSettings.settings.knowledgeBaseBetaEnabled}
-              loading={appSettings.loading}
-              onChange={appSettings.setKnowledgeBaseBetaEnabled}
-            />
-          </SettingsItem>
-        </SettingsSection>
       </div>
     </PageRouteShell>
   )
@@ -854,37 +844,6 @@ function notificationTestFailureKey(
     default:
       return "settings.notificationTestFailed"
   }
-}
-
-function KnowledgeBetaToggle({
-  enabled,
-  loading,
-  onChange,
-}: {
-  enabled: boolean
-  loading: boolean
-  onChange: (enabled: boolean) => Promise<void>
-}) {
-  const { t } = useI18n()
-  const [saving, setSaving] = React.useState(false)
-  const disabled = loading || saving
-
-  return (
-    <Switch
-      checked={enabled}
-      disabled={disabled}
-      aria-label={t("settings.knowledgeBeta")}
-      onCheckedChange={(next) => {
-        setSaving(true)
-        void onChange(next)
-          .catch((error: unknown) => {
-            toast.error(t("settings.knowledgeBetaUpdateFailed"))
-            console.error("[wanta] update knowledge beta setting failed", error)
-          })
-          .finally(() => setSaving(false))
-      }}
-    />
-  )
 }
 
 function SettingsSection({ children, title }: { children: React.ReactNode; title: string }) {

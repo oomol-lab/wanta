@@ -3,8 +3,8 @@ import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
 import type { AgentPermissionMode, ChatContextMention, ChatTeamSkillContext, ChatProjectContext } from "./common.ts"
 import type { DetectedResponseLanguage } from "./response-language.ts"
 
+import { SPACES_INSTRUCTIONS } from "../agent/spaces-policy.ts"
 import { appLocales } from "../app-locale.ts"
-import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../knowledge/common.ts"
 
 const ordinaryDependencyGuidance =
   "- Ordinary dependency installation follows the default command policy; variables, unproven cwd, command lists, and multiline scripts are not confirmation reasons by themselves. Prefer the task-private environment. Explicit global/user/system installation, external requirements inputs, alternate sources, and existing protected operations still require approval. Explicit npm --prefix and uv --python destinations must be proven in scope; unknown destinations and dynamic operation/option names require confirmation. This is not an execution sandbox."
@@ -48,6 +48,7 @@ export function buildLinkRuntimeSystem(runtime: ActiveLinkRuntime, teamName: str
         "- Never omit, replace, enumerate, or change the workspace after an error, and never retry in a personal, default, or different team workspace.",
         "- `app_not_found` or `connection_required` from a call without this exact selector does not prove that the current Wanta team is disconnected.",
         "- Wanta-provided Link tools own workspace binding, authorization signaling, and credential redaction.",
+        SPACES_INSTRUCTIONS,
       ].join("\n")
     }
     default:
@@ -64,9 +65,6 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
   )
   const connections = mentions.filter(
     (mention): mention is Extract<ChatContextMention, { kind: "connection" }> => mention.kind === "connection",
-  )
-  const knowledgeBases = mentions.filter(
-    (mention): mention is Extract<ChatContextMention, { kind: "knowledge" }> => mention.kind === "knowledge",
   )
   const lines = [
     "User-selected context for this turn:",
@@ -95,19 +93,6 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
     }
     lines.push(
       "If, after reading the user's request, a Link action is needed, consider the selected connection first. Do not use it for unrelated local files, direct answers, concrete URLs, or general browsing. Still inspect the action schema before calling connector tools.",
-    )
-  }
-  if (knowledgeBases.length > 0) {
-    lines.push("Knowledge bases pinned to this conversation:")
-    for (const knowledgeBase of knowledgeBases) {
-      const isLibrary = knowledgeBase.scope === "library" || knowledgeBase.id === KNOWLEDGE_LIBRARY_CONTEXT_ID
-      const uri = isLibrary ? "wikg://lib" : `wikg://lib/arc/${knowledgeBase.id}`
-      lines.push(`- ${quoted(knowledgeBase.name)}; ${isLibrary ? "library" : "archive"} URI: ${quoted(uri)}`)
-    }
-    lines.push(
-      "For knowledge-base-related requests, load and follow the `wikigraph-knowledge` Skill with the listed library/archive URI before answering. This includes requests about knowledge, facts, people, events, relationships, causes/processes/results, summaries, citations, sources, quotations, or fact-checking; do not answer those requests from general model knowledge while this knowledge context is pinned.",
-      "Treat `wikg://lib` as the whole local WikiGraph library and `wikg://lib/arc/<id>` as a focused archive. Use `wikg://lib` directly for a selected knowledge library; never wrap the whole-library URI inside an archive URI.",
-      "If WikiGraph search fails, the index is unavailable, or no evidence is found, say that limitation explicitly instead of pretending the knowledge base was searched successfully.",
     )
   }
   return lines.join("\n")

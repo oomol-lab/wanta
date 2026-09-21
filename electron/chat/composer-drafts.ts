@@ -45,23 +45,25 @@ export function normalizeComposerDraft(input: unknown): ComposerDraftRecord {
       agentSize: a.agentSize,
     }
   })
-  for (const mention of value.contextMentions) {
-    if (!mention || !["skill", "knowledge", "connection"].includes(mention.kind))
-      throw new Error("Invalid draft reference")
+  const contextMentions: ComposerDraftRecord["contextMentions"] = []
+  for (const mention of value.contextMentions as Array<{ kind?: unknown } | null | undefined>) {
+    if (!mention || typeof mention !== "object") throw new Error("Invalid draft reference")
+    if (mention.kind === "skill" || mention.kind === "connection") {
+      contextMentions.push(mention as ComposerDraftRecord["contextMentions"][number])
+      continue
+    }
+    // Drop removed or unknown mention kinds (e.g. legacy knowledge) without quarantining the draft.
   }
   if (
     value.preferences &&
-    (!isAgentKind(value.preferences.agentKind) ||
-      !AGENT_PERMISSION_MODES.includes(value.preferences.permissionMode) ||
-      !Array.isArray(value.preferences.knowledgeBaseIds) ||
-      !value.preferences.knowledgeBaseIds.every((id) => typeof id === "string"))
+    (!isAgentKind(value.preferences.agentKind) || !AGENT_PERMISSION_MODES.includes(value.preferences.permissionMode))
   )
     throw new Error("Invalid draft preferences")
   return {
     interruptedImport: value.interruptedImport || undefined,
     draft: value.draft,
     attachments,
-    contextMentions: value.contextMentions,
+    contextMentions,
     command: value.command,
     draftSelection: {
       start: Math.max(0, Math.min(value.draft.length, value.draftSelection.start)),
@@ -72,7 +74,6 @@ export function normalizeComposerDraft(input: unknown): ComposerDraftRecord {
       ? {
           preferences: {
             agentKind: value.preferences.agentKind,
-            knowledgeBaseIds: [...value.preferences.knowledgeBaseIds],
             ...(typeof value.preferences.modelId === "string" ? { modelId: value.preferences.modelId } : {}),
             ...(typeof value.preferences.effortId === "string" ? { effortId: value.preferences.effortId } : {}),
             permissionMode:

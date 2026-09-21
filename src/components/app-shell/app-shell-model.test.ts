@@ -94,6 +94,11 @@ describe("team route and scope migration", () => {
     expect(initialRoute()).toBe("teams")
   })
 
+  test("falls back to chat for the removed knowledge route", () => {
+    vi.stubEnv("VITE_WANTA_ROUTE", "knowledge")
+    expect(initialRoute()).toBe("chat")
+  })
+
   test("accepts team and legacy organization scope keys", () => {
     expect(workspaceSwitchTeamId("team:team-1")).toBe("team-1")
     expect(workspaceSwitchTeamId("organization:team-1")).toBe("team-1")
@@ -130,7 +135,6 @@ describe("local workspace", () => {
 
   test("keeps community routes available while blocking account-only pages", () => {
     expect(routeAvailableForRuntime("chat", false)).toBe(true)
-    expect(routeAvailableForRuntime("knowledge", false)).toBe(true)
     expect(routeAvailableForRuntime("settings", false)).toBe(true)
     expect(routeAvailableForRuntime("connections", false)).toBe(true)
     expect(routeAvailableForRuntime("skills", false)).toBe(true)

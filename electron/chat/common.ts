@@ -16,7 +16,6 @@ export interface ComposerDraftPreferences {
   permissionMode: AgentPermissionMode
   modelId?: string
   effortId?: string
-  knowledgeBaseIds: string[]
 }
 
 export interface ComposerDraftRecord {
@@ -542,12 +541,6 @@ export type ChatContextMention =
       displayName: string
       kind: "connection"
       service: string
-    }
-  | {
-      id: string
-      kind: "knowledge"
-      name: string
-      scope?: "archive" | "library"
     }
 
 export interface ChatAttachment {

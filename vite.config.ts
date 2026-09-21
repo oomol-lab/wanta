@@ -152,7 +152,6 @@ export default defineConfig(({ command, mode }) => {
                 input: {
                   main: path.join(dirname, "electron/main.ts"),
                   "spreadsheet-preview-worker": path.join(dirname, "electron/chat/spreadsheet-preview-worker.ts"),
-                  "wanta-wg": path.join(dirname, "electron/knowledge/wg.ts"),
                   "wanta-oo-guard": path.join(dirname, "electron/agent/oo-guard.ts"),
                   "wanta-opencode-oo-guard": path.join(dirname, "electron/agent/opencode-oo-guard.ts"),
                 },
@@ -167,10 +166,7 @@ export default defineConfig(({ command, mode }) => {
                   /^ai(\/|$)/,
                   /^fsevents(\/|$)/,
                   /^playwright-core(\/|$)/,
-                  /^wiki-graph(\/|$)/,
-                  /^wiki-graph-core(\/|$)/,
-                  // The host adapter uses native SQLite and Node-only ZIP/template loaders.
-                  /^(sqlite3|yauzl|yazl|nunjucks)(\/|$)/,
+                  /^yazl(\/|$)/,
                   "electron-updater",
                 ],
               },

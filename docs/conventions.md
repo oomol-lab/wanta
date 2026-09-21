@@ -48,7 +48,7 @@
 - Service domains registered as main-process RPC services co-locate in one directory:
   `common.ts` (contract + pure types, imported by both main and renderer) / `node.ts` (main-process
   implementation) / `store.ts` (persistence) / `*.test.ts`. This applies to the RPC-registered
-  domains (currently attention / auth / chat / git / knowledge / link-runtime / models / session /
+  domains (currently attention / auth / chat / git / link-runtime / models / session /
   settings / skills / update — see the source tree); `connections` and `teams` keep only `common.ts` contracts
   and pure functions under `electron/`, with their request logic living in the renderer at
   `src/lib/*-client.ts`.
@@ -225,11 +225,8 @@
 - Embedded tool source (`tool-sources.ts`, String.raw) **must not contain backticks or `${}`**
   (they break the template string); that code runs in OpenCode's Bun and does not participate in
   this project's tsc/oxlint. The embedded custom tools are four connector tools plus seven
-  integrated-browser tools. WikiGraph
-  knowledge access is intentionally not an OpenCode custom tool: the sidecar receives a Wanta-owned
-  `wg` shim at the front of `PATH`, and the shim forwards stdin/stdout/stderr/exit code to WikiGraph
-  without interpreting business output. Tool descriptions are themselves part of the prompt: keep
-  the list/search/inspect/call responsibility boundaries and cross-references.
+  integrated-browser tools. Tool descriptions are themselves part of the prompt: keep the
+  list/search/inspect/call responsibility boundaries and cross-references.
 - The embedded tools do not rely on OpenCode implicitly installing npm packages on the user's
   machine: the tool helper and Zod schema are bundled at build time by
   `scripts/build-agent-tool-runtime.ts` (entry `scripts/agent-tool-runtime-entry.ts`) into a

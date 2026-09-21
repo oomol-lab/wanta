@@ -18,7 +18,6 @@ export interface SessionInfo {
   scope?: SessionScope
   projectId?: string
   permissionMode?: SessionPermissionMode
-  knowledgeBaseIds?: string[]
   pinnedAt?: number
   archivedAt?: number
 }
@@ -124,11 +123,6 @@ export interface SetSessionAgentSelectionRequest {
   effortId?: string | null
 }
 
-export interface SetSessionKnowledgeBasesRequest {
-  id: string
-  knowledgeBaseIds: string[]
-}
-
 export interface SessionsChangedEvent {
   activity?: {
     sessionId: string
@@ -187,7 +181,6 @@ export const SessionService = serviceName("session-service") as ServiceName<{
     createProject(req: CreateProjectRequest): Promise<SessionProject>
     assignSessionProject(req: AssignSessionProjectRequest): Promise<void>
     setPermissionMode(req: SetSessionPermissionModeRequest): Promise<void>
-    setKnowledgeBases(req: SetSessionKnowledgeBasesRequest): Promise<void>
     renameProject(req: { id: string; name: string }): Promise<void>
     pinProject(req: { id: string; pinned: boolean }): Promise<void>
     archiveProject(id: string): Promise<void>

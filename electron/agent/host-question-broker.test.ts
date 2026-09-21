@@ -36,3 +36,22 @@ test("HostQuestionBroker removes a request when the UI handler throws", async ()
   await expect(result).rejects.toThrow(/renderer unavailable/)
   expect(broker.requests()).toEqual([])
 })
+
+test("an aborted paid question cannot later be answered", async () => {
+  const broker = new HostQuestionBroker()
+  const controller = new AbortController()
+  let id = ""
+  broker.setAskedHandler((request) => {
+    id = request.id
+  })
+  const pending = broker.ask(
+    "session",
+    [{ header: "Pay", question: "Confirm charge?", options: [{ label: "Confirm" }, { label: "Cancel" }] }],
+    controller.signal,
+  )
+  const rejection = expect(pending).rejects.toThrow("cancelled")
+  controller.abort()
+  await rejection
+  expect(broker.answer("session", id, [["Confirm"]])).toBe(false)
+  expect(broker.requests()).toEqual([])
+})

@@ -60,7 +60,6 @@ import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-serve
 import { HostCapabilityServer } from "./agent/host-capability-server.ts"
 import { HOST_CAPABILITY_AUDIT_BINDING, HostCapabilityKernel } from "./agent/host-capability.ts"
 import { HostQuestionBroker } from "./agent/host-question-broker.ts"
-import { createKnowledgeHostCapability, KNOWLEDGE_CAPABILITY_ID } from "./agent/knowledge-host-capability.ts"
 import { LinkCapability } from "./agent/link-capability.ts"
 import { createLinkHostCapability, LINK_CAPABILITY_ID, LINK_RUNTIME_BINDING } from "./agent/link-host-capability.ts"
 import { ManagedTurnDirectories } from "./agent/managed-turn-directories.ts"
@@ -75,6 +74,9 @@ import {
   SKILL_SNAPSHOT_BINDING,
 } from "./agent/skill-host-capability.ts"
 import { SkillRegistry } from "./agent/skill-registry.ts"
+import { createSpacesHostCapability, SPACES_CAPABILITY_ID } from "./agent/spaces-host-capability.ts"
+import { SpacesService } from "./agent/spaces-service.ts"
+import { SpacesOperationStore } from "./agent/spaces-store.ts"
 import { APP_COMMAND_CHANNEL, APP_COMMANDS } from "./app-command.ts"
 import {
   APP_LOCALE_CHANNEL,
@@ -111,8 +113,6 @@ import { mergePathValues, resolveUserCommandPath } from "./command-path.ts"
 import { parseConnectionOAuthCallback } from "./connections/domain.ts"
 import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./diagnostics-log.ts"
 import { GitServiceImpl } from "./git/node.ts"
-import { KnowledgeServiceImpl } from "./knowledge/node.ts"
-import { WikiGraphQueryRunner } from "./knowledge/query-runner.ts"
 import { DingTalkCliManager } from "./link-runtime/dingtalk-cli.ts"
 import { LarkCliManager } from "./link-runtime/lark-cli.ts"
 import { LinkRuntimeManager, LinkRuntimeServiceImpl } from "./link-runtime/node.ts"
@@ -199,9 +199,6 @@ const settingsStore = new SettingsStore(app.getPath("userData"))
 const attentionStore = new AttentionStore(app.getPath("userData"))
 const modelCredentialStore = new ModelCredentialStore(app.getPath("userData"), safeStorage)
 const modelsStore = new ModelsStore(app.getPath("userData"), modelCredentialStore)
-const wikiGraphStateDir = path.join(app.getPath("userData"), "wikigraph-state")
-const wikiGraphLibraryDir = path.join(wikiGraphStateDir, "library")
-const wikiGraphCliPath = path.join(dirname, "wanta-wg.js")
 const ooGuardCliPath = path.join(dirname, "wanta-oo-guard.js")
 const opencodeOoGuardCliPath = path.join(dirname, "wanta-opencode-oo-guard.js")
 // 二进制解析：生产从打包 Resources/bin（extraResources），dev 从 node_modules（opencode）与 .oo-bin（oo）。
@@ -297,9 +294,22 @@ const hostCapabilityKernel = new HostCapabilityKernel({
   onAudit: (record) => logDiagnostic("host-capability", "tool call", { ...record }),
 })
 const hostQuestionBroker = new HostQuestionBroker()
+const spacesService = new SpacesService({
+  binary:
+    process.platform === "win32"
+      ? null
+      : app.isPackaged
+        ? path.join(process.resourcesPath, "bin", "spaces")
+        : path.join(app.getAppPath(), ".spaces-bin", "spaces"),
+  store: new SpacesOperationStore(path.join(app.getPath("userData"), "spaces", "operations")),
+  questions: hostQuestionBroker,
+  locale: activeLocale,
+  // Fail closed until an authoritative monthly-price source is configured.
+  price: async () => null,
+})
+hostCapabilityKernel.register(createSpacesHostCapability(spacesService))
 hostCapabilityKernel.register(createLinkHostCapability(linkCapability))
 hostCapabilityKernel.register(createSkillHostCapability())
-hostCapabilityKernel.register(createKnowledgeHostCapability(new WikiGraphQueryRunner(wikiGraphStateDir)))
 hostCapabilityKernel.register(createQuestionHostCapability(hostQuestionBroker))
 hostCapabilityKernel.register(
   createDirectCliHostCapability({
@@ -316,7 +326,10 @@ hostCapabilityKernel.register(
     },
   }),
 )
-const builtInHostInvokeServer = new HostCapabilityInvokeServer(hostCapabilityKernel, [LINK_CAPABILITY_ID])
+const builtInHostInvokeServer = new HostCapabilityInvokeServer(hostCapabilityKernel, [
+  LINK_CAPABILITY_ID,
+  SPACES_CAPABILITY_ID,
+])
 const sessionProjectStore = new SessionProjectStore(app.getPath("userData"))
 const artifactBundleStore = new ArtifactBundleStore(app.getPath("userData"))
 const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("userData"))
@@ -361,13 +374,6 @@ const skillCapabilityServer = new HostCapabilityServer({
   name: "wanta_skills",
   version: "1.0.0",
 })
-const knowledgeCapabilityServer = new HostCapabilityServer({
-  capabilityIds: [KNOWLEDGE_CAPABILITY_ID],
-  instructions: "Knowledge access is read-only and restricted to Wanta's managed WikiGraph library.",
-  kernel: hostCapabilityKernel,
-  name: "wanta_knowledge",
-  version: "1.0.0",
-})
 const questionCapabilityServer = new HostCapabilityServer({
   capabilityIds: [QUESTION_CAPABILITY_ID],
   instructions: "Structured questions are session-bound and block until the user responds in Wanta.",
@@ -382,6 +388,25 @@ const directCliCapabilityServer = new HostCapabilityServer({
   name: "wanta_direct",
   version: "1.0.0",
 })
+const spacesCapabilityServer = new HostCapabilityServer({
+  capabilityIds: [SPACES_CAPABILITY_ID],
+  kernel: hostCapabilityKernel,
+  name: "wanta_spaces",
+  version: "1.0.0",
+})
+function activateSpaces(context: import("./agent/host-capability.ts").HostCapabilityContext): boolean {
+  const runtime = activeLinkCapabilityRuntime?.linkRuntime
+  if (process.platform === "win32" || runtime?.kind !== "oomol" || !context.teamName || !activeLinkCapabilityScope) {
+    spacesService.disable(context.sessionId)
+    return false
+  }
+  spacesService.activate(context, {
+    accountId: activeLinkCapabilityScope,
+    token: runtime.sessionToken,
+    teamName: context.teamName,
+  })
+  return true
+}
 const externalAgentRootDir = path.join(app.getPath("userData"), "agent-external")
 const externalOoScopeStore = new ExternalOoScopeStore()
 const externalOoGuardServer = new ExternalOoGuardServer({
@@ -413,9 +438,14 @@ const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async 
 // provider configuration, and model catalog. Host capabilities are issued per
 // Wanta session and keep Wanta identity and credentials in Electron main.
 const externalHostMcpServers: HostMcpServerProvider = async (input) => {
+  const spacesRuntimeAtStart = activeLinkCapabilityRuntime
+  const spacesScopeAtStart = activeLinkCapabilityScope
+  const spacesScopeIsCurrent = () =>
+    activeLinkCapabilityRuntime === spacesRuntimeAtStart && activeLinkCapabilityScope === spacesScopeAtStart
   if (input.diagnostic) {
+    spacesService.disable(input.sessionId)
+    spacesCapabilityServer.disableSession(input.sessionId)
     skillCapabilityServer.disableSession(input.sessionId)
-    knowledgeCapabilityServer.disableSession(input.sessionId)
     questionCapabilityServer.disableSession(input.sessionId)
     directCliCapabilityServer.disableSession(input.sessionId)
     browserCapabilityServer.disableSession(input.sessionId)
@@ -455,7 +485,13 @@ const externalHostMcpServers: HostMcpServerProvider = async (input) => {
   }
   // External coding agents use Wanta's guarded OOCLI for Connector work.
   // MCP stays limited to stateful Wanta-native capabilities.
-  const servers = [await knowledgeCapabilityServer.issue(context), await questionCapabilityServer.issue(context)]
+  const servers = [await questionCapabilityServer.issue(context)]
+  if (spacesScopeIsCurrent() && activateSpaces(context)) {
+    servers.push(await spacesCapabilityServer.issue(context, { isCurrent: spacesScopeIsCurrent }))
+  } else {
+    spacesService.disable(context.sessionId)
+    spacesCapabilityServer.disableSession(context.sessionId)
+  }
   if ((await externalOoRuntimeIntegrity).available) {
     servers.unshift(
       await skillCapabilityServer.issue({
@@ -510,6 +546,7 @@ const managedTurnDirectories = new ManagedTurnDirectories(agentRootDir)
 const chatService = new ChatServiceImpl(null, {
   browserAvailable: () => settingsStore.read().browserEnabled !== false,
   hostQuestions: hostQuestionBroker,
+  cancelHostOperations: (sessionId) => spacesService.disable(sessionId),
   managedTurnDirectories,
   bugReportRuntime: {
     appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
@@ -574,11 +611,12 @@ const sessionService = new SessionServiceImpl(null, {
     await Promise.all([
       browserCapabilityServer.revokeSession(sessionId),
       skillCapabilityServer.revokeSession(sessionId),
-      knowledgeCapabilityServer.revokeSession(sessionId),
       questionCapabilityServer.revokeSession(sessionId),
       directCliCapabilityServer.revokeSession(sessionId),
+      spacesCapabilityServer.revokeSession(sessionId),
     ])
     builtInHostInvokeServer.disableSession(sessionId)
+    spacesService.disable(sessionId)
     hostQuestionBroker.cancelSession(sessionId)
     await browserManager.removeSession(sessionId)
     await chatCleanup
@@ -695,13 +733,6 @@ const updateService = new UpdateServiceImpl({
 const gitService = new GitServiceImpl({
   projectStore: sessionProjectStore,
 })
-const knowledgeService = new KnowledgeServiceImpl({
-  onRemoved: async (id) => {
-    await Promise.all([sessionService.removeKnowledgeBaseReferences(id), agent?.removeKnowledgeBaseAccess(id)])
-  },
-  runtime: { managedLibraryDir: wikiGraphLibraryDir, stateDir: wikiGraphStateDir },
-  trustedImportPaths: trustedAttachmentPaths,
-})
 
 chatService.sessionActivity.on(({ sessionId, usedAt }) => {
   void sessionService.recordUseAndEmit(sessionId, usedAt).catch((error: unknown) => {
@@ -731,7 +762,6 @@ server.registerService(settingsService)
 server.registerService(authService)
 server.registerService(updateService)
 server.registerService(gitService)
-server.registerService(knowledgeService)
 server.registerService(linkRuntimeService)
 server.registerService(browserService)
 settingsService.applyStartupTheme()
@@ -888,13 +918,14 @@ function reapAgentForShutdown(): Promise<void> {
         ),
       )
     })
+    spacesService.disableAll()
     await runBoundedShutdownStep("dispose host capability servers", async () => {
       await Promise.all([
         browserCapabilityServer.dispose(),
         skillCapabilityServer.dispose(),
-        knowledgeCapabilityServer.dispose(),
         questionCapabilityServer.dispose(),
         directCliCapabilityServer.dispose(),
+        spacesCapabilityServer.dispose(),
       ])
     })
     await runBoundedShutdownStep("dispose built-in host invoke server", () => builtInHostInvokeServer.dispose())
@@ -1064,6 +1095,8 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
           .slice(0, 16)}`
     : null
   if (nextLinkCapabilityScope !== activeLinkCapabilityScope) {
+    spacesService.disableAll()
+    spacesCapabilityServer.disableAll()
     builtInHostInvokeServer.disableAll()
   }
   activeLinkCapabilityScope = nextLinkCapabilityScope
@@ -1146,8 +1179,6 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
       opencodeBinPath,
       ooBinPath,
       opencodeOoGuardCliPath,
-      wikiGraphCliPath,
-      wikiGraphStateDir,
       listOpenConnectorAuthorizedServices: async (signal) =>
         (await linkRuntimeManager.listOpenConnectorApps(signal))
           .filter((item) => item.status === "active")
@@ -1171,11 +1202,12 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
       customModels: runtimeModels.customModels,
     }),
     async (input) => {
-      if (!activeLinkCapabilityRuntime) {
+      if (input.diagnostic || !activeLinkCapabilityRuntime) {
+        spacesService.disable(input.sessionId)
         builtInHostInvokeServer.disableSession(input.sessionId)
         return
       }
-      builtInHostInvokeServer.update({
+      const hostContext = {
         bindings: {
           [HOST_CAPABILITY_AUDIT_BINDING]: { agentKind: "opencode", transport: "host_invoke" },
           [LINK_RUNTIME_BINDING]: activeLinkCapabilityRuntime,
@@ -1186,7 +1218,9 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
         ...(input.outputProjectRoot ? { projectRoot: input.outputProjectRoot } : {}),
         ...(input.artifactDir ? { artifactDir: input.artifactDir } : {}),
         ...(input.processDir ? { processDir: input.processDir } : {}),
-      })
+      }
+      activateSpaces(hostContext)
+      builtInHostInvokeServer.update(hostContext)
     },
   )
   agent = nextAgent
@@ -1231,6 +1265,10 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
 async function handleAgentTeamChanged(teamName: string | undefined): Promise<void> {
   const previousTeamName = activeAgentTeamName
   const nextTeamName = teamName?.trim() ? teamName.trim() : undefined
+  if (previousTeamName !== nextTeamName) {
+    spacesService.disableAll()
+    spacesCapabilityServer.disableAll()
+  }
   activeAgentTeamName = nextTeamName
   try {
     await agent?.setTeamName(nextTeamName)

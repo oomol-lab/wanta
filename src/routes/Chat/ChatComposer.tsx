@@ -7,7 +7,6 @@ import type {
   ChatQuestionRequest,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { ChatTurnState } from "./chat-turn-state.ts"
 import type { ComposerDraftBinding } from "./composer-draft-store.ts"
 import type { ComposerState } from "./composer-state.ts"
@@ -37,7 +36,6 @@ import {
   buildArtifactPaletteItems,
   buildConnectionPaletteItems,
   buildContextPaletteItems,
-  buildKnowledgePaletteItems,
   buildSkillPaletteItems,
   slashCommandItems,
 } from "./composer-palette-items.ts"
@@ -100,11 +98,6 @@ interface ChatComposerProps {
   draftBinding?: ComposerDraftBinding
   initialComposerState?: ComposerState
   messages: ChatMessage[]
-  knowledgeBaseIds: string[]
-  knowledgeEnabled: boolean
-  knowledgeError: string | null
-  knowledgeItems: KnowledgeBaseSummary[]
-  knowledgeLoading: boolean
   modelRequired?: boolean
   permissionMode: AgentPermissionMode
   pendingQuestions: ChatQuestionRequest[]
@@ -126,12 +119,10 @@ interface ChatComposerProps {
   onPermissionModeSelect: (mode: AgentPermissionMode) => void
   onPermissionModeFullAccess: () => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
-  onOpenKnowledgeLibrary?: () => void
   selfManagedSetup?: {
     onConfigureOpenConnector: () => void
     onDismiss: () => void
   }
-  onSelectKnowledgeBase: (id: string) => void
   onStop: () => Promise<void> | void
   onViewBilling?: () => void
 }
@@ -215,11 +206,6 @@ export function ChatComposer({
   draftBinding,
   initialComposerState: initialComposerStateProp,
   messages,
-  knowledgeBaseIds,
-  knowledgeEnabled,
-  knowledgeError,
-  knowledgeItems,
-  knowledgeLoading,
   modelRequired = false,
   permissionMode,
   pendingQuestions = [],
@@ -241,9 +227,7 @@ export function ChatComposer({
   onPermissionModeSelect,
   onPermissionModeFullAccess,
   onOpenConnectionProvider,
-  onOpenKnowledgeLibrary,
   selfManagedSetup,
-  onSelectKnowledgeBase,
   onStop,
   onViewBilling,
 }: ChatComposerProps) {
@@ -419,32 +403,9 @@ export function ChatComposer({
     [providers, t],
   )
   const artifactItems = React.useMemo(() => buildArtifactPaletteItems(generatedArtifacts, t), [generatedArtifacts, t])
-  const knowledgePaletteItems = React.useMemo(
-    () =>
-      knowledgeEnabled
-        ? buildKnowledgePaletteItems(
-            knowledgeItems,
-            knowledgeBaseIds,
-            {
-              emptyDescription: t("chat.knowledgePaletteEmptyDescription"),
-              emptyTitle: t("chat.knowledgePaletteEmptyTitle"),
-              failedDescription: t("chat.knowledgePaletteFailedDescription"),
-              failedTitle: t("chat.knowledgePaletteFailedTitle"),
-              libraryDescription: t("chat.knowledgePaletteLibraryDescription"),
-              libraryTitle: t("chat.knowledgePaletteLibraryTitle"),
-              loadingDescription: t("chat.knowledgePaletteLoadingDescription"),
-              loadingTitle: t("chat.knowledgePaletteLoadingTitle"),
-              selected: t("chat.knowledgePaletteSelected"),
-            },
-            { error: Boolean(knowledgeError), loading: knowledgeLoading },
-          )
-        : [],
-    [knowledgeBaseIds, knowledgeEnabled, knowledgeError, knowledgeItems, knowledgeLoading, t],
-  )
   const contextItems = React.useMemo(
-    () =>
-      buildContextPaletteItems({ artifactItems, connectionItems, knowledgeItems: knowledgePaletteItems, platform, t }),
-    [artifactItems, connectionItems, knowledgePaletteItems, platform, t],
+    () => buildContextPaletteItems({ artifactItems, connectionItems, platform, t }),
+    [artifactItems, connectionItems, platform, t],
   )
   const providerByService = React.useMemo(
     () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
@@ -528,14 +489,12 @@ export function ChatComposer({
     },
     onAddContextMention: addContextMention,
     onOpenConnectionProvider,
-    onOpenKnowledgeLibrary,
     onSelectAttachments: (kind) => {
       if (composerDisabled || composerAttachmentsDisabled) {
         return
       }
       void composerAttachments.selectAttachments(kind)
     },
-    onSelectKnowledgeBase,
     onViewBilling,
     skillItems,
     slashItems,

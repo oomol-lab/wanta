@@ -10,7 +10,6 @@ export function useAppSettings(): {
   loading: boolean
   setBrowserEnabled: (enabled: boolean) => Promise<void>
   setCompletionNotificationCondition: (condition: CompletionNotificationCondition) => Promise<void>
-  setKnowledgeBaseBetaEnabled: (enabled: boolean) => Promise<void>
   setNotificationSoundEnabled: (enabled: boolean) => Promise<void>
   setOperatingMode: (mode: OperatingMode) => Promise<void>
   setSelfManagedSetupDismissed: (dismissed: boolean) => Promise<void>
@@ -41,14 +40,6 @@ export function useAppSettings(): {
       unsubscribe()
     }
   }, [service])
-
-  const setKnowledgeBaseBetaEnabled = React.useCallback(
-    async (enabled: boolean) => {
-      await service.invoke("setKnowledgeBaseBetaEnabled", enabled)
-      setSettings((current) => ({ ...current, knowledgeBaseBetaEnabled: enabled }))
-    },
-    [service],
-  )
 
   const setBrowserEnabled = React.useCallback(
     async (enabled: boolean) => {
@@ -103,7 +94,6 @@ export function useAppSettings(): {
     loading,
     setBrowserEnabled,
     setCompletionNotificationCondition,
-    setKnowledgeBaseBetaEnabled,
     setNotificationSoundEnabled,
     setOperatingMode,
     setSelfManagedSetupDismissed,

@@ -7,7 +7,6 @@ import {
   applySessionPinned,
   applySessionTitle,
   mergeSessionsWithLocalCreated,
-  resolveKnowledgeBaseIdsUpdate,
 } from "./useSessions.ts"
 
 test("mergeSessionsWithLocalCreated keeps a locally created session while remote list catches up", () => {
@@ -49,17 +48,6 @@ test("mergeSessionsWithLocalCreated uses the remote session once it is listed", 
   const merged = mergeSessionsWithLocalCreated([remoteCreatedSession], [localCreatedSession])
 
   assert.deepEqual(merged, [remoteCreatedSession])
-})
-
-test("resolveKnowledgeBaseIdsUpdate composes rapid knowledge-base toggles from the latest intent", () => {
-  const addFirst = resolveKnowledgeBaseIdsUpdate([], (current) => [...current, "first"])
-  const addSecond = resolveKnowledgeBaseIdsUpdate(addFirst, (current) => [...current, "second"])
-
-  assert.deepEqual(addSecond, ["first", "second"])
-})
-
-test("resolveKnowledgeBaseIdsUpdate normalizes duplicate and blank ids", () => {
-  assert.deepEqual(resolveKnowledgeBaseIdsUpdate(["existing"], [" existing ", "", "new", "new"]), ["existing", "new"])
 })
 
 test("applySessionActivity updates a known session without replacing unrelated sessions", () => {

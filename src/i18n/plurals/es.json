@@ -459,30 +459,6 @@
     "one": "{count} conexión",
     "other": "{count} conexiones"
   },
-  "knowledge.folderCount": {
-    "one": "{count} archivo de conocimiento",
-    "other": "{count} archivos de conocimiento"
-  },
-  "knowledge.searchResultCount": {
-    "one": "{count} archivo",
-    "other": "{count} archivos"
-  },
-  "knowledge.chapterCount": {
-    "one": "{count} capítulo de contenido",
-    "other": "{count} capítulos de contenido"
-  },
-  "knowledge.wordCount": {
-    "one": "{count} palabra en total",
-    "other": "{count} palabras en total"
-  },
-  "knowledge.contextCount": {
-    "one": "{count} seleccionado",
-    "other": "{count} seleccionados"
-  },
-  "knowledge.contextQueueNotice": {
-    "one": "Los cambios no afectarán al {count} mensaje ya en cola.",
-    "other": "Los cambios no afectarán a los {count} mensajes ya en cola."
-  },
   "teams.teamCount": {
     "one": "Equipos: {{count}}",
     "other": "Equipos: {{count}}"

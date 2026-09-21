@@ -1,16 +1,13 @@
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
 import * as React from "react"
 import { describe, expect, it } from "vitest"
 import {
-  buildArtifactPaletteItems,
   buildConnectionAccountPaletteItems,
   buildConnectionPaletteItems,
   buildContextPaletteItems,
-  buildKnowledgePaletteItems,
   buildSlashRootPaletteItems,
   buildSkillPaletteItems,
   browserSkillId,
@@ -47,15 +44,6 @@ const translations: Record<string, string> = {
   "chat.contextAttachFolderDescription": "Choose a folder from disk for this turn",
   "chat.contextGeneratedArtifactDescription": "Reference a generated file from this chat",
   "chat.contextGeneratedImageDescription": "Reference a generated image from this chat",
-  "chat.knowledgePaletteEmptyDescription": "Open the library and import a book",
-  "chat.knowledgePaletteEmptyTitle": "Import knowledge base",
-  "chat.knowledgePaletteFailedDescription": "Open knowledge management and try again",
-  "chat.knowledgePaletteFailedTitle": "Knowledge bases are unavailable",
-  "chat.knowledgePaletteLibraryDescription": "Search across every imported WikiGraph knowledge base",
-  "chat.knowledgePaletteLibraryTitle": "Knowledge library",
-  "chat.knowledgePaletteLoadingDescription": "Reading imported books",
-  "chat.knowledgePaletteLoadingTitle": "Loading knowledge bases",
-  "chat.knowledgePaletteSelected": "Referenced",
   "chat.connectionAccountCount": "{count} accounts",
   "chat.connectionConnectDescription": "Connect it to use this connector",
   "chat.connectionDefaultAccountDescription": "Default · {account}",
@@ -82,44 +70,6 @@ const connectionPaletteCopy = {
   needsAttention: "Needs attention",
   unsupportedProvider: t("chat.connectionUnsupportedDescription"),
 }
-const knowledgePaletteCopy = {
-  emptyDescription: translations["chat.knowledgePaletteEmptyDescription"] ?? "",
-  emptyTitle: translations["chat.knowledgePaletteEmptyTitle"] ?? "",
-  failedDescription: translations["chat.knowledgePaletteFailedDescription"] ?? "",
-  failedTitle: translations["chat.knowledgePaletteFailedTitle"] ?? "",
-  libraryDescription: translations["chat.knowledgePaletteLibraryDescription"] ?? "",
-  libraryTitle: translations["chat.knowledgePaletteLibraryTitle"] ?? "",
-  loadingDescription: translations["chat.knowledgePaletteLoadingDescription"] ?? "",
-  loadingTitle: translations["chat.knowledgePaletteLoadingTitle"] ?? "",
-  selected: translations["chat.knowledgePaletteSelected"] ?? "",
-}
-
-function knowledgeBase(
-  id: string,
-  title: string,
-  importedAt: number,
-  authors: string[] = [],
-  publisher?: string,
-): KnowledgeBaseSummary {
-  return {
-    authors,
-    capabilities: {
-      fullTextSearch: true,
-      knowledgeGraph: true,
-      readingGraph: false,
-      summary: true,
-    },
-    id,
-    importedAt,
-    ...(publisher ? { publisher } : {}),
-    relativePath: `${id}.wikg`,
-    size: 1024,
-    sourceFileName: `${id}.wikg`,
-    statistics: {},
-    title,
-  }
-}
-
 function runtimeSkillGroup(
   id: string,
   kind: ManagedSkillGroup["kind"] = "local",
@@ -346,167 +296,6 @@ describe("composer palette items", () => {
     })
 
     expect(filterComposerPaletteItems(rootItems, "gmail").map((item) => item.id)).toEqual(["connection-provider:gmail"])
-  })
-
-  it("builds context items from attachments and connected providers", () => {
-    const artifacts = buildArtifactPaletteItems(
-      {
-        group: {
-          items: [
-            {
-              kind: "file",
-              mime: "text/markdown",
-              name: "notes.md",
-              path: "/tmp/artifacts/notes.md",
-              size: 12,
-            },
-            {
-              kind: "file",
-              mime: "image/png",
-              name: "corgi.png",
-              path: "/tmp/artifacts/corgi.png",
-              size: 42,
-            },
-          ],
-          totalItems: 2,
-          truncated: false,
-        },
-        messageId: "assistant-1",
-        selectedPath: "/tmp/artifacts/corgi.png",
-      },
-      t,
-    )
-    const connections = buildConnectionPaletteItems(
-      [
-        {
-          actionKind: "oauth2",
-          appCount: 1,
-          appId: "app-1",
-          appStatus: "active",
-          apps: [
-            {
-              accountLabel: "work@example.com",
-              authType: "oauth2",
-              createdAt: 1,
-              id: "app-1",
-              isDefault: true,
-              service: "gmail",
-              status: "active",
-              updatedAt: 1,
-            },
-          ],
-          authTypes: ["oauth2"],
-          canDisconnect: true,
-          categoryLabels: [],
-          displayName: "Gmail",
-          service: "gmail",
-          status: "connected",
-        },
-        {
-          actionKind: "oauth2",
-          appCount: 0,
-          apps: [],
-          authTypes: ["oauth2"],
-          canDisconnect: false,
-          categoryLabels: [],
-          displayName: "Slack",
-          service: "slack",
-          status: "available",
-        },
-      ],
-      (service) => `Use ${service}`,
-      connectionPaletteCopy,
-    )
-    const knowledgeItems = buildKnowledgePaletteItems(
-      [knowledgeBase("journey", "Journey to the West", 1, ["Wu Cheng'en"], "People's Literature")],
-      [],
-      knowledgePaletteCopy,
-      { error: false, loading: false },
-    )
-    const items = buildContextPaletteItems({
-      artifactItems: artifacts,
-      connectionItems: connections,
-      knowledgeItems,
-      t,
-    })
-
-    expect(items.map((item) => item.id)).toEqual([
-      "knowledge:wikg://lib",
-      "knowledge:journey",
-      "context:attach-file",
-      "context:attach-folder",
-      "artifact:/tmp/artifacts/corgi.png",
-      "artifact:/tmp/artifacts/notes.md",
-      "connection-provider:gmail",
-      "connection-provider:slack",
-    ])
-  })
-
-  it("orders selected knowledge first and searches book metadata", () => {
-    const items = buildKnowledgePaletteItems(
-      [
-        knowledgeBase("recent", "Modern Essays", 20, ["Lin Yu"], "Literature Press"),
-        knowledgeBase("journey", "Journey to the West", 10, ["Wu Cheng'en"], "People's Literature"),
-      ],
-      ["journey"],
-      knowledgePaletteCopy,
-      { error: false, loading: false },
-    )
-
-    expect(items.map((item) => item.id)).toEqual(["knowledge:wikg://lib", "knowledge:journey", "knowledge:recent"])
-    expect(items[1]).toMatchObject({
-      description: "journey.wikg · Wu Cheng'en · People's Literature",
-      kind: "knowledge",
-      meta: "Referenced",
-      scope: "archive",
-      selected: true,
-    })
-    expect(filterComposerPaletteItems(items, "cheng").map((item) => item.id)).toEqual(["knowledge:journey"])
-    expect(filterComposerPaletteItems(items, "people").map((item) => item.id)).toEqual(["knowledge:journey"])
-  })
-
-  it("keeps existing context actions visible before the rest of a large library", () => {
-    const knowledgeItems = buildKnowledgePaletteItems(
-      Array.from({ length: 6 }, (_, index) => knowledgeBase(`book-${index}`, `Book ${index}`, 10 - index)),
-      [],
-      knowledgePaletteCopy,
-      { error: false, loading: false },
-    )
-    const items = buildContextPaletteItems({ connectionItems: [], knowledgeItems, t })
-
-    expect(items.map((item) => item.id)).toEqual([
-      "knowledge:wikg://lib",
-      "knowledge:book-0",
-      "knowledge:book-1",
-      "knowledge:book-2",
-      "context:attach-file",
-      "context:attach-folder",
-      "knowledge:book-3",
-      "knowledge:book-4",
-      "knowledge:book-5",
-    ])
-    expect(filterComposerPaletteItems(items, "Book 5").map((item) => item.id)).toEqual(["knowledge:book-5"])
-  })
-
-  it("offers global knowledge context when the library is empty, and management when unavailable", () => {
-    const empty = buildKnowledgePaletteItems([], [], knowledgePaletteCopy, { error: false, loading: false })
-    const loading = buildKnowledgePaletteItems([], [], knowledgePaletteCopy, { error: false, loading: true })
-    const failed = buildKnowledgePaletteItems([], [], knowledgePaletteCopy, { error: true, loading: false })
-
-    expect(empty[0]).toMatchObject({
-      kind: "knowledge",
-      scope: "library",
-      title: "Knowledge library",
-    })
-    expect(empty[0]).not.toHaveProperty("disabled")
-    expect(loading[0]).toMatchObject({
-      disabled: true,
-      title: "Loading knowledge bases",
-    })
-    expect(failed[0]).toMatchObject({
-      title: "Knowledge bases are unavailable",
-    })
-    expect(failed[0]).not.toHaveProperty("disabled")
   })
 
   it("merges file and folder context actions on macOS", () => {

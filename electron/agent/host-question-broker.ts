@@ -20,14 +20,32 @@ export class HostQuestionBroker {
     }
   }
 
-  public ask(sessionId: string, questions: ChatQuestionInfo[]): Promise<string[][]> {
+  public ask(sessionId: string, questions: ChatQuestionInfo[], signal?: AbortSignal): Promise<string[][]> {
+    signal?.throwIfAborted()
     if (!this.onAsked) throw new Error("Wanta's structured-question UI is unavailable.")
     const request: ChatQuestionRequest = { id: `host-question-${randomUUID()}`, questions, sessionId }
     return new Promise((resolve, reject) => {
-      this.pending.set(request.id, { reject, request, resolve })
+      const abort = () => {
+        this.pending.delete(request.id)
+        reject(new Error("The question was cancelled before confirmation."))
+      }
+      const cleanup = () => signal?.removeEventListener("abort", abort)
+      this.pending.set(request.id, {
+        reject: (error) => {
+          cleanup()
+          reject(error)
+        },
+        request,
+        resolve: (answers) => {
+          cleanup()
+          resolve(answers)
+        },
+      })
+      signal?.addEventListener("abort", abort, { once: true })
       try {
         this.onAsked?.(request)
       } catch (error) {
+        cleanup()
         this.pending.delete(request.id)
         reject(error instanceof Error ? error : new Error(String(error)))
       }

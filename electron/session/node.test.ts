@@ -7,7 +7,6 @@ import type { SessionProjectStore } from "./project-store.ts"
 
 import assert from "node:assert/strict"
 import { test, vi } from "vitest"
-import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../knowledge/common.ts"
 import { SessionServiceImpl } from "./node.ts"
 
 const testTeamScope = {
@@ -129,13 +128,9 @@ test("local session metadata remains writable while the agent is temporarily una
   const persistedMetadata = metadataStore()
   const service = new SessionServiceImpl(null, { metadataStore: persistedMetadata })
 
-  await Promise.all([
-    service.pin({ id: "session", pinned: true }),
-    service.setKnowledgeBases({ id: "session", knowledgeBaseIds: ["knowledge"] }),
-  ])
+  await service.pin({ id: "session", pinned: true })
 
   assert.equal(typeof (await persistedMetadata.read()).get("session")?.pinnedAt, "number")
-  assert.deepEqual((await persistedMetadata.read()).get("session")?.knowledgeBaseIds, ["knowledge"])
   await assert.rejects(service.rename({ id: "session", title: "Title" }), /Agent not configured/)
   await assert.rejects(service.remove("session"), /Agent not configured/)
 })
@@ -229,42 +224,6 @@ test("setAgentSelection persists each axis independently and clears explicit def
 
   await service.setAgentSelection({ id: "session", effortId: null })
   assert.deepEqual(await persistedMetadata.read(), new Map())
-})
-
-test("setKnowledgeBases normalizes, persists, and clears session references", async () => {
-  const persistedMetadata = metadataStore()
-  const service = new SessionServiceImpl(agentWithSessions([]), {
-    metadataStore: persistedMetadata,
-  })
-
-  await service.setKnowledgeBases({ id: "session", knowledgeBaseIds: [" first ", "first", "", "second"] })
-
-  assert.deepEqual(await persistedMetadata.read(), new Map([["session", { knowledgeBaseIds: ["first", "second"] }]]))
-
-  await service.setKnowledgeBases({ id: "session", knowledgeBaseIds: [] })
-
-  assert.deepEqual(await persistedMetadata.read(), new Map())
-})
-
-test("removeKnowledgeBaseReferences cleans active and archived session metadata", async () => {
-  const persistedMetadata = metadataStore(
-    new Map([
-      ["active", { knowledgeBaseIds: [KNOWLEDGE_LIBRARY_CONTEXT_ID, "keep", "remove"] }],
-      ["archived", { archivedAt: 1, knowledgeBaseIds: ["remove"] }],
-      ["unrelated", { knowledgeBaseIds: [KNOWLEDGE_LIBRARY_CONTEXT_ID, "keep"] }],
-    ]),
-  )
-  const service = new SessionServiceImpl(agentWithSessions([]), { metadataStore: persistedMetadata })
-
-  assert.equal(await service.removeKnowledgeBaseReferences(" remove "), 2)
-  assert.deepEqual(
-    await persistedMetadata.read(),
-    new Map([
-      ["active", { knowledgeBaseIds: [KNOWLEDGE_LIBRARY_CONTEXT_ID, "keep"] }],
-      ["archived", { archivedAt: 1 }],
-      ["unrelated", { knowledgeBaseIds: [KNOWLEDGE_LIBRARY_CONTEXT_ID, "keep"] }],
-    ]),
-  )
 })
 
 test("list filters sessions by requested scope", async () => {

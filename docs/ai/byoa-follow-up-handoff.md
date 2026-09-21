@@ -92,7 +92,7 @@
 - 已提交 Skill lock，记录 agent format、完整 Skill 文件集合、SHA-256 和当前版本实际使用的操作域。
 - predev、打包和 CI 会检查 Skill 文件新增、删除或内容漂移。
 - 打包时生成 runtime integrity descriptor；启动时异步校验 OOCLI 版本、契约版本和完整 Skill 树哈希。
-- 如果校验失败，系统 fail closed：不暴露 `wanta_skills`，拒绝 managed OO dispatch，但保留本地编码、浏览器、知识库、提问等非 OO 能力。
+- 如果校验失败，系统 fail closed：不暴露 `wanta_skills`，拒绝 managed OO dispatch，但保留本地编码、浏览器、提问等非 OO 能力。
 - `oo:upgrade` 会在隔离临时目录下载候选 OOCLI、导出 Skill、扫描命令域并生成 Markdown/JSON 审核报告。
 - `oo:upgrade` 默认直接完成下载、审查和升级；`--dry-run` 只预览。operation 清单完全从候选 Skill 重建，不继承旧版本历史项；未知操作会阻止升级。
 - 并行 Skill 导出使用独立 `mkdtemp` 配置/数据/日志目录，并在 `finally` 清理。

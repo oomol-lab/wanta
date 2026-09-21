@@ -7,6 +7,8 @@
 // 用 String.raw 内嵌：保留正则中的反斜杠；工具代码刻意不含反引号与模板插值语法，
 // 故无转义陷阱。这些代码运行在 OpenCode 的 Bun 运行时，不参与本项目 tsc/oxlint。
 
+import { SPACES_AGENT_TOOL_FILES } from "./spaces-tool-sources.ts"
+
 const HOST_CAPABILITY_TOOL_RUNTIME_SHARED_TS = String.raw`
 const HOST_CAPABILITY_URL = String(process.env.WANTA_HOST_CAPABILITY_URL || "").replace(/\/+$/, "")
 const HOST_CAPABILITY_TOKEN = String(process.env.WANTA_HOST_CAPABILITY_TOKEN || "")
@@ -921,6 +923,6 @@ export const AGENT_TOOL_FILES: Readonly<Record<string, string>> = {
 
 /** Assemble workspace tools according to Link runtime availability. */
 export function agentToolFiles(connectors: boolean): Readonly<Record<string, string>> {
-  if (connectors) return { ...AGENT_TOOL_FILES, ...BROWSER_AGENT_TOOL_FILES }
+  if (connectors) return { ...AGENT_TOOL_FILES, ...BROWSER_AGENT_TOOL_FILES, ...SPACES_AGENT_TOOL_FILES }
   return BROWSER_AGENT_TOOL_FILES
 }

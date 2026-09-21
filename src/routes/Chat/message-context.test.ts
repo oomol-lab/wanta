@@ -4,14 +4,13 @@ import { describe, expect, it } from "vitest"
 import { visibleUserContextMentions } from "./message-context.ts"
 
 describe("visible user context mentions", () => {
-  it("hides conversation-level knowledge while preserving turn-level context", () => {
+  it("keeps skill and connection mentions", () => {
     const mentions: ChatContextMention[] = [
-      { id: "knowledge-1", kind: "knowledge", name: "Journey to the West" },
       { id: "skill-1", kind: "skill", name: "Research" },
       { displayName: "Gmail", kind: "connection", service: "gmail" },
     ]
 
-    expect(visibleUserContextMentions(mentions)).toEqual(mentions.slice(1))
+    expect(visibleUserContextMentions(mentions)).toEqual(mentions)
   })
 
   it("returns an empty list without context", () => {

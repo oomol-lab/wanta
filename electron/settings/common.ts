@@ -10,7 +10,6 @@ export interface AppSettings {
   browserEnabled: boolean
   completionNotificationCondition: CompletionNotificationCondition
   themeSource: ThemeSource
-  knowledgeBaseBetaEnabled: boolean
   notificationSoundEnabled: boolean
   operatingMode: OperatingMode | null
   selfManagedSetupDismissed: boolean
@@ -21,7 +20,6 @@ export interface AppSettings {
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   browserEnabled: true,
   completionNotificationCondition: "background",
-  knowledgeBaseBetaEnabled: false,
   notificationSoundEnabled: true,
   operatingMode: null,
   selfManagedSetupDismissed: false,
@@ -39,7 +37,6 @@ export const SettingsService = serviceName("settings-service") as ServiceName<{
     /** 同步 Electron nativeTheme.themeSource。 */
     setThemeSource(source: ThemeSource): Promise<void>
     setBrowserEnabled(enabled: boolean): Promise<void>
-    setKnowledgeBaseBetaEnabled(enabled: boolean): Promise<void>
     setCompletionNotificationCondition(condition: CompletionNotificationCondition): Promise<void>
     setNotificationSoundEnabled(enabled: boolean): Promise<void>
     setOperatingMode(mode: OperatingMode): Promise<void>

@@ -1,10 +1,13 @@
 import type { ChatMessagePart } from "../../../electron/chat/common.ts"
 
+import * as React from "react"
 import { knowledgeSources } from "./knowledge-sources.ts"
 import { useT } from "@/i18n/i18n"
+import { KnowledgeNavigationContext } from "@/routes/Knowledge/navigation"
 
 export function KnowledgeSources({ part }: { part: ChatMessagePart }) {
   const t = useT()
+  const openSource = React.useContext(KnowledgeNavigationContext)
   const sources = knowledgeSources(part)
   if (sources === null) return null
   return (
@@ -17,6 +20,11 @@ export function KnowledgeSources({ part }: { part: ChatMessagePart }) {
           <details key={`${hit.file_id}:${index}`} className="rounded-md border p-3">
             <summary className="cursor-pointer text-sm font-medium break-words">{hit.filename}</summary>
             <p className="mt-2 text-sm break-words whitespace-pre-wrap text-muted-foreground">{hit.text}</p>
+            {openSource ? (
+              <button type="button" className="mt-2 text-xs font-medium underline" onClick={() => openSource(hit)}>
+                {t("knowledge.openEvidence")}
+              </button>
+            ) : null}
           </details>
         ))
       )}

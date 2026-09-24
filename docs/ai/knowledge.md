@@ -6,8 +6,34 @@ renderer client uses the existing HttpOnly cookie transport and the centrally
 derived knowledge endpoint. File operations send `x-oo-team-id`; this is an ID,
 not the team name used by the Connector CLI.
 
-The page supports uploads up to 150 MiB, cursor pagination, asynchronous file
-status polling, deletion confirmation, and manual retrieval with source snippets.
+The page supports uploads up to 150 MiB through the file picker or by dropping
+files on the knowledge list area, cursor pagination, asynchronous file status
+polling, and deletion confirmation. Dragging files over the writable list area
+highlights it; a drop uploads the supported files in sequence. The Knowledge
+route keeps files in a list. The top-right ask button opens a conversation panel
+beside that list using the same ChatArea and ChatComposer as the main chat;
+closing the panel leaves the list in place. A question starts a distinct task
+through the existing agent submission path with the current team's
+`cloud-knowledge` context.
+The analysis stays in the Knowledge route, retaining the normal ChatArea and
+ChatComposer. Session metadata records `knowledgeMode` so reopening the task from
+the sidebar restores the conversation panel; follow-up turns keep knowledge
+retrieval enabled. Selecting a file opens its inline reader over the list area,
+and selecting a retrieved source during analysis opens the evidence and file
+preview beside the conversation. Its preview reads
+`GET /v1/files/:id/content` using the same account cookie and team header as the
+list. The renderer bounds downloads before buffering them and lazily reuses the
+existing PDF, DOCX, image, text, and read-only Univer spreadsheet viewers. The
+PDF viewer module loads in parallel with the authenticated content request, and
+PDF.js receives the bounded downloaded bytes directly without a Blob URL reload.
+The current rich preview limit is 16 MiB, with an 8 MiB XLSX limit; the upload limit
+does not imply that every accepted file can be previewed. A text response from
+the knowledge service is displayed as service text rather than described as a
+pixel-faithful original. The source pane shows only excerpts from a completed
+chat retrieval, not a complete chunk listing.
+Unsupported, oversized, unavailable, and not-yet-ready content has an explicit
+state. Preview Blob URLs and requests are released when the file, route, account,
+or team changes.
 Uploads have no fixed deadline and offer an in-page Cancel upload action, as well
 as cancellation on route/account/team changes. Cancellation releases management
 controls immediately and ignores late completion of the cancelled request. It
@@ -26,7 +52,7 @@ Both agent paths receive the same conditional RAG guidance in the per-turn syste
 context whenever an OOMOL team is active. Relevant requests load the Skill when
 available and direct manual ingestion to Wanta or the current environment's
 `/team/<encoded-team-name>/knowledge` Console page. Users upload, wait for Ready,
-and return to chat to retrieve. Guidance does not turn every message into a
+and ask from Wanta's Knowledge route or chat. Guidance does not turn every message into a
 retrieval, invent an upload action, or imply a queued document is indexed.
 
 ## Chat
@@ -45,17 +71,22 @@ agent follows every instruction. Connector fields are `query`, `topK` and
 `enableReranking`; the HTTP fields use `top_k` and `enable_reranking`.
 
 Successful structured retrieval output is rendered as expandable source snippets
-inside tool execution details. It uses the persisted tool result rather than
+inside tool execution details and as file-grouped source cards below the turn.
+It uses the persisted tool result rather than
 re-querying a potentially changed document. Unknown output shapes retain the
 normal raw tool result view. No page numbers, document URLs, per-file search
 filters, or new knowledge-base containers are invented.
+The source detail can be opened in Wanta's Knowledge route from a completed
+retrieval. This preserves the historical excerpt while separately re-checking
+access to current file content through the selected team's HTTP endpoint.
 
 ## Validation
 
 Unit and component coverage checks HTTP scoping/cancellation, upload validation,
 pagination, polling, late responses after team switching, read-only controls,
-host scope rejection, and source parsing. Real-service qualification additionally
-requires an authenticated Wanta profile: upload a fixture, wait until ready,
-retrieve it in the page and in chat, reopen history, switch teams, and verify both
-built-in and external-agent paths. Do not infer successful end-to-end retrieval
-from schema discovery alone.
+knowledge task creation and persisted mode, host scope rejection, and source
+parsing. Real-service qualification additionally requires an authenticated Wanta
+profile: upload a fixture, wait until ready, ask from the file list, inspect the
+answer and source cards, reopen the knowledge task from the sidebar, switch teams,
+and verify both built-in and external-agent paths. Do not infer successful
+end-to-end retrieval from schema discovery alone.

@@ -14,6 +14,9 @@ vi.mock("@/lib/knowledge-client", () => ({
   deleteKnowledgeFile: vi.fn(),
   retrieveKnowledge: vi.fn(),
 }))
+vi.mock("./KnowledgeFilePreview.tsx", () => ({
+  KnowledgeFilePreview: ({ file }: { file: { name: string } }) => <div>Preview: {file.name}</div>,
+}))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let root: Root | undefined
 const file = {
@@ -24,11 +27,24 @@ const file = {
   created_at: "now",
   updated_at: "now",
 }
-function render(team: string, writable = true) {
+function render(
+  team: string,
+  writable = true,
+  sourceSelection?: { teamId: string; hit: { file_id: string; filename: string; score: number; text: string } },
+  analysisContent?: React.ReactNode,
+  conversationActive = Boolean(analysisContent),
+) {
   root ??= createRoot(document.body.appendChild(document.createElement("div")))
   root.render(
     <I18nContext.Provider value={{ locale: "en", setLocale: () => {}, t: (key, vars) => translate("en", key, vars) }}>
-      <KnowledgeRoute key={team} teamId={team} writable={writable} />
+      <KnowledgeRoute
+        key={team}
+        teamId={team}
+        writable={writable}
+        sourceSelection={sourceSelection}
+        analysisContent={analysisContent}
+        conversationActive={conversationActive}
+      />
     </I18nContext.Provider>,
   )
 }
@@ -88,6 +104,62 @@ it("polls processing files until ready", async () => {
   })
   expect(api.listKnowledgeFiles).toHaveBeenCalledTimes(2)
 })
+it("opens a book preview and keeps retrieved evidence distinct", async () => {
+  vi.mocked(api.listKnowledgeFiles).mockResolvedValue({ items: [file], next_cursor: "" })
+  await act(async () => render("team"))
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="View file policy.pdf"]')!.click())
+  expect(document.body.textContent).toContain("Preview: policy.pdf")
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click())
+  await act(async () =>
+    render("team", true, {
+      teamId: "team",
+      hit: { file_id: file.id, filename: file.name, score: 0.9, text: "A policy excerpt" },
+    }),
+  )
+  expect(document.body.textContent).toContain("A policy excerpt")
+})
+it("opens the supplied chat surface beside the file list and closes it", async () => {
+  vi.mocked(api.listKnowledgeFiles).mockResolvedValue({ items: [file], next_cursor: "" })
+  await act(async () => render("team", true, undefined, <div>Shared chat composer</div>, false))
+  expect(document.body.textContent).not.toContain("Shared chat composer")
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Ask this knowledge base"]')!.click())
+  expect(document.querySelector('[aria-label="Files"]')?.textContent).toContain("policy.pdf")
+  expect(document.body.textContent).toContain("Shared chat composer")
+  await act(async () =>
+    document
+      .querySelector<HTMLButtonElement>('aside[aria-label="Ask this knowledge base"] button[aria-label="Close"]')!
+      .click(),
+  )
+  expect(document.body.textContent).not.toContain("Shared chat composer")
+  expect(document.querySelector('[aria-label="Files"]')?.textContent).toContain("policy.pdf")
+})
+it("shows retrieved evidence beside an active knowledge conversation", async () => {
+  vi.mocked(api.listKnowledgeFiles).mockResolvedValue({ items: [file], next_cursor: "" })
+  await act(async () =>
+    render(
+      "team",
+      true,
+      {
+        teamId: "team",
+        hit: { file_id: file.id, filename: file.name, score: 0.9, text: "Evidence from retrieval" },
+      },
+      <div>Analysis conversation</div>,
+    ),
+  )
+  expect(document.body.textContent).toContain("Analysis conversation")
+  expect(document.body.textContent).toContain("Evidence from retrieval")
+  expect(document.body.textContent).toContain("Preview: policy.pdf")
+  expect(document.querySelector('[aria-label="Files"]')?.textContent).toContain("policy.pdf")
+})
+it("keeps the file list mounted when a question becomes a conversation", async () => {
+  vi.mocked(api.listKnowledgeFiles).mockResolvedValue({ items: [file], next_cursor: "" })
+  await act(async () => render("team"))
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Ask this knowledge base"]')!.click())
+  await act(async () => render("team", true, undefined, <div>Analysis conversation</div>))
+  expect(document.querySelector('[aria-label="Files"]')?.textContent).toContain("policy.pdf")
+  expect(document.body.textContent).toContain("Analysis conversation")
+  expect(api.listKnowledgeFiles).toHaveBeenCalledTimes(1)
+})
 
 async function selectUpload() {
   const picker = document.querySelector<HTMLInputElement>('input[type="file"]')!
@@ -97,6 +169,37 @@ async function selectUpload() {
 function buttonNamed(name: string) {
   return [...document.querySelectorAll("button")].find((button) => button.textContent === name)!
 }
+function dispatchFileDrag(target: Element, type: string, files: File[]) {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(event, "dataTransfer", { value: { types: ["Files"], files, dropEffect: "none" } })
+  target.dispatchEvent(event)
+}
+it("highlights the knowledge area and uploads dropped files in order", async () => {
+  vi.mocked(api.listKnowledgeFiles).mockResolvedValue({ items: [file], next_cursor: "" })
+  vi.mocked(api.uploadKnowledgeFile).mockResolvedValue(file)
+  await act(async () => render("team"))
+  const zone = document.querySelector("[data-knowledge-drop-zone]")!
+  const dropped = [new File(["first"], "first.pdf"), new File(["second"], "second.docx")]
+  await act(async () => dispatchFileDrag(zone, "dragenter", dropped))
+  expect(document.querySelector('[role="status"]')?.textContent).toBe("Drop files to upload")
+  await act(async () => dispatchFileDrag(zone, "drop", dropped))
+  expect(document.querySelector('[role="status"]')).toBeNull()
+  expect(vi.mocked(api.uploadKnowledgeFile).mock.calls.map((call) => call[1].name)).toEqual([
+    "first.pdf",
+    "second.docx",
+  ])
+  expect(api.listKnowledgeFiles).toHaveBeenCalledTimes(2)
+})
+it("does not highlight or upload when the knowledge area is read-only", async () => {
+  vi.mocked(api.listKnowledgeFiles).mockResolvedValue({ items: [file], next_cursor: "" })
+  await act(async () => render("team", false))
+  const zone = document.querySelector("[data-knowledge-drop-zone]")!
+  const dropped = [new File(["first"], "first.pdf")]
+  await act(async () => dispatchFileDrag(zone, "dragenter", dropped))
+  expect(document.querySelector('[role="status"]')).toBeNull()
+  await act(async () => dispatchFileDrag(zone, "drop", dropped))
+  expect(api.uploadKnowledgeFile).not.toHaveBeenCalled()
+})
 it("cancels a stalled upload immediately and ignores its late completion during another upload", async () => {
   vi.mocked(api.listKnowledgeFiles).mockResolvedValue({ items: [file], next_cursor: "" })
   let rejectOld!: (error: Error) => void

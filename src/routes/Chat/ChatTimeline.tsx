@@ -48,6 +48,7 @@ import {
   ConnectionSuggestionAction,
 } from "./ChatMessageActions.tsx"
 import { AssistantTimelineMessage, MessageBubble, PlainAssistantActivity } from "./ChatMessageBubble.tsx"
+import { KnowledgeAnswerSources } from "./KnowledgeAnswerSources.tsx"
 import { assistantResponseActionTextByMessageId } from "./message-text.ts"
 import { PermissionRequiredCard } from "./PermissionRequiredCard.tsx"
 import { QuestionPromptCard } from "./QuestionPromptCard.tsx"
@@ -333,6 +334,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
           </Message>
         ) : null}
       </>
+      <KnowledgeAnswerSources messages={turn.assistants} />
       {hasRenderableArtifacts || hasRenderableTurnOutputs ? (
         <div className="mt-2 grid gap-2">
           {hasRenderableArtifacts ? (

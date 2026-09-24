@@ -227,6 +227,7 @@ export class SessionServiceImpl
       throw new Error("Agent not configured (sign in first)")
     }
     const scope = normalizeRequestedSessionScope(req.scope)
+    if (req.knowledgeMode && scope.kind !== "team") throw new Error("Knowledge analysis requires a team workspace")
     const projectId = req.projectId?.trim() || undefined
     const info = await agent.createSession(req.title)
     if (!this.runtimeMatches(agent, revision)) {
@@ -259,6 +260,7 @@ export class SessionServiceImpl
       {
         ...this.sessionMetadata.get(info.id),
         scope,
+        ...(req.knowledgeMode ? { knowledgeMode: true } : {}),
         ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
       },
       nextMetadata,
@@ -274,7 +276,12 @@ export class SessionServiceImpl
       throw error
     }
     this.broadcastChangedBestEffort("create session")
-    return { ...info, scope, ...(scopedProjectId ? { projectId: scopedProjectId } : {}) }
+    return {
+      ...info,
+      scope,
+      ...(req.knowledgeMode ? { knowledgeMode: true } : {}),
+      ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+    }
   }
 
   /** External (BYOA) sessions are Wanta-owned records; no kernel round trip is involved. */
@@ -284,6 +291,7 @@ export class SessionServiceImpl
     revision: number,
   ): Promise<SessionInfo> {
     const scope = normalizeRequestedSessionScope(req.scope)
+    if (req.knowledgeMode && scope.kind !== "team") throw new Error("Knowledge analysis requires a team workspace")
     const projectId = req.projectId?.trim() || undefined
     await this.ensureMetadataLoaded(revision)
     await this.ensureProjectsLoaded(revision)
@@ -302,7 +310,11 @@ export class SessionServiceImpl
     const nextMetadata = new Map(this.sessionMetadata)
     this.setMetadataEntry(
       record.id,
-      { scope, ...(scopedProjectId ? { projectId: scopedProjectId } : {}) },
+      {
+        scope,
+        ...(req.knowledgeMode ? { knowledgeMode: true } : {}),
+        ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+      },
       nextMetadata,
     )
     await this.commitExternal(nextExternal)
@@ -326,6 +338,7 @@ export class SessionServiceImpl
       updatedAt: record.updatedAt,
       agentKind,
       scope,
+      ...(req.knowledgeMode ? { knowledgeMode: true } : {}),
       ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
     }
   }
@@ -1151,6 +1164,7 @@ export class SessionServiceImpl
       metadata.scope ||
       metadata.projectId ||
       metadata.permissionMode ||
+      metadata.knowledgeMode ||
       metadata.agentModelId ||
       metadata.agentEffortId ||
       metadata.pinnedAt ||
@@ -1189,6 +1203,7 @@ export class SessionServiceImpl
       scope,
       ...(project ? { projectId: project.id } : {}),
       ...(metadata?.permissionMode ? { permissionMode: metadata.permissionMode } : {}),
+      ...(metadata?.knowledgeMode ? { knowledgeMode: true } : {}),
       ...(metadata?.agentModelId ? { agentModelId: metadata.agentModelId } : {}),
       ...(metadata?.agentEffortId ? { agentEffortId: metadata.agentEffortId } : {}),
       ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
@@ -1264,6 +1279,7 @@ export class SessionServiceImpl
           scope,
           ...(project ? { projectId: project.id } : {}),
           ...(metadata?.permissionMode ? { permissionMode: metadata.permissionMode } : {}),
+          ...(metadata?.knowledgeMode ? { knowledgeMode: true } : {}),
           ...(metadata?.agentModelId ? { agentModelId: metadata.agentModelId } : {}),
           ...(metadata?.agentEffortId ? { agentEffortId: metadata.agentEffortId } : {}),
           ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),

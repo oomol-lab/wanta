@@ -597,6 +597,22 @@ test("create removes the OpenCode session when local metadata persistence fails"
   assert.deepEqual(deleted, ["created"])
 })
 
+test("knowledge analysis mode persists on a team session and reappears in listings", async () => {
+  const info: SessionInfo = { id: "knowledge-task", title: "Question", createdAt: 1_000, updatedAt: 1_000 }
+  const persistedMetadata = metadataStore()
+  const service = new SessionServiceImpl(
+    {
+      createSession: async () => info,
+      listSessions: async () => [info],
+    } as unknown as OpencodeAgentAdapter,
+    { metadataStore: persistedMetadata },
+  )
+  const created = await service.create({ scope: testTeamScope, title: "Question", knowledgeMode: true })
+  assert.equal(created.knowledgeMode, true)
+  assert.equal((await persistedMetadata.read()).get(info.id)?.knowledgeMode, true)
+  assert.equal((await service.list({ scope: testTeamScope }))[0]?.knowledgeMode, true)
+})
+
 test("createProject reuses an existing project in the same scope", async () => {
   const persistedProjects = projectStore()
   const service = new SessionServiceImpl(agentWithSessions([]), {

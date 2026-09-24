@@ -81,6 +81,7 @@ import { authTypeLabel } from "@/routes/Connections/shared"
 
 interface ChatComposerProps {
   knowledgeTeamId?: string
+  knowledgeRequired?: boolean
   error: string | null
   agentEffortId?: string
   agentKind?: AgentKind
@@ -190,6 +191,7 @@ function paletteLabels({
 
 export function ChatComposer({
   knowledgeTeamId,
+  knowledgeRequired = false,
   agentEffortId,
   agentKind = "opencode",
   agentModelId,
@@ -897,12 +899,14 @@ export function ChatComposer({
         {knowledgeTeamId ? (
           <Button
             type="button"
-            variant={contextMentions.some((m) => m.kind === "cloud-knowledge") ? "secondary" : "ghost"}
+            variant={
+              knowledgeRequired || contextMentions.some((m) => m.kind === "cloud-knowledge") ? "secondary" : "ghost"
+            }
             size="icon"
-            disabled={composerDisabled || command !== null}
+            disabled={knowledgeRequired || composerDisabled || command !== null}
             aria-label={t("knowledge.useInChat")}
             title={t("knowledge.useInChat")}
-            aria-pressed={contextMentions.some((m) => m.kind === "cloud-knowledge")}
+            aria-pressed={knowledgeRequired || contextMentions.some((m) => m.kind === "cloud-knowledge")}
             onClick={() => {
               const selected = contextMentions.find((m) => m.kind === "cloud-knowledge")
               if (selected) removeContextMention(selected)

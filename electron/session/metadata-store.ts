@@ -12,6 +12,7 @@ export interface SessionMetadata {
   scope?: SessionScope
   projectId?: string
   permissionMode?: SessionPermissionMode
+  knowledgeMode?: boolean
   agentModelId?: string
   agentEffortId?: string
   pinnedAt?: number
@@ -55,6 +56,7 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
     if (permissionMode) {
       next.permissionMode = permissionMode
     }
+    if (source.knowledgeMode === true && scope?.kind === "team") next.knowledgeMode = true
     if (typeof source.agentModelId === "string" && source.agentModelId.trim()) {
       next.agentModelId = source.agentModelId.trim()
     }
@@ -71,6 +73,7 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
       next.scope ||
       next.projectId ||
       next.permissionMode ||
+      next.knowledgeMode ||
       next.agentModelId ||
       next.agentEffortId ||
       next.pinnedAt ||
@@ -100,6 +103,7 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
     if (permissionMode) {
       next.permissionMode = permissionMode
     }
+    if (entry.knowledgeMode === true && scope?.kind === "team") next.knowledgeMode = true
     if (typeof entry.agentModelId === "string" && entry.agentModelId.trim()) {
       next.agentModelId = entry.agentModelId.trim()
     }
@@ -116,6 +120,7 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
       next.scope ||
       next.projectId ||
       next.permissionMode ||
+      next.knowledgeMode ||
       next.agentModelId ||
       next.agentEffortId ||
       next.pinnedAt ||

@@ -168,6 +168,11 @@ export interface ChatSendRequest {
   afterOptimisticSubmit?: () => void
   attachments?: ChatAttachment[]
   contextMentions?: ChatContextMention[]
+  /** Knowledge-library entry starts a distinct analysis task. */
+  startNewSession?: boolean
+  knowledgeMode?: boolean
+  /** Keep the knowledge workspace visible while its analysis task starts. */
+  stayOnKnowledge?: boolean
   mode?: AgentMode
   model?: ModelChoice
   teamSkills?: ChatTeamSkillContext[]

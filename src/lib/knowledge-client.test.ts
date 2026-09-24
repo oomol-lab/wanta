@@ -1,7 +1,14 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { knowledgeUploadError, knowledgeUploadMaxBytes } from "../../electron/knowledge/common.ts"
 import { knowledgeBaseUrl } from "./domain.ts"
-import { listKnowledgeFiles, uploadKnowledgeFile, deleteKnowledgeFile, retrieveKnowledge } from "./knowledge-client.ts"
+import {
+  listKnowledgeFiles,
+  uploadKnowledgeFile,
+  deleteKnowledgeFile,
+  retrieveKnowledge,
+  readKnowledgeFileContent,
+  KnowledgeContentTooLargeError,
+} from "./knowledge-client.ts"
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -46,4 +53,15 @@ it("validates supported formats and the exact upload size boundary", () => {
   expect(knowledgeUploadError({ name: "scan.pdf", size: knowledgeUploadMaxBytes + 1 })).toBe("tooLarge")
   expect(knowledgeUploadError({ name: "data.csv", size: 10 })).toBe("unsupportedType")
   expect(knowledgeUploadError({ name: "pdf", size: 10 })).toBe("unsupportedType")
+})
+it("reads knowledge content with the current team and bounds streamed bytes", async () => {
+  const mock = vi.fn<typeof fetch>(async () => new Response("hello", { headers: { "content-type": "text/plain" } }))
+  vi.stubGlobal("fetch", mock)
+  const result = await readKnowledgeFileContent("team-1", "file/1", 10)
+  expect(new TextDecoder().decode(result.bytes)).toBe("hello")
+  expect(result.contentType).toBe("text/plain")
+  expect(new URL(String(mock.mock.calls[0][0])).pathname).toBe("/v1/files/file%2F1/content")
+  expect(new Headers(mock.mock.calls[0][1]?.headers).get("x-oo-team-id")).toBe("team-1")
+  expect(mock.mock.calls[0][1]?.credentials).toBe("include")
+  await expect(readKnowledgeFileContent("team-1", "file/1", 3)).rejects.toBeInstanceOf(KnowledgeContentTooLargeError)
 })

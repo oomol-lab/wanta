@@ -7,13 +7,17 @@ const mocks = vi.hoisted(() => ({
   render: vi.fn(),
   destroy: vi.fn(),
   viewer: vi.fn(),
+  getDocument: vi.fn(),
   handlers: new Map<string, (event: object) => void>(),
 }))
 vi.mock("docx-preview", () => ({ renderAsync: mocks.render }))
 vi.mock("@/i18n/i18n", () => ({ useT: () => (key: string) => key }))
 vi.mock("pdfjs-dist", () => ({
   GlobalWorkerOptions: {},
-  getDocument: () => ({ promise: Promise.resolve({ numPages: 3 }), destroy: mocks.destroy }),
+  getDocument: (options: unknown) => {
+    mocks.getDocument(options)
+    return { promise: Promise.resolve({ numPages: 3 }), destroy: mocks.destroy }
+  },
 }))
 vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
   EventBus: class {
@@ -126,6 +130,13 @@ it("PDF reuses viewer on ordinary rerenders, counts only successful page renderi
   await act(async () => root.render(null))
   expect(mocks.destroy).toHaveBeenCalledTimes(1)
   expect(mocks.handlers.size).toBe(0)
+})
+
+it("PDF accepts already downloaded bytes without fetching a blob URL", async () => {
+  const data = new Uint8Array([37, 80, 68, 70])
+  await act(async () => root.render(<ArtifactPdfPreview data={data} name="pdf" />))
+  expect(mocks.getDocument).toHaveBeenCalledWith({ data })
+  expect(mocks.getDocument).toHaveBeenCalledTimes(1)
 })
 
 it("PDF signals success once per document and ignores later successes after failure or disposal", async () => {

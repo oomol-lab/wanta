@@ -9,7 +9,8 @@ not the team name used by the Connector CLI.
 The page supports uploads up to 150 MiB through the file picker or by dropping
 files on the knowledge list area, cursor pagination, asynchronous file status
 polling, and deletion confirmation. Dragging files over the writable list area
-highlights it; a drop uploads the supported files in sequence. The Knowledge
+highlights it; a drop uploads the files in sequence after every file passes
+type and size validation. The Knowledge
 route keeps files in a list. The top-right ask button opens a conversation panel
 beside that list using the same ChatArea and ChatComposer as the main chat;
 closing the panel leaves the list in place. A question starts a distinct task

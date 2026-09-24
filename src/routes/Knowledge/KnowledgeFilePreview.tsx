@@ -69,7 +69,7 @@ async function xlsxPreview(bytes: Uint8Array): Promise<LocalArtifactPreviewResul
   const workbook = sheets.slice(0, spreadsheetMaxSheets).map(({ sheet, data }) => ({
     name: sheet,
     rowCount: data.length,
-    columnCount: Math.max(0, ...data.map((row) => row.length)),
+    columnCount: data.reduce((max, row) => Math.max(max, row.length), 0),
     rows: data
       .slice(0, spreadsheetMaxRows)
       .map((row) =>

@@ -152,7 +152,7 @@ export default function ArtifactPdfPreview({
     })
     resizeObserver.observe(scrollContainer)
 
-    const task: PDFDocumentLoadingTask = pdfjs.getDocument(data ? { data } : { url: source })
+    const task: PDFDocumentLoadingTask = pdfjs.getDocument(data ? { data: data.slice() } : { url: source })
     void task.promise
       .then((document: PDFDocumentProxy) => {
         if (cancelled) {

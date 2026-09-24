@@ -132,11 +132,17 @@ it("PDF reuses viewer on ordinary rerenders, counts only successful page renderi
   expect(mocks.handlers.size).toBe(0)
 })
 
-it("PDF accepts already downloaded bytes without fetching a blob URL", async () => {
+it("PDF copies downloaded bytes so effect restarts can load them again", async () => {
   const data = new Uint8Array([37, 80, 68, 70])
   await act(async () => root.render(<ArtifactPdfPreview data={data} name="pdf" />))
-  expect(mocks.getDocument).toHaveBeenCalledWith({ data })
-  expect(mocks.getDocument).toHaveBeenCalledTimes(1)
+  const firstInput = mocks.getDocument.mock.calls[0]?.[0] as { data: Uint8Array }
+  expect(firstInput.data).not.toBe(data)
+  expect(firstInput.data).toEqual(data)
+  await act(async () => root.render(<ArtifactPdfPreview data={data} name="pdf" onResourceLoaded={() => {}} />))
+  const secondInput = mocks.getDocument.mock.calls[1]?.[0] as { data: Uint8Array }
+  expect(secondInput.data).not.toBe(data)
+  expect(secondInput.data).toEqual(data)
+  expect(mocks.getDocument).toHaveBeenCalledTimes(2)
 })
 
 it("PDF signals success once per document and ignores later successes after failure or disposal", async () => {

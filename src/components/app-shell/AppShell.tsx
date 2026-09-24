@@ -2004,6 +2004,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [handleSelectSession],
   )
 
+  const activeTeamIdForKnowledge = teamWorkspace.activeWorkspace.team?.id
+  const activeSessionKnowledgeMode = activeSession?.knowledgeMode === true
+  const handleOpenKnowledgeSource = React.useCallback(
+    (hit: KnowledgeHit) => {
+      if (!oomolLinkActive || !activeTeamIdForKnowledge) return
+      setKnowledgeSelection({ hit, teamId: activeTeamIdForKnowledge })
+      if (activeSessionKnowledgeMode) setKnowledgeAnalysisActive(true)
+      setRoute("knowledge")
+    },
+    [activeSessionKnowledgeMode, activeTeamIdForKnowledge, oomolLinkActive],
+  )
+
   if (route === "settings") {
     return (
       <>
@@ -2060,19 +2072,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     activeSession.scope?.kind === "team" &&
     activeSession.scope.teamId === teamWorkspace.activeWorkspace.team?.id
   const knowledgeContextRequired = route === "knowledge" || knowledgeTaskActive
-  const knowledgeDraft = route === "knowledge" && !knowledgeAnalysisActive && !knowledgeTaskActive
+  const knowledgeDraft = route === "knowledge" && !knowledgeAnalysisActive
   const chatArea = (
     <ChatArea
       compact={route === "knowledge"}
       knowledgeTeamId={oomolLinkActive ? teamWorkspace.activeWorkspace.team?.id : undefined}
       knowledgeRequired={knowledgeContextRequired}
-      onOpenKnowledgeSource={(hit: KnowledgeHit) => {
-        const teamId = teamWorkspace.activeWorkspace.team?.id
-        if (!oomolLinkActive || !teamId) return
-        setKnowledgeSelection({ hit, teamId })
-        if (activeSession?.knowledgeMode) setKnowledgeAnalysisActive(true)
-        setRoute("knowledge")
-      }}
+      onOpenKnowledgeSource={handleOpenKnowledgeSource}
       activeSessionId={knowledgeDraft ? null : activeChatSessionId}
       agentKind={displayedAgentKind}
       agentModesEnabled={agentModesEnabled}

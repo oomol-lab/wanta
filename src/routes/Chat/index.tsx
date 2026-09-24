@@ -11,6 +11,7 @@ import type {
 } from "../../../electron/chat/common.ts"
 import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { KnowledgeHit } from "../../../electron/knowledge/common.ts"
 import type { ConnectionCatalogFilter } from "../Connections/connection-route-model.ts"
 import type { ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ComposerDraftBinding } from "./composer-draft-store.ts"
@@ -38,9 +39,13 @@ import { ErrorNotice } from "@/components/ErrorNotice"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
+import { KnowledgeNavigationContext } from "@/routes/Knowledge/navigation"
 
 interface ChatAreaProps {
+  compact?: boolean
   knowledgeTeamId?: string
+  knowledgeRequired?: boolean
+  onOpenKnowledgeSource?: (hit: KnowledgeHit) => void
   activeSessionId: string | null
   agentKind?: AgentKind
   agentModesEnabled?: boolean
@@ -250,7 +255,10 @@ function EmptyCapabilityAction({
 }
 
 export const ChatArea = React.memo(function ChatArea({
+  compact = false,
   knowledgeTeamId,
+  knowledgeRequired = false,
+  onOpenKnowledgeSource,
   activeSessionId,
   agentKind = "opencode",
   agentModesEnabled = true,
@@ -346,10 +354,11 @@ export const ChatArea = React.memo(function ChatArea({
     setFullAccessDialogOpen(false)
   }, [onPermissionModeChange])
 
-  const showCenteredEmptyState = showEmptyState && !hasMessages && !isGenerating
+  const showCenteredEmptyState = !compact && showEmptyState && !hasMessages && !isGenerating
   const composer = (
     <ChatComposer
       knowledgeTeamId={knowledgeTeamId}
+      knowledgeRequired={knowledgeRequired}
       key={composerDraftKey}
       agentKind={agentKind}
       agentEffortId={agentEffortId}
@@ -470,7 +479,9 @@ export const ChatArea = React.memo(function ChatArea({
     <BillingRequestScopeContext.Provider value={billingRequestScope}>
       <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col pb-4">
-          <div className="flex min-h-0 flex-1 overflow-hidden">{content}</div>
+          <KnowledgeNavigationContext.Provider value={onOpenKnowledgeSource ?? null}>
+            <div className="flex min-h-0 flex-1 overflow-hidden">{content}</div>
+          </KnowledgeNavigationContext.Provider>
 
           {showCenteredEmptyState ? null : (
             <div className={cn("mx-auto flex w-full flex-col gap-2 px-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>

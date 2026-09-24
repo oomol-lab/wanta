@@ -6,6 +6,7 @@ import type {
   ChatPermissionReply,
 } from "../../../electron/chat/common.ts"
 import type { ChatErrorKind } from "../../../electron/chat/error.ts"
+import type { KnowledgeHit } from "../../../electron/knowledge/common.ts"
 import type { SessionInfo, SessionScope } from "../../../electron/session/common.ts"
 import type { ChatSendRequest, ChatSendResult } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
@@ -18,6 +19,7 @@ import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ConnectionAuthIntent } from "@/routes/Connections/connection-route-model.ts"
 import type { ConnectionCatalogFilter } from "@/routes/Connections/connection-route-model.ts"
+import type { KnowledgeSourceSelection } from "@/routes/Knowledge/navigation"
 import type { ChatStatus } from "ai"
 
 import { PanelRightClose, PanelRightOpen } from "lucide-react"
@@ -294,6 +296,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [projects, sessionsSettledForCurrentScope],
   )
   const [route, setRoute] = React.useState<Route>(initialRoute)
+  const [knowledgeAnalysisActive, setKnowledgeAnalysisActive] = React.useState(false)
+  const knowledgeDraft = route === "knowledge" && !knowledgeAnalysisActive
+  const [knowledgeSelection, setKnowledgeSelection] = React.useState<KnowledgeSourceSelection | null>(null)
+  React.useEffect(() => {
+    if (route !== "knowledge") setKnowledgeAnalysisActive(false)
+  }, [route])
   React.useEffect(() => {
     if (!routeAvailableForRuntime(route, oomolEnabled)) {
       setRoute("chat")
@@ -775,6 +783,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeComposerDraftKey = activeChatSessionId
     ? existingSessionComposerDraftKey(currentScopeKey, activeChatSessionId)
     : newSessionComposerDraftKeyForScopeKey(newSessionDraftScopeKey, activeProjectId)
+  // The Knowledge draft is new even while an older task remains selected.
+  const composerSettingsSessionId = knowledgeDraft ? null : activeChatSessionId
   const activeDraftBinding = drafts.binding(activeComposerDraftKey)
   const draftReady = React.useSyncExternalStore(activeDraftBinding.subscribe, activeDraftBinding.isReady)
   const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
@@ -833,10 +843,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     taskSessions: visibleTaskSessions,
     taskSortMode,
   })
-  const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
+  const displayedPermissionMode = composerSettingsSessionId ? permissionMode : draftPermissionMode
   // Agent choice is fixed at session creation; existing sessions without an
   // agentKind belong to the built-in kernel.
-  const displayedAgentKind: AgentKind = activeSession?.agentKind ?? (activeChatSessionId ? "opencode" : draftAgentKind)
+  const displayedAgentKind: AgentKind = composerSettingsSessionId
+    ? (activeSession?.agentKind ?? "opencode")
+    : draftAgentKind
   const activeAgentProfile = AGENT_PROFILES[displayedAgentKind]
   const { agentModesEnabled, attachmentsEnabled, modelRoutingEnabled } =
     composerCapabilitiesForProfile(activeAgentProfile)
@@ -853,6 +865,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const chatReady = modelRoutingEnabled ? ready : true
   const workspaceStartupError = workspaceActivationState.status === "failed" ? workspaceActivationState.error : null
   const startupError = agentStartupError ?? workspaceStartupError ?? sessionSnapshotError
+  const composerStartupError = knowledgeDraft ? (agentStartupError ?? workspaceStartupError) : startupError
   const retryWorkspaceActivation = React.useCallback(() => {
     if (workspaceActivationState.status !== "failed") {
       return
@@ -989,6 +1002,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       return { ...next, ...draftSelectionEntry(prefs) }
     })
   }, [])
+  React.useEffect(() => {
+    if (knowledgeDraft && activeChatSessionId && !agentSelections.draft) applyDraftComposerDefaults()
+  }, [activeChatSessionId, agentSelections.draft, applyDraftComposerDefaults, knowledgeDraft])
   const {
     handleNewSession,
     handleOpenProjectDraft,
@@ -1037,11 +1053,21 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const handleSelectSession = React.useCallback(
     (session: SessionInfo): void => {
       navigateToSession(session)
+      if (
+        session.knowledgeMode &&
+        session.scope?.kind === "team" &&
+        session.scope.teamId === teamWorkspace.activeWorkspace.team?.id
+      ) {
+        setKnowledgeAnalysisActive(true)
+        setRoute("knowledge")
+      } else {
+        setKnowledgeAnalysisActive(false)
+      }
       void attentionService.invoke("markSessionViewed", session.id).catch((error: unknown) => {
         reportRendererHandledError("attention", "mark selected session viewed failed", error)
       })
     },
-    [attentionService, navigateToSession],
+    [attentionService, navigateToSession, teamWorkspace.activeWorkspace.team?.id],
   )
   const commitDraftAgentSelection = React.useCallback((sessionId: string): void => {
     setAgentSelections((prev) => {
@@ -1343,6 +1369,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setSelectedConnectionAppId(null)
     setConnectionCatalogFilter({ kind: "all" })
     setSelectedSessionId(null)
+    setKnowledgeAnalysisActive(false)
     applyDraftComposerDefaults()
     setDraftProjectId(null)
     setPendingChatTransition(null)
@@ -1474,6 +1501,32 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       sendNow,
       sessionScope,
     ],
+  )
+
+  const handleKnowledgeAsk = React.useCallback(
+    async (request: ChatSendRequest): Promise<ChatSendResult> => {
+      const teamId = teamWorkspace.activeWorkspace.team?.id
+      if (!oomolLinkActive || !teamId || sessionScope?.kind !== "team" || sessionScope.teamId !== teamId) {
+        return { reason: "workspace_not_ready", status: "rejected" }
+      }
+      const result = await sendNow({
+        ...request,
+        contextMentions: [
+          ...(request.contextMentions ?? []).filter((mention) => mention.kind !== "cloud-knowledge"),
+          { kind: "cloud-knowledge", id: teamId, displayName: t("knowledge.title") },
+        ],
+        sessionScope,
+        startNewSession: true,
+        knowledgeMode: true,
+        stayOnKnowledge: true,
+      })
+      if (chatSendAccepted(result)) {
+        setKnowledgeSelection(null)
+        setKnowledgeAnalysisActive(true)
+      }
+      return result
+    },
+    [oomolLinkActive, sendNow, sessionScope, t, teamWorkspace.activeWorkspace.team?.id],
   )
 
   const handleAnswerQuestion = React.useCallback(
@@ -1751,27 +1804,27 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     (mode: AgentPermissionMode): void => {
       // Sticky per-agent default for future chats (full_access never sticks).
       writeStoredAgentComposerPrefs(globalThis.localStorage, displayedAgentKind, { permissionMode: mode })
-      if (activeChatSessionId) {
-        void persistPermissionMode(activeChatSessionId, mode).catch(() => undefined)
+      if (composerSettingsSessionId) {
+        void persistPermissionMode(composerSettingsSessionId, mode).catch(() => undefined)
         return
       }
       setDraftPermissionMode(mode)
     },
-    [activeChatSessionId, displayedAgentKind, persistPermissionMode],
+    [composerSettingsSessionId, displayedAgentKind, persistPermissionMode],
   )
   // Agent backends remain immutable per session. Choosing another agent while
   // viewing a session starts a fresh draft, then restores that agent's sticky
   // model/effort/permission choices.
   const handleSelectAgentKind = React.useCallback(
     (kind: AgentKind): void => {
-      if (activeChatSessionId) {
+      if (composerSettingsSessionId) {
         handleNewSession()
       }
       applyDraftComposerDefaults(kind)
     },
-    [activeChatSessionId, applyDraftComposerDefaults, handleNewSession],
+    [applyDraftComposerDefaults, composerSettingsSessionId, handleNewSession],
   )
-  const activeAgentSelection = agentSelections[activeChatSessionId ?? "draft"]
+  const activeAgentSelection = agentSelections[composerSettingsSessionId ?? "draft"]
   // One shared optimistic-update/rollback dance for both agent-selection axes;
   // only the stored field and the IPC call differ.
   const makeAgentSelectionHandler = React.useCallback(
@@ -1781,7 +1834,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           ? chatService.invoke("setExternalSessionModel", { sessionId, ...(value ? { modelId: value } : {}) })
           : chatService.invoke("setExternalSessionEffort", { sessionId, ...(value ? { effortId: value } : {}) })
       return (value?: string): void => {
-        const key = activeChatSessionId ?? "draft"
+        const key = composerSettingsSessionId ?? "draft"
         // Read the rollback target from committed state before scheduling the
         // update: an updater may run later than (or be replayed after) this
         // handler, so a value captured inside it can be unset when the request
@@ -1797,8 +1850,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             field === "modelId" ? { modelId: value } : { effortId: value },
           )
         setAgentSelections((prev) => ({ ...prev, [key]: { ...prev[key], [field]: value } }))
-        if (activeChatSessionId) {
-          void send(activeChatSessionId, value)
+        if (composerSettingsSessionId) {
+          void send(composerSettingsSessionId, value)
             .then(() => {
               if (agentSelectionRequestSeq.current.get(`${key}:${field}`) === token) persistSelection()
             })
@@ -1818,7 +1871,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         }
       }
     },
-    [activeChatSessionId, chatService, displayedAgentKind, t],
+    [chatService, composerSettingsSessionId, displayedAgentKind, t],
   )
   const handleSelectAgentModel = React.useMemo(() => makeAgentSelectionHandler("modelId"), [makeAgentSelectionHandler])
   const handleSelectAgentEffort = React.useMemo(
@@ -1829,10 +1882,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   // live-process fallback for renderer reloads and in-flight native changes.
   React.useEffect(() => {
     const inputs = AGENT_PROFILES[displayedAgentKind].inputs
-    if (!activeChatSessionId || (!inputs.setModel && !inputs.setEffort)) {
+    if (!composerSettingsSessionId || (!inputs.setModel && !inputs.setEffort)) {
       return
     }
-    const sessionId = activeChatSessionId
+    const sessionId = composerSettingsSessionId
     if (agentSelectionsRef.current[sessionId]) {
       return
     }
@@ -1859,7 +1912,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     return () => {
       cancelled = true
     }
-  }, [activeChatSessionId, activeSession?.agentEffortId, activeSession?.agentModelId, chatService, displayedAgentKind])
+  }, [
+    activeSession?.agentEffortId,
+    activeSession?.agentModelId,
+    chatService,
+    composerSettingsSessionId,
+    displayedAgentKind,
+  ])
 
   const handleViewBilling = React.useCallback((target?: BillingDetailsTarget) => {
     setBillingInitialTarget(target ?? null)
@@ -1960,6 +2019,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [handleSelectSession],
   )
 
+  const activeTeamIdForKnowledge = teamWorkspace.activeWorkspace.team?.id
+  const activeSessionKnowledgeMode = activeSession?.knowledgeMode === true
+  const handleOpenKnowledgeSource = React.useCallback(
+    (hit: KnowledgeHit) => {
+      if (!oomolLinkActive || !activeTeamIdForKnowledge) return
+      setKnowledgeSelection({ hit, teamId: activeTeamIdForKnowledge })
+      if (activeSessionKnowledgeMode) setKnowledgeAnalysisActive(true)
+      setRoute("knowledge")
+    },
+    [activeSessionKnowledgeMode, activeTeamIdForKnowledge, oomolLinkActive],
+  )
+
   if (route === "settings") {
     return (
       <>
@@ -2010,6 +2081,132 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       </>
     )
   }
+
+  const knowledgeTaskActive =
+    activeSession?.knowledgeMode === true &&
+    activeSession.scope?.kind === "team" &&
+    activeSession.scope.teamId === teamWorkspace.activeWorkspace.team?.id
+  const knowledgeContextRequired = route === "knowledge" || knowledgeTaskActive
+  const chatArea = (
+    <ChatArea
+      compact={route === "knowledge"}
+      knowledgeTeamId={oomolLinkActive ? teamWorkspace.activeWorkspace.team?.id : undefined}
+      knowledgeRequired={knowledgeContextRequired}
+      onOpenKnowledgeSource={handleOpenKnowledgeSource}
+      activeSessionId={knowledgeDraft ? null : activeChatSessionId}
+      agentKind={displayedAgentKind}
+      agentModesEnabled={agentModesEnabled}
+      attachmentsEnabled={attachmentsEnabled}
+      modelRoutingEnabled={modelRoutingEnabled}
+      agentModelId={activeAgentSelection?.modelId}
+      agentEffortId={activeAgentSelection?.effortId}
+      onSelectAgentModel={handleSelectAgentModel}
+      onSelectAgentEffort={handleSelectAgentEffort}
+      onSelectAgentKind={handleSelectAgentKind}
+      billingCacheScope={billingCacheScope}
+      billingRequestScope={billingRequestScope}
+      composerDraftKey={
+        knowledgeDraft ? `knowledge-new:${teamWorkspace.activeWorkspace.team?.id ?? ""}` : activeComposerDraftKey
+      }
+      messages={knowledgeDraft || bridgeInitialSendPending ? [] : messages}
+      modelRequired={modelRequired}
+      permissionMode={displayedPermissionMode}
+      pendingPermissions={knowledgeDraft || bridgeInitialSendPending ? [] : pendingPermissions}
+      pendingQuestions={knowledgeDraft || bridgeInitialSendPending ? [] : pendingQuestions}
+      status={knowledgeDraft ? "ready" : displayedStatus}
+      activity={knowledgeDraft || bridgeInitialSendPending ? null : activity}
+      showEmptyState={knowledgeDraft || showChatEmptyState}
+      bootstrapping={knowledgeDraft ? !chatReady || workspaceActivationBlocked : chatBootstrapping}
+      startupError={composerStartupError}
+      onStartupRetry={
+        workspaceStartupError ? retryWorkspaceActivation : sessionSnapshotError ? retrySessionSnapshot : undefined
+      }
+      error={knowledgeDraft ? null : error}
+      emptyTitle={chatEmptyTitle}
+      generatedArtifacts={knowledgeDraft ? null : latestArtifactSelection}
+      historyScope={billingCacheScope}
+      submitDisabled={knowledgeDraft ? !chatReady || workspaceActivationBlocked || !sessionScope : chatSubmitDisabled}
+      willQueueMessage={
+        !knowledgeDraft &&
+        Boolean(activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isSendInFlight()))
+      }
+      draftBinding={knowledgeDraft ? undefined : activeDraftBinding}
+      initialSendPending={knowledgeDraft ? false : initialSendPending}
+      composerFocusRequest={composerFocusRequest}
+      cloudModelsEnabled={runtimeCapabilities?.oomolCloudModels === true}
+      voiceEnabled={runtimeCapabilities?.voice === true}
+      canManageWorkspaceConnections={oomolLinkActive && canManageWorkspaceConnections}
+      emptyStateConnectionSummary={oomolLinkActive ? emptyStateConnectionSummary : null}
+      teamSkillEntryVisible={oomolEnabled && teamSkillEntryVisible}
+      teamSkillShowcaseItems={oomolEnabled ? teamSkillShowcaseItems : []}
+      teamSkillPendingInstallCount={oomolEnabled ? recommendedSkillPendingInstallCount : 0}
+      teamSkills={oomolEnabled ? teamSkills.chatContextSkills : []}
+      selfManagedSetup={
+        appSettings.settings.operatingMode === "self-managed" && !appSettings.settings.selfManagedSetupDismissed
+          ? {
+              onConfigureOpenConnector: handleOpenSettingsCommand,
+              onDismiss: () => {
+                void appSettings.setSelfManagedSetupDismissed(true).catch((error: unknown) => {
+                  reportRendererHandledError("settings", "dismiss self-managed setup reminder failed", error)
+                })
+              },
+            }
+          : undefined
+      }
+      providers={oomolLinkActive ? activeProviders : []}
+      queueHeld={knowledgeDraft ? false : activeQueueHeld}
+      queuedMessages={knowledgeDraft ? [] : activeQueuedMessages}
+      contextBar={knowledgeDraft ? undefined : composerProjectContext}
+      placeholder={
+        knowledgeDraft && chatReady
+          ? t("knowledge.askPlaceholder")
+          : composerStartupError
+            ? t("error.agent.title")
+            : modelRequired
+              ? t("chat.modelRequiredPlaceholder")
+              : chatReady
+                ? t(linksEnabled ? "chat.inputPlaceholder" : "chat.inputPlaceholderLocal")
+                : t("chat.agentStarting")
+      }
+      onSend={
+        knowledgeDraft
+          ? handleKnowledgeAsk
+          : knowledgeContextRequired
+            ? (request) => {
+                const teamId = teamWorkspace.activeWorkspace.team?.id
+                if (!teamId) return Promise.resolve({ reason: "workspace_not_ready", status: "rejected" } as const)
+                return handleSend({
+                  ...request,
+                  contextMentions: [
+                    ...(request.contextMentions ?? []).filter((mention) => mention.kind !== "cloud-knowledge"),
+                    { kind: "cloud-knowledge", id: teamId, displayName: t("knowledge.title") },
+                  ],
+                })
+              }
+            : handleSend
+      }
+      onAnswerQuestion={handleAnswerQuestion}
+      onAnswerPermission={handleAnswerPermission}
+      onPermissionModeChange={handlePermissionModeChange}
+      onRejectQuestion={handleRejectQuestion}
+      questionDrafts={questionDrafts}
+      onStop={handleChatStop}
+      onQueuedMessageMove={handleQueuedMessageMove}
+      onQueuedMessageRemove={handleQueuedMessageRemove}
+      onQueuedMessageResume={handleQueuedMessageResume}
+      onAuthorize={handleAuthorize}
+      onRecover={handleChatErrorRecovery}
+      onRetryFresh={handleRetryFresh}
+      onArtifactsOpen={handleArtifactsOpenWithBrowserClose}
+      onArtifactsAvailable={handleArtifactsAvailable}
+      onTurnOutputOpen={handleTurnOutputOpenWithBrowserClose}
+      onTurnOutputAvailable={handleTurnOutputAvailable}
+      onOpenConnections={linksEnabled ? handleOpenConnectionsCommand : undefined}
+      onOpenConnectionProvider={oomolLinkActive ? handleOpenChatConnectionProvider : undefined}
+      onOpenTeams={oomolEnabled ? handleOpenTeams : undefined}
+      onViewBilling={oomolEnabled ? handleViewBilling : undefined}
+    />
+  )
 
   return (
     <div
@@ -2120,6 +2317,16 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                   key={`${accountId}:${teamWorkspace.activeWorkspace.teamId}`}
                   teamId={teamWorkspace.activeWorkspace.team?.id ?? ""}
                   writable={teamWorkspace.activeWorkspace.canManage}
+                  analysisContent={chatArea}
+                  conversationActive={knowledgeAnalysisActive}
+                  onCloseAnalysis={() => {
+                    setKnowledgeAnalysisActive(false)
+                    setKnowledgeSelection(null)
+                  }}
+                  sourceSelection={
+                    knowledgeSelection?.teamId === teamWorkspace.activeWorkspace.team?.id ? knowledgeSelection : null
+                  }
+                  onSourceSelectionConsumed={() => setKnowledgeSelection(null)}
                 />
               ) : route === "connections" ? (
                 linkRuntime.state?.active === "openconnector" ? (
@@ -2155,111 +2362,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 />
               ) : (
                 <div className="flex h-full min-h-0 overflow-hidden">
-                  <div className="min-w-0 flex-1 overflow-hidden">
-                    <ChatArea
-                      knowledgeTeamId={oomolLinkActive ? teamWorkspace.activeWorkspace.team?.id : undefined}
-                      activeSessionId={activeChatSessionId}
-                      agentKind={displayedAgentKind}
-                      agentModesEnabled={agentModesEnabled}
-                      attachmentsEnabled={attachmentsEnabled}
-                      modelRoutingEnabled={modelRoutingEnabled}
-                      agentModelId={activeAgentSelection?.modelId}
-                      agentEffortId={activeAgentSelection?.effortId}
-                      onSelectAgentModel={handleSelectAgentModel}
-                      onSelectAgentEffort={handleSelectAgentEffort}
-                      onSelectAgentKind={handleSelectAgentKind}
-                      billingCacheScope={billingCacheScope}
-                      billingRequestScope={billingRequestScope}
-                      composerDraftKey={activeComposerDraftKey}
-                      messages={bridgeInitialSendPending ? [] : messages}
-                      modelRequired={modelRequired}
-                      permissionMode={displayedPermissionMode}
-                      pendingPermissions={bridgeInitialSendPending ? [] : pendingPermissions}
-                      pendingQuestions={bridgeInitialSendPending ? [] : pendingQuestions}
-                      status={displayedStatus}
-                      activity={bridgeInitialSendPending ? null : activity}
-                      showEmptyState={showChatEmptyState}
-                      bootstrapping={chatBootstrapping}
-                      startupError={startupError}
-                      onStartupRetry={
-                        workspaceStartupError
-                          ? retryWorkspaceActivation
-                          : sessionSnapshotError
-                            ? retrySessionSnapshot
-                            : undefined
-                      }
-                      error={error}
-                      emptyTitle={chatEmptyTitle}
-                      generatedArtifacts={latestArtifactSelection}
-                      historyScope={billingCacheScope}
-                      submitDisabled={chatSubmitDisabled}
-                      willQueueMessage={Boolean(
-                        activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isSendInFlight()),
-                      )}
-                      draftBinding={activeDraftBinding}
-                      initialSendPending={initialSendPending}
-                      composerFocusRequest={composerFocusRequest}
-                      cloudModelsEnabled={runtimeCapabilities?.oomolCloudModels === true}
-                      voiceEnabled={runtimeCapabilities?.voice === true}
-                      canManageWorkspaceConnections={oomolLinkActive && canManageWorkspaceConnections}
-                      emptyStateConnectionSummary={oomolLinkActive ? emptyStateConnectionSummary : null}
-                      teamSkillEntryVisible={oomolEnabled && teamSkillEntryVisible}
-                      teamSkillShowcaseItems={oomolEnabled ? teamSkillShowcaseItems : []}
-                      teamSkillPendingInstallCount={oomolEnabled ? recommendedSkillPendingInstallCount : 0}
-                      teamSkills={oomolEnabled ? teamSkills.chatContextSkills : []}
-                      selfManagedSetup={
-                        appSettings.settings.operatingMode === "self-managed" &&
-                        !appSettings.settings.selfManagedSetupDismissed
-                          ? {
-                              onConfigureOpenConnector: handleOpenSettingsCommand,
-                              onDismiss: () => {
-                                void appSettings.setSelfManagedSetupDismissed(true).catch((error: unknown) => {
-                                  reportRendererHandledError(
-                                    "settings",
-                                    "dismiss self-managed setup reminder failed",
-                                    error,
-                                  )
-                                })
-                              },
-                            }
-                          : undefined
-                      }
-                      providers={oomolLinkActive ? activeProviders : []}
-                      queueHeld={activeQueueHeld}
-                      queuedMessages={activeQueuedMessages}
-                      contextBar={composerProjectContext}
-                      placeholder={
-                        startupError
-                          ? t("error.agent.title")
-                          : modelRequired
-                            ? t("chat.modelRequiredPlaceholder")
-                            : chatReady
-                              ? t(linksEnabled ? "chat.inputPlaceholder" : "chat.inputPlaceholderLocal")
-                              : t("chat.agentStarting")
-                      }
-                      onSend={handleSend}
-                      onAnswerQuestion={handleAnswerQuestion}
-                      onAnswerPermission={handleAnswerPermission}
-                      onPermissionModeChange={handlePermissionModeChange}
-                      onRejectQuestion={handleRejectQuestion}
-                      questionDrafts={questionDrafts}
-                      onStop={handleChatStop}
-                      onQueuedMessageMove={handleQueuedMessageMove}
-                      onQueuedMessageRemove={handleQueuedMessageRemove}
-                      onQueuedMessageResume={handleQueuedMessageResume}
-                      onAuthorize={handleAuthorize}
-                      onRecover={handleChatErrorRecovery}
-                      onRetryFresh={handleRetryFresh}
-                      onArtifactsOpen={handleArtifactsOpenWithBrowserClose}
-                      onArtifactsAvailable={handleArtifactsAvailable}
-                      onTurnOutputOpen={handleTurnOutputOpenWithBrowserClose}
-                      onTurnOutputAvailable={handleTurnOutputAvailable}
-                      onOpenConnections={linksEnabled ? handleOpenConnectionsCommand : undefined}
-                      onOpenConnectionProvider={oomolLinkActive ? handleOpenChatConnectionProvider : undefined}
-                      onOpenTeams={oomolEnabled ? handleOpenTeams : undefined}
-                      onViewBilling={oomolEnabled ? handleViewBilling : undefined}
-                    />
-                  </div>
+                  <div className="min-w-0 flex-1 overflow-hidden">{chatArea}</div>
                   <AppShellConnectionDrawer
                     accessContext={connectionAccessContext}
                     authIntent={chatConnectionAuthIntent}

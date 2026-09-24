@@ -16,7 +16,7 @@ test("SessionMetadataStore persists scope, permission mode, pinned, and archived
     ["archived", { archivedAt: 2_000 }],
     ["full-access", { permissionMode: "full_access" }],
     ["agent-selection", { agentModelId: "sonnet", agentEffortId: "high" }],
-    ["team", { scope: { kind: "team", teamId: "team-id", teamName: "team-name" } }],
+    ["team", { scope: { kind: "team", teamId: "team-id", teamName: "team-name" }, knowledgeMode: true }],
   ])
 
   await store.write(metadata)
@@ -113,6 +113,14 @@ test("SessionMetadataStore persists an explicit local workspace scope", async ()
 
   await store.write(new Map([["local-session", { scope }]]))
 
+  assert.deepEqual(await store.read(), new Map([["local-session", { scope }]]))
+})
+
+test("knowledge mode cannot be persisted for a local workspace", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-metadata-"))
+  const store = new SessionMetadataStore(dir)
+  const scope = { kind: "local" as const, workspaceId: "local", workspaceName: "Local" }
+  await store.write(new Map([["local-session", { scope, knowledgeMode: true }]]))
   assert.deepEqual(await store.read(), new Map([["local-session", { scope }]]))
 })
 

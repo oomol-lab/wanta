@@ -88,6 +88,7 @@ function upsertSessionProject(projects: SessionProject[], project: SessionProjec
 export interface CreateSessionOptions {
   /** Agent that will drive the session; omitted for the built-in kernel. */
   agentKind?: AgentKind
+  knowledgeMode?: boolean
 }
 
 export interface UseSessions {
@@ -285,6 +286,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       const mutationScopeKey = scopeKey
       const info = await sessionService.invoke("create", {
         ...(options?.agentKind ? { agentKind: options.agentKind } : {}),
+        ...(options?.knowledgeMode ? { knowledgeMode: true } : {}),
         projectId,
         scope: requestScope,
         title,

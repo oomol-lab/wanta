@@ -7,13 +7,17 @@ const mocks = vi.hoisted(() => ({
   render: vi.fn(),
   destroy: vi.fn(),
   viewer: vi.fn(),
+  getDocument: vi.fn(),
   handlers: new Map<string, (event: object) => void>(),
 }))
 vi.mock("docx-preview", () => ({ renderAsync: mocks.render }))
 vi.mock("@/i18n/i18n", () => ({ useT: () => (key: string) => key }))
 vi.mock("pdfjs-dist", () => ({
   GlobalWorkerOptions: {},
-  getDocument: () => ({ promise: Promise.resolve({ numPages: 3 }), destroy: mocks.destroy }),
+  getDocument: (options: unknown) => {
+    mocks.getDocument(options)
+    return { promise: Promise.resolve({ numPages: 3 }), destroy: mocks.destroy }
+  },
 }))
 vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
   EventBus: class {
@@ -126,6 +130,19 @@ it("PDF reuses viewer on ordinary rerenders, counts only successful page renderi
   await act(async () => root.render(null))
   expect(mocks.destroy).toHaveBeenCalledTimes(1)
   expect(mocks.handlers.size).toBe(0)
+})
+
+it("PDF copies downloaded bytes so effect restarts can load them again", async () => {
+  const data = new Uint8Array([37, 80, 68, 70])
+  await act(async () => root.render(<ArtifactPdfPreview data={data} name="pdf" />))
+  const firstInput = mocks.getDocument.mock.calls[0]?.[0] as { data: Uint8Array }
+  expect(firstInput.data).not.toBe(data)
+  expect(firstInput.data).toEqual(data)
+  await act(async () => root.render(<ArtifactPdfPreview data={data} name="pdf" onResourceLoaded={() => {}} />))
+  const secondInput = mocks.getDocument.mock.calls[1]?.[0] as { data: Uint8Array }
+  expect(secondInput.data).not.toBe(data)
+  expect(secondInput.data).toEqual(data)
+  expect(mocks.getDocument).toHaveBeenCalledTimes(2)
 })
 
 it("PDF signals success once per document and ignores later successes after failure or disposal", async () => {

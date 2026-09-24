@@ -152,6 +152,9 @@ export function useComposerSubmission({
         afterOptimisticSubmit,
         attachments = [],
         contextMentions = [],
+        startNewSession = false,
+        knowledgeMode = false,
+        stayOnKnowledge = false,
         mode,
         model,
         teamSkills: requestTeamSkills,
@@ -164,10 +167,11 @@ export function useComposerSubmission({
       const effectiveSessionScope = requestSessionScope ?? sessionScope
       const effectiveScopeKey = sessionScopeKey(effectiveSessionScope)
       const effectiveTeamSkills = requestTeamSkills ?? teamSkills
-      const effectiveProjectContext = requestProjectContext ?? activeProjectContext
-      const sendKey = activeComposerDraftKey
+      const effectiveProjectContext = startNewSession ? undefined : (requestProjectContext ?? activeProjectContext)
+      const sendKey = startNewSession ? `knowledge-new:${effectiveScopeKey}` : activeComposerDraftKey
+      const startingDraftKey = activeComposerDraftKey
       const isCurrentSendTarget = (): boolean =>
-        activeDraftKeyRef.current === sendKey && scopeKeyRef.current === effectiveScopeKey
+        scopeKeyRef.current === effectiveScopeKey && activeDraftKeyRef.current === startingDraftKey
       if (sendInFlightKeys.current.has(sendKey)) {
         return { reason: "send_in_flight", status: "rejected" }
       }
@@ -176,10 +180,10 @@ export function useComposerSubmission({
       }
       sendInFlightKeys.current.add(sendKey)
       try {
-        setRoute("chat")
-        let sessionId = activeChatSessionId
+        if (!stayOnKnowledge) setRoute("chat")
+        let sessionId = startNewSession ? null : activeChatSessionId
         const creatingExternalSession = !sessionId && isExternalAgentKind(draftAgentKind)
-        const titleInput = { ...buildSessionTitleInput(messages, text, attachments), model }
+        const titleInput = { ...buildSessionTitleInput(startNewSession ? [] : messages, text, attachments), model }
         const fallbackTitle = buildFallbackSessionTitle(titleInput)
         const autoFallbackTitle = sessionId ? titleGeneration.getAutoFallbackTitle(sessionId) : undefined
         const allowPlaceholderTitle =
@@ -189,7 +193,7 @@ export function useComposerSubmission({
           (activeSession
             ? titleGeneration.isAutoRefreshable(activeSession, allowPlaceholderTitle, fallbackTitle)
             : false)
-        const bridgeEmptySend = messagesLoaded && messages.length === 0
+        const bridgeEmptySend = !startNewSession && messagesLoaded && messages.length === 0
         const createdAt = Date.now()
         const selectedPermissionMode = permissionModeArg ?? displayedPermissionMode
         if (bridgeEmptySend && isCurrentSendTarget()) {
@@ -211,8 +215,13 @@ export function useComposerSubmission({
           try {
             info = await createSession(
               fallbackTitle,
-              effectiveProjectContext?.id ?? activeProject?.id,
-              isExternalAgentKind(draftAgentKind) ? { agentKind: draftAgentKind } : undefined,
+              startNewSession ? undefined : (effectiveProjectContext?.id ?? activeProject?.id),
+              isExternalAgentKind(draftAgentKind) || knowledgeMode
+                ? {
+                    ...(isExternalAgentKind(draftAgentKind) ? { agentKind: draftAgentKind } : {}),
+                    ...(knowledgeMode ? { knowledgeMode: true } : {}),
+                  }
+                : undefined,
             )
           } catch (error) {
             if (bridgeEmptySend && isCurrentSendTarget()) {
@@ -249,7 +258,7 @@ export function useComposerSubmission({
             sessionId,
             titleInput,
             allowPlaceholderTitle,
-            !activeChatSessionId ? fallbackTitle : autoFallbackTitle,
+            !activeChatSessionId || startNewSession ? fallbackTitle : autoFallbackTitle,
           )
         }
         modelBySession.current.set(sessionId, model)

@@ -31,12 +31,14 @@ interface ScaleChangingEvent {
 
 export default function ArtifactPdfPreview({
   source,
+  data,
   name,
   onResourceError,
   onResourceLoaded,
   onRetry,
 }: {
-  source: string
+  source?: string
+  data?: Uint8Array
   name: string
   onResourceError?: () => void
   onResourceLoaded?: () => void
@@ -56,7 +58,7 @@ export default function ArtifactPdfPreview({
   React.useEffect(() => {
     const scrollContainer = scrollContainerRef.current
     const pagesContainer = pagesContainerRef.current
-    if (!scrollContainer || !pagesContainer) {
+    if (!scrollContainer || !pagesContainer || (!source && !data)) {
       return
     }
 
@@ -150,7 +152,7 @@ export default function ArtifactPdfPreview({
     })
     resizeObserver.observe(scrollContainer)
 
-    const task: PDFDocumentLoadingTask = pdfjs.getDocument({ url: source })
+    const task: PDFDocumentLoadingTask = pdfjs.getDocument(data ? { data: data.slice() } : { url: source })
     void task.promise
       .then((document: PDFDocumentProxy) => {
         if (cancelled) {
@@ -189,7 +191,7 @@ export default function ArtifactPdfPreview({
       }
       void task.destroy()
     }
-  }, [onResourceError, onResourceLoaded, source])
+  }, [data, onResourceError, onResourceLoaded, source])
 
   const changePage = React.useCallback((delta: number) => {
     const viewer = viewerRef.current

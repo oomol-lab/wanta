@@ -18,6 +18,8 @@ export interface SessionInfo {
   scope?: SessionScope
   projectId?: string
   permissionMode?: SessionPermissionMode
+  /** This task was started from the team knowledge library. */
+  knowledgeMode?: boolean
   pinnedAt?: number
   archivedAt?: number
 }
@@ -137,6 +139,7 @@ export interface CreateSessionRequest {
   title?: string
   /** Agent that will drive the session; defaults to the built-in kernel. */
   agentKind?: AgentKind
+  knowledgeMode?: boolean
 }
 
 export interface BatchSessionRequest {

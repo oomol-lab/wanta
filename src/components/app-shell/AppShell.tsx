@@ -297,6 +297,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   )
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [knowledgeAnalysisActive, setKnowledgeAnalysisActive] = React.useState(false)
+  const knowledgeDraft = route === "knowledge" && !knowledgeAnalysisActive
   const [knowledgeSelection, setKnowledgeSelection] = React.useState<KnowledgeSourceSelection | null>(null)
   React.useEffect(() => {
     if (route !== "knowledge") setKnowledgeAnalysisActive(false)
@@ -782,6 +783,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeComposerDraftKey = activeChatSessionId
     ? existingSessionComposerDraftKey(currentScopeKey, activeChatSessionId)
     : newSessionComposerDraftKeyForScopeKey(newSessionDraftScopeKey, activeProjectId)
+  // The Knowledge draft is new even while an older task remains selected.
+  const composerSettingsSessionId = knowledgeDraft ? null : activeChatSessionId
   const activeDraftBinding = drafts.binding(activeComposerDraftKey)
   const draftReady = React.useSyncExternalStore(activeDraftBinding.subscribe, activeDraftBinding.isReady)
   const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
@@ -840,10 +843,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     taskSessions: visibleTaskSessions,
     taskSortMode,
   })
-  const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
+  const displayedPermissionMode = composerSettingsSessionId ? permissionMode : draftPermissionMode
   // Agent choice is fixed at session creation; existing sessions without an
   // agentKind belong to the built-in kernel.
-  const displayedAgentKind: AgentKind = activeSession?.agentKind ?? (activeChatSessionId ? "opencode" : draftAgentKind)
+  const displayedAgentKind: AgentKind = composerSettingsSessionId
+    ? (activeSession?.agentKind ?? "opencode")
+    : draftAgentKind
   const activeAgentProfile = AGENT_PROFILES[displayedAgentKind]
   const { agentModesEnabled, attachmentsEnabled, modelRoutingEnabled } =
     composerCapabilitiesForProfile(activeAgentProfile)
@@ -860,6 +865,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const chatReady = modelRoutingEnabled ? ready : true
   const workspaceStartupError = workspaceActivationState.status === "failed" ? workspaceActivationState.error : null
   const startupError = agentStartupError ?? workspaceStartupError ?? sessionSnapshotError
+  const composerStartupError = knowledgeDraft ? (agentStartupError ?? workspaceStartupError) : startupError
   const retryWorkspaceActivation = React.useCallback(() => {
     if (workspaceActivationState.status !== "failed") {
       return
@@ -996,6 +1002,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       return { ...next, ...draftSelectionEntry(prefs) }
     })
   }, [])
+  React.useEffect(() => {
+    if (knowledgeDraft && activeChatSessionId && !agentSelections.draft) applyDraftComposerDefaults()
+  }, [activeChatSessionId, agentSelections.draft, applyDraftComposerDefaults, knowledgeDraft])
   const {
     handleNewSession,
     handleOpenProjectDraft,
@@ -1795,27 +1804,27 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     (mode: AgentPermissionMode): void => {
       // Sticky per-agent default for future chats (full_access never sticks).
       writeStoredAgentComposerPrefs(globalThis.localStorage, displayedAgentKind, { permissionMode: mode })
-      if (activeChatSessionId) {
-        void persistPermissionMode(activeChatSessionId, mode).catch(() => undefined)
+      if (composerSettingsSessionId) {
+        void persistPermissionMode(composerSettingsSessionId, mode).catch(() => undefined)
         return
       }
       setDraftPermissionMode(mode)
     },
-    [activeChatSessionId, displayedAgentKind, persistPermissionMode],
+    [composerSettingsSessionId, displayedAgentKind, persistPermissionMode],
   )
   // Agent backends remain immutable per session. Choosing another agent while
   // viewing a session starts a fresh draft, then restores that agent's sticky
   // model/effort/permission choices.
   const handleSelectAgentKind = React.useCallback(
     (kind: AgentKind): void => {
-      if (activeChatSessionId) {
+      if (composerSettingsSessionId) {
         handleNewSession()
       }
       applyDraftComposerDefaults(kind)
     },
-    [activeChatSessionId, applyDraftComposerDefaults, handleNewSession],
+    [applyDraftComposerDefaults, composerSettingsSessionId, handleNewSession],
   )
-  const activeAgentSelection = agentSelections[activeChatSessionId ?? "draft"]
+  const activeAgentSelection = agentSelections[composerSettingsSessionId ?? "draft"]
   // One shared optimistic-update/rollback dance for both agent-selection axes;
   // only the stored field and the IPC call differ.
   const makeAgentSelectionHandler = React.useCallback(
@@ -1825,7 +1834,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           ? chatService.invoke("setExternalSessionModel", { sessionId, ...(value ? { modelId: value } : {}) })
           : chatService.invoke("setExternalSessionEffort", { sessionId, ...(value ? { effortId: value } : {}) })
       return (value?: string): void => {
-        const key = activeChatSessionId ?? "draft"
+        const key = composerSettingsSessionId ?? "draft"
         // Read the rollback target from committed state before scheduling the
         // update: an updater may run later than (or be replayed after) this
         // handler, so a value captured inside it can be unset when the request
@@ -1841,8 +1850,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             field === "modelId" ? { modelId: value } : { effortId: value },
           )
         setAgentSelections((prev) => ({ ...prev, [key]: { ...prev[key], [field]: value } }))
-        if (activeChatSessionId) {
-          void send(activeChatSessionId, value)
+        if (composerSettingsSessionId) {
+          void send(composerSettingsSessionId, value)
             .then(() => {
               if (agentSelectionRequestSeq.current.get(`${key}:${field}`) === token) persistSelection()
             })
@@ -1862,7 +1871,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         }
       }
     },
-    [activeChatSessionId, chatService, displayedAgentKind, t],
+    [chatService, composerSettingsSessionId, displayedAgentKind, t],
   )
   const handleSelectAgentModel = React.useMemo(() => makeAgentSelectionHandler("modelId"), [makeAgentSelectionHandler])
   const handleSelectAgentEffort = React.useMemo(
@@ -1873,10 +1882,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   // live-process fallback for renderer reloads and in-flight native changes.
   React.useEffect(() => {
     const inputs = AGENT_PROFILES[displayedAgentKind].inputs
-    if (!activeChatSessionId || (!inputs.setModel && !inputs.setEffort)) {
+    if (!composerSettingsSessionId || (!inputs.setModel && !inputs.setEffort)) {
       return
     }
-    const sessionId = activeChatSessionId
+    const sessionId = composerSettingsSessionId
     if (agentSelectionsRef.current[sessionId]) {
       return
     }
@@ -1903,7 +1912,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     return () => {
       cancelled = true
     }
-  }, [activeChatSessionId, activeSession?.agentEffortId, activeSession?.agentModelId, chatService, displayedAgentKind])
+  }, [
+    activeSession?.agentEffortId,
+    activeSession?.agentModelId,
+    chatService,
+    composerSettingsSessionId,
+    displayedAgentKind,
+  ])
 
   const handleViewBilling = React.useCallback((target?: BillingDetailsTarget) => {
     setBillingInitialTarget(target ?? null)
@@ -2072,7 +2087,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     activeSession.scope?.kind === "team" &&
     activeSession.scope.teamId === teamWorkspace.activeWorkspace.team?.id
   const knowledgeContextRequired = route === "knowledge" || knowledgeTaskActive
-  const knowledgeDraft = route === "knowledge" && !knowledgeAnalysisActive
   const chatArea = (
     <ChatArea
       compact={route === "knowledge"}
@@ -2103,7 +2117,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       activity={knowledgeDraft || bridgeInitialSendPending ? null : activity}
       showEmptyState={knowledgeDraft || showChatEmptyState}
       bootstrapping={knowledgeDraft ? !chatReady || workspaceActivationBlocked : chatBootstrapping}
-      startupError={startupError}
+      startupError={composerStartupError}
       onStartupRetry={
         workspaceStartupError ? retryWorkspaceActivation : sessionSnapshotError ? retrySessionSnapshot : undefined
       }
@@ -2111,7 +2125,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       emptyTitle={chatEmptyTitle}
       generatedArtifacts={knowledgeDraft ? null : latestArtifactSelection}
       historyScope={billingCacheScope}
-      submitDisabled={chatSubmitDisabled}
+      submitDisabled={knowledgeDraft ? !chatReady || workspaceActivationBlocked || !sessionScope : chatSubmitDisabled}
       willQueueMessage={
         !knowledgeDraft &&
         Boolean(activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isSendInFlight()))
@@ -2146,7 +2160,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       placeholder={
         knowledgeDraft && chatReady
           ? t("knowledge.askPlaceholder")
-          : startupError
+          : composerStartupError
             ? t("error.agent.title")
             : modelRequired
               ? t("chat.modelRequiredPlaceholder")

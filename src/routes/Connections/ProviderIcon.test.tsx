@@ -54,6 +54,7 @@ test("shares sprite loading, crops every size, switches theme, and falls back on
   await act(async () => render("light"))
   expect(images).toHaveLength(1)
   expect(host.querySelectorAll("img")).toHaveLength(0)
+  expect(host.textContent).toBe("GGGG")
   await act(async () => images[0]!.onload!())
   expect(host.querySelectorAll("img")).toHaveLength(4)
   const image = host.querySelector("img")!
@@ -64,6 +65,8 @@ test("shares sprite loading, crops every size, switches theme, and falls back on
   await act(async () => render("dark"))
   expect(images).toHaveLength(2)
   expect(images[1]!.src).toBe(sprite.darkUrl)
+  expect(host.querySelectorAll("img")).toHaveLength(0)
+  expect(host.textContent).toBe("GGGG")
   await act(async () => images[1]!.onerror!())
   expect(host.querySelector("img")!.src).toBe("https://example.com/fallback.png")
   await act(async () => host.querySelectorAll("img").forEach((img) => img.dispatchEvent(new Event("error"))))

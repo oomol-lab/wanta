@@ -20,6 +20,15 @@ function provider(overrides: Partial<ConnectionProviderSummary>): ConnectionProv
 
 describe("Console-compatible provider categories", () => {
   it.each([
+    ["Cryptography API", "developer"],
+    ["股票行情", "investment"],
+    ["投资助手", "investment"],
+    ["Stock market API", "investment"],
+    ["Market database API", "developer"],
+  ] as const)("matches keyword boundaries without losing CJK and phrases: %s", (displayName, expected) => {
+    expect(resolveConnectorBusinessCategory(provider({ displayName, service: "unlisted-provider" }))).toBe(expected)
+  })
+  it.each([
     ["openai", "ai"],
     ["shopify_admin", "cross-border-ecommerce"],
     ["gmail", "communication"],

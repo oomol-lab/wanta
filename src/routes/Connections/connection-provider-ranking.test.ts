@@ -154,6 +154,23 @@ test("mixed own and built-in accounts keep own priority even when the built-in i
   expect(sortedServices([marketplace("seedance"), mixed])).toEqual(["kling", "seedance"])
 })
 
+test.each(["active", "reauth_required"] as const)(
+  "an errored default built-in does not override the %s own account's ranking",
+  (ownStatus) => {
+    const mixed = marketplace("kling", "error")
+    mixed.appId = mixed.apps[0]!.id
+    mixed.apps.push({ ...provider("kling", "connected").apps[0]!, status: ownStatus, isDefault: false })
+    const error = provider("z-error", "needs_attention")
+    const reauth = provider("z-reauth", "needs_attention")
+    reauth.apps[0]!.status = "reauth_required"
+    reauth.appStatus = "reauth_required"
+    reauth.appId = reauth.apps[0]!.id
+    expect(sortedServices([mixed, provider("gmail", "connected"), reauth, error])).toEqual(
+      ownStatus === "active" ? ["z-error", "z-reauth", "gmail", "kling"] : ["z-error", "kling", "z-reauth", "gmail"],
+    )
+  },
+)
+
 test("inactive, disconnected and non-OOMOL accounts cannot qualify for discounted priority", () => {
   const disconnected = marketplace("kling", "disconnected")
   const otherMarketplace = marketplace("seedance")

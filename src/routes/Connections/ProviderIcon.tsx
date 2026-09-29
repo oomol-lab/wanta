@@ -35,32 +35,30 @@ export function ProviderIcon({
         ? { width: "0.75rem", height: "0.75rem" }
         : undefined
   const className = size === "compact" ? "oo-entity-icon oo-entity-icon-compact" : "oo-entity-icon"
-  if (iconSprite && iconSpritePosition && spriteUrl && spriteStatus !== "failed") {
+  if (iconSprite && iconSpritePosition && spriteUrl && spriteStatus === "loaded") {
     return (
       <span className={`${className} oo-entity-icon-brand`} style={dim} aria-hidden="true">
         <span className="oo-entity-icon-image relative block overflow-hidden" style={imageDim}>
-          {spriteStatus === "loaded" ? (
-            <img
-              key={spriteUrl}
-              src={spriteUrl}
-              alt=""
-              referrerPolicy="no-referrer"
-              decoding="async"
-              draggable={false}
-              className="absolute max-w-none"
-              style={{
-                width: `${(iconSprite.width / iconSprite.iconSize) * 100}%`,
-                height: `${(iconSprite.height / iconSprite.iconSize) * 100}%`,
-                left: `${(-iconSpritePosition.x / iconSprite.iconSize) * 100}%`,
-                top: `${(-iconSpritePosition.y / iconSprite.iconSize) * 100}%`,
-              }}
-            />
-          ) : null}
+          <img
+            key={spriteUrl}
+            src={spriteUrl}
+            alt=""
+            referrerPolicy="no-referrer"
+            decoding="async"
+            draggable={false}
+            className="absolute max-w-none"
+            style={{
+              width: `${(iconSprite.width / iconSprite.iconSize) * 100}%`,
+              height: `${(iconSprite.height / iconSprite.iconSize) * 100}%`,
+              left: `${(-iconSpritePosition.x / iconSprite.iconSize) * 100}%`,
+              top: `${(-iconSpritePosition.y / iconSprite.iconSize) * 100}%`,
+            }}
+          />
         </span>
       </span>
     )
   }
-  if (iconUrl && iconUrl !== failedIconUrl) {
+  if (iconUrl && iconUrl !== failedIconUrl && spriteStatus !== "loading") {
     return (
       <span className={`${className} oo-entity-icon-brand`} style={dim}>
         <img

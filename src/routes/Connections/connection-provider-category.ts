@@ -241,6 +241,7 @@ const categoryKeywords: Record<ConnectorBusinessCategory, readonly string[]> = {
     "inbox",
     "mail",
     "mailgun",
+    "mailjet",
     "messaging",
     "outlook",
     "resend",
@@ -316,6 +317,8 @@ const categoryResolutionOrder: readonly ConnectorBusinessCategory[] = [
   "data-storage",
 ]
 
+const keywordMatchPatterns = new Map<string, RegExp>()
+
 export function resolveConnectorBusinessCategory(
   provider: Pick<ConnectionProviderSummary, "categoryIds" | "categoryLabels" | "displayName" | "service">,
 ): ConnectorBusinessCategory | null {
@@ -364,9 +367,13 @@ function buildSearchableText(parts: string[]): string {
 function matchesKeyword(source: string, keyword: string): boolean {
   const normalized = normalizeSearchValue(keyword)
   if (!normalized) return false
-  return normalized.length > 3 || /[^a-z0-9]/u.test(normalized)
-    ? source.includes(normalized)
-    : source.split(/[^\p{Script=Latin}\p{N}]+/u).includes(normalized)
+  let pattern = keywordMatchPatterns.get(normalized)
+  if (!pattern) {
+    const boundary = "[^\\p{Script=Latin}\\p{N}\\p{M}]"
+    pattern = new RegExp(`(?:^|${boundary})${normalized}(?=$|${boundary})`, "u")
+    keywordMatchPatterns.set(normalized, pattern)
+  }
+  return pattern.test(source)
 }
 
 function normalizeSearchValue(value: string): string {

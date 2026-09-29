@@ -112,9 +112,11 @@ function getConnectionProviderStatusWeight(provider: ConnectionProviderSummary):
   const ownApps = provider.apps.filter(isUserManagedCredentialApp)
   const configuredDirect = provider.executionMode === "direct" && provider.status !== "available"
   if (ownApps.length > 0 || configuredDirect) {
-    if (provider.status === "needs_attention") {
-      return provider.apps.some((app) => app.status === "error") || provider.appStatus === "error" ? 0 : 1
-    }
+    const selectedAppIsOwn = ownApps.some((app) => app.id === provider.appId)
+    const selectedStatus = selectedAppIsOwn || configuredDirect ? provider.appStatus : undefined
+    if (ownApps.some((app) => app.status === "error") || selectedStatus === "error") return 0
+    if (ownApps.some((app) => app.status === "reauth_required") || selectedStatus === "reauth_required") return 1
+    if (configuredDirect && provider.status === "needs_attention") return 1
     return 2
   }
   return getMarketplacePriceReduction(provider.service, provider.apps) !== undefined ? 3 : 4

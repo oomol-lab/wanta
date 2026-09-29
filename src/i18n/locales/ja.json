@@ -1,4 +1,10 @@
 {
+  "flows.loading": "ワークフローを読み込み中…",
+  "flows.title": "ワークフロー",
+  "flows.selectTeam": "チームを選択してワークフローを開きます。",
+  "flows.teamPaused": "このチームは停止中です。",
+  "flows.readOnly": "このチームのワークフローを変更する権限がありません。",
+
   "settings.languageSystem": "システムに従う",
   "common.justNow": "たった今",
   "common.cancel": "キャンセル",

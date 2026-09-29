@@ -293,6 +293,7 @@ export function initialRoute(): Route {
   const configuredRoute = (import.meta.env as Record<string, string | undefined>)["VITE_WANTA_ROUTE"]
   const route = configuredRoute === "organizations" ? "teams" : configuredRoute
   return route === "knowledge" ||
+    route === "flows" ||
     route === "settings" ||
     route === "connections" ||
     route === "skills" ||
@@ -304,7 +305,7 @@ export function initialRoute(): Route {
 }
 
 export function routeAvailableForRuntime(route: Route, cloudEnabled: boolean): boolean {
-  return cloudEnabled || (route !== "billing" && route !== "teams" && route !== "knowledge")
+  return cloudEnabled || (route !== "billing" && route !== "teams" && route !== "knowledge" && route !== "flows")
 }
 
 export function authorizationHandlingForLinkRuntime(runtime: ActiveLinkRuntime): "connections" | "drawer" | "external" {

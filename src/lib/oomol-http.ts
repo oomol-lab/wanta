@@ -62,17 +62,21 @@ function emitAuthRequired(response: Response, requestedAt: number): void {
  * 底层 fetch：强制 credentials:"include"（带上会话 cookie）+ 默认 Accept: application/json + 超时。
  * 不做状态码判断，由各域客户端按自身语义处理响应。
  */
-export function oomolFetch(input: string | URL, options: OomolFetchOptions = {}): Promise<Response> {
+export function oomolFetch(input: RequestInfo | URL, options: OomolFetchOptions = {}): Promise<Response> {
   const { timeoutMs = defaultTimeoutMs, headers, signal, ...init } = options
   const requestedAt = Date.now()
   // 用 Headers 规范化：调用方可能传 Headers 实例或 tuple 数组，对象展开会丢头（仅对纯对象有效）。
-  const mergedHeaders = new Headers(headers)
+  const original = input instanceof Request ? input : undefined
+  const mergedHeaders = new Headers(original?.headers)
+  new Headers(headers).forEach((value, key) => mergedHeaders.set(key, value))
   assertNoRendererCredentialHeaders(mergedHeaders)
   if (!mergedHeaders.has("Accept")) {
     mergedHeaders.set("Accept", "application/json")
   }
   const timeoutSignal = timeoutMs === null ? undefined : AbortSignal.timeout(timeoutMs)
-  const requestSignal = signal && timeoutSignal ? AbortSignal.any([signal, timeoutSignal]) : (signal ?? timeoutSignal)
+  const callerSignal = signal ?? original?.signal
+  const requestSignal =
+    callerSignal && timeoutSignal ? AbortSignal.any([callerSignal, timeoutSignal]) : (callerSignal ?? timeoutSignal)
   return fetch(input, {
     ...init,
     credentials: "include",

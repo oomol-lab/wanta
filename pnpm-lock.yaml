@@ -67,6 +67,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(supports-color@7.2.0)(zod@4.4.3)
+      '@oomol-lab/open-flow':
+        specifier: 0.1.0-beta.47
+        version: 0.1.0-beta.47(effect@4.0.0-rc.112)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@oomol/connection':
         specifier: 0.2.28
         version: 0.2.28
@@ -124,6 +127,9 @@ importers:
       docx-preview:
         specifier: 0.4.0
         version: 0.4.0
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
       electron:
         specifier: 43.4.1
         version: 43.4.1(supports-color@7.2.0)
@@ -544,6 +550,13 @@ packages:
   '@noble/hashes@2.4.0':
     resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
     engines: {node: '>= 20.19.0'}
+
+  '@oomol-lab/open-flow@0.1.0-beta.47':
+    resolution: {integrity: sha512-ZS2muDBffwHmouOAmbyvphMOID4OhNTKxoZEKeTqPvtuN8scT3WBxM4+HCdQ419u+b7Q5qnvNtcJFygyhhuIDw==}
+    peerDependencies:
+      effect: 4.0.0-rc.112
+      react: ^18.3.1 || ^19.0.0
+      react-dom: ^18.3.1 || ^19.0.0
 
   '@oomol/connection-electron-adapter@0.2.12':
     resolution: {integrity: sha512-Y01k7jJ+rJ4A4WRnmR7zSWLihZqlsW6itRQT2B1cDD1pT1vHbHz2XARXkKrLwIy/ZuO/BbzGB8kscHp+sCcuvA==}
@@ -2915,6 +2928,9 @@ packages:
 
   effect@4.0.0-beta.83:
     resolution: {integrity: sha512-0wsak8RtgGAr9UWSbVDgJHZcUqMSvicHcvaZv1MbMM7MCGgW4Rn/137J1MHQbwYPcwYGxT/IqehFd+UbYuj78w==}
+
+  effect@4.0.0-rc.112:
+    resolution: {integrity: sha512-wXxwuh1Ywnv4cPRM3Wfa0vDwuOHnZ1TsTgHJkG9XgzND6inhBH9n1vBxhg3iIXOia/OrpmvVmd3lrD4vq6bF3A==}
 
   ejs@3.1.10:
     resolution: {integrity: sha512-UeJmFfOrAQS8OJWPZ4qtgHyWExa088/MtK5UEyoJGFH67cDEXkZSviOiKRCZ4Xij0zxI3JECgYs3oKx+AizQBA==}
@@ -5449,6 +5465,12 @@ snapshots:
 
   '@noble/hashes@2.4.0': {}
 
+  '@oomol-lab/open-flow@0.1.0-beta.47(effect@4.0.0-rc.112)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      effect: 4.0.0-rc.112
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+
   '@oomol/connection-electron-adapter@0.2.12(@oomol/connection@0.2.28)':
     dependencies:
       '@oomol/connection': 0.2.28
@@ -7800,6 +7822,11 @@ snapshots:
       toml: 4.3.0
       uuid: 14.0.2
       yaml: 2.9.0
+
+  effect@4.0.0-rc.112:
+    dependencies:
+      fast-check: 4.9.0
+      msgpackr: 2.0.5
 
   ejs@3.1.10:
     dependencies:

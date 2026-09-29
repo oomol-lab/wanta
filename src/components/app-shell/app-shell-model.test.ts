@@ -143,6 +143,8 @@ describe("local workspace", () => {
     expect(routeAvailableForRuntime("billing", true)).toBe(true)
     expect(routeAvailableForRuntime("knowledge", false)).toBe(false)
     expect(routeAvailableForRuntime("knowledge", true)).toBe(true)
+    expect(routeAvailableForRuntime("flows", false)).toBe(false)
+    expect(routeAvailableForRuntime("flows", true)).toBe(true)
   })
 
   test("keeps project controls available without a running session", () => {

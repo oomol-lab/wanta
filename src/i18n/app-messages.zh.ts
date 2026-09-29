@@ -1,6 +1,12 @@
 import { skillsMessages } from "./skills-messages.ts"
 
 export const zhCNMessages = {
+  "flows.loading": "正在加载工作流…",
+  "flows.title": "工作流",
+  "flows.selectTeam": "选择团队以查看其工作流。",
+  "flows.teamPaused": "此团队已暂停。",
+  "flows.readOnly": "你没有修改此团队工作流的权限。",
+
   "knowledge.cancelUpload": "取消上传",
   "knowledge.title": "知识库",
   "knowledge.libraryTitle": "把资料放进来，接着问问题。",

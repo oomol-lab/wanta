@@ -1,0 +1,30 @@
+/* The desktop sidebar leaves less catalog width than Console's full-page layout.
+   Use the shared table's compact columns before its fixed tracks overlap actions. */
+@container open-flow-workbench (width <= 1000px) {
+  .wanta-flow-workbench .flow-columns {
+    grid-template-columns: minmax(0, 1fr) 104px;
+  }
+
+  .wanta-flow-workbench .resource-flow-id-heading,
+  .wanta-flow-workbench .resource-flow-id-cell,
+  .wanta-flow-workbench .resource-updated-at,
+  .wanta-flow-workbench .resource-updated-heading {
+    display: none;
+  }
+}
+
+/* beta.47 exposes its startup gate as an empty, busy main element. Keep the
+   workbench mounted and measured while covering that gate with the same skeleton
+   used for the lazy route import. Readiness includes catalog/variable loading and
+   the subscription handshake; request completion alone would hide it too early. */
+.wanta-flow-workbench > .wanta-flow-loading {
+  display: none;
+}
+
+.wanta-flow-workbench:has(> .open-flow-workbench > main[aria-busy="true"]) > .wanta-flow-loading {
+  display: block;
+}
+
+.wanta-flow-workbench:has(> .open-flow-workbench > main[aria-busy="true"]) > .open-flow-workbench {
+  visibility: hidden;
+}

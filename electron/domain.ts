@@ -73,3 +73,6 @@ export const externalModelProviderBaseUrls = {
 
 /** Team-scoped cloud knowledge gateway. */
 export const knowledgeBaseUrl = `https://knowledge-base.${ooEndpoint}`
+
+/** Team-scoped Open Flow workbench and notification service. */
+export const openFlowBaseUrl = `https://open-flow.${ooEndpoint}`

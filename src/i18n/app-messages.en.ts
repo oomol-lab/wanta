@@ -1,6 +1,12 @@
 import { skillsMessages } from "./skills-messages.ts"
 
 export const enMessages = {
+  "flows.loading": "Loading workflows…",
+  "flows.title": "Workflows",
+  "flows.selectTeam": "Select a team to open its workflows.",
+  "flows.teamPaused": "This team is paused.",
+  "flows.readOnly": "You do not have permission to change workflows in this team.",
+
   "knowledge.cancelUpload": "Cancel upload",
   "knowledge.title": "Knowledge base",
   "knowledge.libraryTitle": "Add your sources, then ask a question.",

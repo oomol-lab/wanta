@@ -2,6 +2,29 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { oomolAuthRequiredEventName, oomolFetch } from "./oomol-http.ts"
 
 describe("oomolFetch", () => {
+  it("preserves Request headers and cancellation while allowing init overrides", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response("{}"))
+    vi.stubGlobal("fetch", fetchMock)
+    const controller = new AbortController()
+    const request = new Request("https://example.com/", {
+      method: "POST",
+      body: "payload",
+      signal: controller.signal,
+      headers: { "X-Original": "yes", "X-Override": "old" },
+    })
+    await oomolFetch(request, { headers: { "X-Override": "new" } })
+    const [input, init] = fetchMock.mock.calls[0]!
+    expect(input).toBe(request)
+    expect(await request.text()).toBe("payload")
+    expect(new Headers(init?.headers).get("X-Original")).toBe("yes")
+    expect(new Headers(init?.headers).get("X-Override")).toBe("new")
+    controller.abort()
+    expect(init?.signal?.aborted).toBe(true)
+  })
+
+  it("rejects credential headers inherited from a Request", () => {
+    expect(() => oomolFetch(new Request("https://example.com/", { headers: { Cookie: "secret" } }))).toThrow(/cookie/)
+  })
   afterEach(() => {
     vi.unstubAllGlobals()
   })

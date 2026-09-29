@@ -1,4 +1,10 @@
 {
+  "flows.loading": "Chargement des workflows…",
+  "flows.title": "Workflows",
+  "flows.selectTeam": "Sélectionnez une équipe pour ouvrir ses workflows.",
+  "flows.teamPaused": "Cette équipe est suspendue.",
+  "flows.readOnly": "Vous ne pouvez pas modifier les workflows de cette équipe.",
+
   "settings.languageSystem": "Suivre le système",
   "common.justNow": "à l'instant",
   "common.cancel": "Annuler",

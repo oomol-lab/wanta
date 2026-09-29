@@ -1,4 +1,10 @@
 {
+  "flows.loading": "Cargando flujos de trabajo…",
+  "flows.title": "Flujos de trabajo",
+  "flows.selectTeam": "Selecciona un equipo para abrir sus flujos de trabajo.",
+  "flows.teamPaused": "Este equipo está suspendido.",
+  "flows.readOnly": "No tienes permiso para modificar los flujos de trabajo de este equipo.",
+
   "settings.languageSystem": "Seguir el sistema",
   "common.justNow": "ahora",
   "common.cancel": "Cancelar",

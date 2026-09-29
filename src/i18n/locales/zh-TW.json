@@ -1,4 +1,10 @@
 {
+  "flows.loading": "正在載入工作流程…",
+  "flows.title": "工作流程",
+  "flows.selectTeam": "選擇團隊以查看其工作流程。",
+  "flows.teamPaused": "此團隊已暫停。",
+  "flows.readOnly": "你沒有修改此團隊工作流程的權限。",
+
   "settings.languageSystem": "跟隨系統",
   "common.justNow": "剛剛",
   "common.cancel": "取消",

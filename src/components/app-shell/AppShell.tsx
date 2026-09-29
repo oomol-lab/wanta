@@ -120,10 +120,12 @@ import { ComposerDrafts } from "@/routes/Chat/composer-draft-store"
 import { hasComposerDraftContent } from "@/routes/Chat/composer-state"
 import { summarizeEmptyStateConnections } from "@/routes/Chat/empty-state-connections"
 import { normalizeConnectionCatalogFilter } from "@/routes/Connections/connection-route-model.ts"
+import { FlowsLoading } from "@/routes/Flows/FlowsLoading"
 
 const KnowledgeRoute = React.lazy(() =>
   import("@/routes/Knowledge").then((module) => ({ default: module.KnowledgeRoute })),
 )
+const FlowsRoute = React.lazy(() => import("@/routes/Flows").then((module) => ({ default: module.FlowsRoute })))
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
 )
@@ -300,6 +302,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [knowledgeAnalysisActive, setKnowledgeAnalysisActive] = React.useState(false)
   const knowledgeDraft = route === "knowledge" && !knowledgeAnalysisActive
   const [knowledgeSelection, setKnowledgeSelection] = React.useState<KnowledgeSourceSelection | null>(null)
+  const flowWorkspaceScope = `${accountId}:${teamWorkspace.activeWorkspace.teamId}`
+  const [openedFlowWorkspaceScope, setOpenedFlowWorkspaceScope] = React.useState<string | null>(null)
+  React.useEffect(() => {
+    if (route === "flows") setOpenedFlowWorkspaceScope(flowWorkspaceScope)
+  }, [flowWorkspaceScope, route])
   React.useEffect(() => {
     if (route !== "knowledge") setKnowledgeAnalysisActive(false)
   }, [route])
@@ -921,21 +928,23 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const showComposerProjectContext = route === "chat"
   const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
   const titlebarTitle =
-    route === "knowledge"
-      ? t("knowledge.title")
-      : route === "settings"
-        ? t("settings.title")
-        : route === "billing"
-          ? t("billing.title")
-          : route === "connections"
-            ? t("connections.title")
-            : route === "skills"
-              ? t("skills.title")
-              : route === "teams"
-                ? t("teams.title")
-                : route === "archived"
-                  ? t("archived.title")
-                  : (activeSession?.title ?? t("chat.newSession"))
+    route === "flows"
+      ? t("flows.title")
+      : route === "knowledge"
+        ? t("knowledge.title")
+        : route === "settings"
+          ? t("settings.title")
+          : route === "billing"
+            ? t("billing.title")
+            : route === "connections"
+              ? t("connections.title")
+              : route === "skills"
+                ? t("skills.title")
+                : route === "teams"
+                  ? t("teams.title")
+                  : route === "archived"
+                    ? t("archived.title")
+                    : (activeSession?.title ?? t("chat.newSession"))
   const titlebarEditable = route === "chat" && Boolean(activeSession)
 
   React.useEffect(() => {
@@ -2337,8 +2346,20 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           />
 
           <main className="oo-content-surface min-h-0 min-w-0 overflow-hidden">
-            <React.Suspense fallback={<RouteLoadingFallback />}>
-              {route === "knowledge" && oomolEnabled ? (
+            <React.Suspense fallback={route === "flows" ? <FlowsLoading /> : <RouteLoadingFallback />}>
+              {/* Keep the same team's editor alive during a Connections round trip, including blur-triggered saves. */}
+              {oomolEnabled && (route === "flows" || openedFlowWorkspaceScope === flowWorkspaceScope) ? (
+                <div hidden={route !== "flows"} inert={route !== "flows"} className="h-full min-h-0">
+                  <FlowsRoute
+                    key={flowWorkspaceScope}
+                    accountId={accountId ?? ""}
+                    team={teamWorkspace.activeWorkspace.team}
+                    writable={teamWorkspace.activeWorkspace.canManage}
+                    onConfigureConnector={oomolLinkActive ? () => setRoute("connections") : undefined}
+                  />
+                </div>
+              ) : null}
+              {route === "flows" && oomolEnabled ? null : route === "knowledge" && oomolEnabled ? (
                 <KnowledgeRoute
                   key={`${accountId}:${teamWorkspace.activeWorkspace.teamId}`}
                   teamId={teamWorkspace.activeWorkspace.team?.id ?? ""}

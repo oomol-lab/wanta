@@ -197,6 +197,7 @@ export default defineConfig(({ command, mode }) => {
     // 一次性 esbuild 预构建，避免渲染进程首次触达这些依赖时才即时优化、进而触发整页 reload 的卡顿。
     optimizeDeps: {
       include: [
+        "@oomol-lab/open-flow/workbench",
         "@iconify-icons/simple-icons/cloudflare",
         "@iconify-icons/simple-icons/googlebigquery",
         "@iconify-icons/simple-icons/openai",

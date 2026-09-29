@@ -1,4 +1,10 @@
 {
+  "flows.loading": "워크플로 로드 중…",
+  "flows.title": "워크플로",
+  "flows.selectTeam": "팀을 선택하여 워크플로를 여세요.",
+  "flows.teamPaused": "이 팀은 일시 중지되었습니다.",
+  "flows.readOnly": "이 팀의 워크플로를 변경할 권한이 없습니다.",
+
   "settings.languageSystem": "시스템 설정 따르기",
   "common.justNow": "방금",
   "common.cancel": "취소",

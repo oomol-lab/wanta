@@ -52,7 +52,12 @@ export function DisconnectDialog({
       }
     >
       <div className="flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2">
-        <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />
+        <ProviderIcon
+          iconSprite={provider.iconSprite}
+          iconSpritePosition={provider.iconSpritePosition}
+          iconUrl={provider.iconUrl}
+          displayName={provider.displayName}
+        />
         <div className="min-w-0">
           <div className="oo-text-label truncate">{provider.displayName}</div>
           <div className="oo-text-caption oo-text-muted truncate">{accountTypeLabel}</div>

@@ -20,6 +20,11 @@ import type {
   ConnectionWorkspace,
 } from "./common.ts"
 
+import {
+  normalizeProviderIconPosition,
+  normalizeProviderIconSprite,
+  providerIconSpriteFromMeta,
+} from "./provider-icon.ts"
 import { createEmptyConnectionSummary } from "./summary-model.ts"
 
 export interface RawApp {
@@ -52,6 +57,8 @@ export interface RawProvider {
   homepageUrl?: unknown
   icon?: unknown
   iconUrl?: unknown
+  iconSprite?: unknown
+  iconSpritePosition?: unknown
   oauthClientConfig?: unknown
   searchAliases?: unknown
   service?: unknown
@@ -224,7 +231,7 @@ function normalizeCredentialAuthTypes(value: unknown): ConnectionCredentialAuthT
   })
 }
 
-function normalizeMarketplace(value: unknown): ConnectionAppSummary["marketplace"] {
+export function normalizeMarketplace(value: unknown): ConnectionAppSummary["marketplace"] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
   const marketplace = value as RawMarketplaceSummary
   const id = asString(marketplace.id)
@@ -700,6 +707,7 @@ export function getProviderConnectionState(
 export function normalizeProvider(
   item: RawProvider,
   appsByService: Map<string, ConnectionAppSummary[]>,
+  iconSprite = normalizeProviderIconSprite(item.iconSprite),
 ): ConnectionProviderSummary | undefined {
   const service = asString(item.service)
   if (!service) {
@@ -717,6 +725,8 @@ export function normalizeProvider(
     categoryLabels: normalizeCategories(item.categories),
     displayName: asString(item.displayName) ?? service,
     iconUrl: asString(item.iconUrl) ?? asString(item.icon),
+    iconSprite,
+    iconSpritePosition: normalizeProviderIconPosition(item.iconSpritePosition, iconSprite),
     oauthClientConfig: normalizeOAuthClientConfig(item.oauthClientConfig, service),
     searchAliases: normalizedStringList(item.searchAliases),
   }
@@ -726,11 +736,13 @@ export function mergeConnectionSummary({
   apps: rawApps,
   meta,
   providers: rawProviders,
+  providerMeta,
   workspace,
 }: {
   apps: RawApp[]
   meta?: RawAppListMeta | null
   providers: RawProvider[]
+  providerMeta?: unknown
   workspace?: ConnectionWorkspace
 }): ConnectionSummary {
   const apps = rawApps.map(normalizeApp).filter((app): app is ConnectionAppSummary => Boolean(app))
@@ -741,8 +753,9 @@ export function mergeConnectionSummary({
     current.push(app)
     appsByService.set(app.service, current)
   }
+  const iconSprite = providerIconSpriteFromMeta(providerMeta)
   const providers = rawProviders
-    .map((provider) => normalizeProvider(provider, appsByService))
+    .map((provider) => normalizeProvider(provider, appsByService, iconSprite))
     .filter((provider): provider is ConnectionProviderSummary => Boolean(provider))
   const appListSummary = meta?.summary
   const providerCount = asNumber(appListSummary?.providerCount) ?? rawProviders.length

@@ -116,3 +116,30 @@ test("category detail exposes an explicit back action", async () => {
 
   act(() => root.unmount())
 })
+
+test("discovery order matches Console and merged collaboration counts use the same category", async () => {
+  const root = await render(
+    <ConnectionScenarioShowcase
+      providers={[
+        provider({ service: "hithink_finance", displayName: "同花顺" }),
+        provider({ service: "notion" }),
+        provider({ service: "gmail" }),
+      ]}
+      onSelect={() => undefined}
+    />,
+  )
+  const cards = [...document.querySelectorAll<HTMLButtonElement>('button[aria-label^="View "]')]
+  expect(cards.map((card) => card.getAttribute("aria-label"))).toEqual([
+    "View E-commerce operations connectors",
+    "View Investing & trading connectors",
+    "View AI & agents connectors",
+    "View Marketing & growth connectors",
+    "View Collaboration & knowledge connectors",
+    "View Projects & productivity connectors",
+    "View Data & analytics connectors",
+    "View Development & cloud connectors",
+  ])
+  expect(cards[1].textContent).toContain("1")
+  expect(cards[4].textContent).toContain("2")
+  act(() => root.unmount())
+})

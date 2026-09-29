@@ -78,3 +78,60 @@ describe("persistent connector cache", () => {
     expect(sessionStorage.length).toBe(0)
   })
 })
+
+it("persists only public sprite metadata and safe marketplace fields", () => {
+  localStorage.clear()
+  sessionStorage.clear()
+  const sprite = {
+    version: "v1",
+    pixelRatio: 2,
+    iconSize: 64,
+    bleed: 2,
+    width: 256,
+    height: 128,
+    lightUrl: "https://example.com/light.png",
+    darkUrl: "https://example.com/dark.png",
+  }
+  writePersistentConnectorCache("/v1/providers", null, {
+    data: [{ service: "kling" }],
+    meta: { iconSprite: { ...sprite, credential: "secret" }, token: "secret" },
+  })
+  expect(readPersistentConnectorCache("/v1/providers", null)?.meta).toEqual({ iconSprite: sprite })
+  writePersistentConnectorCache("/v1/connections", managementWorkspace, {
+    data: [
+      {
+        id: "marketplace:oomol:kling",
+        service: "kling",
+        authType: "marketplace",
+        status: "active",
+        marketplace: { id: "oomol", pricing: "metered", credential: "secret" },
+      },
+    ],
+    meta: null,
+  })
+  expect(readPersistentConnectorCache("/v1/connections", managementWorkspace)?.data).toEqual([
+    {
+      id: "marketplace:oomol:kling",
+      service: "kling",
+      authType: "marketplace",
+      status: "active",
+      marketplace: { id: "oomol", pricing: "metered" },
+    },
+  ])
+  expect(localStorage.getItem(localStorage.key(0)!)).not.toContain("secret")
+  expect(sessionStorage.getItem(sessionStorage.key(0)!)).not.toContain("secret")
+})
+
+it("ignores the previous cache generation which discarded sprite and marketplace metadata", () => {
+  localStorage.clear()
+  localStorage.setItem(
+    "wanta:connections:providers:v1:%2Fv1%2Fproviders",
+    JSON.stringify({
+      version: 1,
+      data: [{ service: "legacy" }],
+      meta: null,
+      etag: '"old"',
+    }),
+  )
+  expect(readPersistentConnectorCache("/v1/providers", null)).toBeNull()
+})

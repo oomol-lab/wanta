@@ -29,6 +29,7 @@ import {
   matchesProviderQuery,
   normalizeConnectionCatalogFilter,
   normalizeConnectionAliasInput,
+  isValidConnectionAlias,
   parseFilterValue,
   resolveConnectionDiscoveryCategory,
   selectVisibleCategoryFilters,
@@ -261,7 +262,7 @@ test("discovery categories combine raw catalog labels into task-led groups", () 
   const finance = provider({ categoryIds: ["productivity"], categoryLabels: ["财务"], service: "finance-provider" })
   const maps = provider({ categoryIds: ["data-storage"], categoryLabels: ["地图"], service: "maps" })
 
-  assert.equal(matchesConnectionDiscoveryCategory(documentation, "knowledge"), true)
+  assert.equal(matchesConnectionDiscoveryCategory(documentation, "communication"), true)
   assert.equal(matchesConnectionDiscoveryCategory(storage, "data-storage"), true)
   assert.equal(matchesConnectionDiscoveryCategory(social, "communication"), true)
   assert.equal(matchesConnectionDiscoveryCategory(finance, "productivity"), true)
@@ -290,7 +291,7 @@ test("stable category ids drive one cross-locale discovery category per provider
   assert.equal(resolveConnectionDiscoveryCategory(localizedDeveloper), "developer")
   assert.equal(matchesConnectionDiscoveryCategory(localizedDeveloper, "developer"), true)
   assert.equal(resolveConnectionDiscoveryCategory(primaryCategoryWins), "communication")
-  assert.equal(matchesConnectionDiscoveryCategory(primaryCategoryWins, "knowledge"), false)
+  assert.equal(matchesConnectionDiscoveryCategory(primaryCategoryWins, "investment"), false)
   assert.equal(resolveConnectionDiscoveryCategory(crossBorderOverride), "cross-border-ecommerce")
 })
 
@@ -436,4 +437,14 @@ test("getFittingCategoryFilterCount reserves space for More categories", () => {
     }),
     2,
   )
+})
+
+test("normalizes aliases to backend rules and still allows clearing an alias", () => {
+  assert.equal(normalizeConnectionAliasInput("-_Work_01"), "work_01")
+  assert.equal(normalizeConnectionAliasInput("__--123_role"), "123_role")
+  assert.equal(isValidConnectionAlias(""), true)
+  assert.equal(isValidConnectionAlias("123_role"), true)
+  for (const value of ["_role", "-role", "Work", "hello world", "角色"]) {
+    assert.equal(isValidConnectionAlias(value), false, value)
+  }
 })

@@ -12,6 +12,7 @@ import type { TranslateFn } from "@/i18n/i18n"
 
 import { Copy, KeyRound, Save } from "lucide-react"
 import * as React from "react"
+import { normalizeApiKeyInput } from "./connection-api-key-input.ts"
 import { connectionDescriptionSegments } from "./connection-description-links.ts"
 import {
   buildCredentialSummaryDisplayValues,
@@ -505,7 +506,7 @@ export function ConnectDialog({
       onSubmit({
         authType: "api_key",
         service: detail.service,
-        apiKey: values[PRIMARY_KEY]?.trim() ?? "",
+        apiKey: normalizeApiKeyInput(detail.service, values[PRIMARY_KEY]?.trim() ?? ""),
         comment,
         extra: Object.keys(extra).length > 0 ? extra : undefined,
         appId,

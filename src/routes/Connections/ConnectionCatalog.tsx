@@ -686,7 +686,12 @@ const ProviderCard = React.memo(function ProviderCard({
       style={{ height: providerGridCardHeightPx }}
     >
       <span className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
-        <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />
+        <ProviderIcon
+          iconSprite={provider.iconSprite}
+          iconSpritePosition={provider.iconSpritePosition}
+          iconUrl={provider.iconUrl}
+          displayName={provider.displayName}
+        />
         <span className="grid min-w-0 gap-0.5">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="oo-text-control truncate font-medium">{provider.displayName}</span>

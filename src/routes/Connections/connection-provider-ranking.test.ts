@@ -1,4 +1,4 @@
-import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
+import type { ConnectionAppSummary, ConnectionProviderSummary } from "../../../electron/connections/common.ts"
 
 import { describe, expect, test } from "vitest"
 import {
@@ -15,7 +15,20 @@ function provider(
   return {
     actionKind: "oauth2",
     appCount: status === "available" ? 0 : 1,
-    apps: [],
+    apps:
+      status === "available"
+        ? []
+        : [
+            {
+              id: `own-${service}`,
+              service,
+              authType: "oauth2",
+              isDefault: true,
+              createdAt: 1,
+              updatedAt: 1,
+              status: status === "connected" ? "active" : "error",
+            },
+          ],
     authTypes: ["oauth2"],
     canDisconnect: status !== "available",
     categoryLabels: [],
@@ -49,7 +62,7 @@ describe("connection provider recommendation ranking", () => {
         provider("gmail", "available", "Gmail"),
         provider("googlesheets", "available", "Google Sheets"),
       ]),
-    ).toEqual(["gmail", "googlesheets", "github", "quickchart"])
+    ).toEqual(["googlesheets", "gmail", "github", "quickchart"])
   })
 
   test("mixes directly available and connectable providers by recommendation", () => {
@@ -57,6 +70,7 @@ describe("connection provider recommendation ranking", () => {
       ...provider("gmail", "connected", "Gmail"),
       actionKind: "no_auth" as const,
       appCount: 0,
+      apps: [],
       appStatus: undefined,
       authTypes: ["no_auth" as const],
     }
@@ -94,4 +108,87 @@ describe("connection provider recommendation ranking", () => {
       [older, recent].sort((left, right) => compareConnectionProviders(left, right, "recently-connected"))[0]?.service,
     ).toBe("recent")
   })
+})
+
+function marketplace(service: string, status: ConnectionAppSummary["status"] = "active"): ConnectionProviderSummary {
+  return {
+    ...provider(service, status === "active" ? "connected" : "needs_attention"),
+    appAuthType: "marketplace",
+    appStatus: status,
+    apps: [
+      {
+        id: `marketplace:oomol:${service}`,
+        authType: "marketplace",
+        service,
+        marketplace: { id: "oomol", pricing: "metered" },
+        isDefault: true,
+        createdAt: 0,
+        updatedAt: 0,
+        status,
+      },
+    ],
+  }
+}
+
+test("puts own error, reauth and healthy accounts before active discounted and ordinary built-ins", () => {
+  const error = provider("z-error", "needs_attention")
+  const reauth = provider("z-reauth", "needs_attention")
+  reauth.apps[0]!.status = "reauth_required"
+  reauth.appStatus = "reauth_required"
+  expect(
+    sortedServices([
+      marketplace("kling"),
+      marketplace("gmail"),
+      marketplace("seedance"),
+      provider("z-own", "connected"),
+      reauth,
+      error,
+      provider("googlecalendar"),
+    ]),
+  ).toEqual(["z-error", "z-reauth", "z-own", "kling", "seedance", "gmail", "googlecalendar"])
+})
+
+test("mixed own and built-in accounts keep own priority even when the built-in is default", () => {
+  const mixed = marketplace("kling")
+  mixed.apps.push({ ...provider("kling", "connected").apps[0]!, isDefault: false })
+  expect(sortedServices([marketplace("seedance"), mixed])).toEqual(["kling", "seedance"])
+})
+
+test("inactive, disconnected and non-OOMOL accounts cannot qualify for discounted priority", () => {
+  const disconnected = marketplace("kling", "disconnected")
+  const otherMarketplace = marketplace("seedance")
+  otherMarketplace.apps[0]!.marketplace!.id = "other"
+  expect(
+    sortedServices([
+      marketplace("minimax", "error"),
+      marketplace("kling", "reauth_required"),
+      disconnected,
+      otherMarketplace,
+      provider("gmail"),
+    ]),
+  ).toEqual(["gmail", "kling", "kling", "minimax", "seedance"])
+})
+
+test("configured local CLI providers participate without remote app records", () => {
+  const local = { ...provider("lark-cli", "connected"), executionMode: "direct" as const, apps: [] }
+  const expired = { ...provider("wecom-cli", "needs_attention"), executionMode: "direct" as const, apps: [] }
+  const unconfigured = { ...provider("dingtalk-cli"), executionMode: "direct" as const }
+  expect(sortedServices([marketplace("kling"), local, expired, unconfigured])).toEqual([
+    "wecom-cli",
+    "lark-cli",
+    "kling",
+    "dingtalk-cli",
+  ])
+})
+
+test("disconnected own and virtual no-auth accounts do not outrank a discount", () => {
+  const disconnected = provider("gmail", "connected")
+  disconnected.apps[0]!.status = "disconnected"
+  const noAuth = provider("googlesheets", "connected")
+  noAuth.apps[0]!.id = "no_auth:googlesheets"
+  expect(sortedServices([disconnected, noAuth, marketplace("kling")])).toEqual(["kling", "googlesheets", "gmail"])
+})
+
+test("language priority precedes the recommendation table within a group", () => {
+  expect(sortedServices([provider("gmail"), provider("unknown", "available", "同花顺")])).toEqual(["unknown", "gmail"])
 })

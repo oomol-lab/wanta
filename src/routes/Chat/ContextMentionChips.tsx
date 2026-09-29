@@ -95,7 +95,13 @@ export function ContextMentionChips({
             title={contextMentionTitle(mention, provider)}
           >
             {mention.kind === "connection" && provider ? (
-              <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
+              <ProviderIcon
+                iconSprite={provider.iconSprite}
+                iconSpritePosition={provider.iconSpritePosition}
+                iconUrl={provider.iconUrl}
+                displayName={provider.displayName}
+                size="compact"
+              />
             ) : (
               <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                 {mention.kind === "skill" ? (

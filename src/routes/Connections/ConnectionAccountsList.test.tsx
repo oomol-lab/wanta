@@ -69,6 +69,48 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+it("normalizes edited aliases before saving and permits clearing them", async () => {
+  const updateAlias = vi.fn(async () => true)
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  await act(async () =>
+    root.render(
+      <I18nContext.Provider
+        value={{ locale: "en", setLocale: () => undefined, t: (key, vars) => translate("en", key, vars) }}
+      >
+        <ConnectionAccountsList
+          busy={null}
+          canManageConnections
+          polling={null}
+          provider={{ ...provider, apps: [{ ...app, authType: "oauth2", alias: "original" }] }}
+          connections={{ updateAlias } as unknown as UseConnections}
+          onConnect={async () => undefined}
+          onDisconnect={() => undefined}
+          onOpenAccess={() => undefined}
+        />
+      </I18nContext.Provider>,
+    ),
+  )
+  for (const [inputValue, savedValue] of [
+    ["-_Work_01", "work_01"],
+    ["", ""],
+  ]) {
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Edit connection name"]')!.click())
+    const input = host.querySelector<HTMLInputElement>("input")!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, inputValue)
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    expect(input.value).toBe(savedValue)
+    const save = host.querySelector<HTMLButtonElement>('[aria-label="Save connection name"]')!
+    expect(save.disabled).toBe(false)
+    await act(async () => save.click())
+    expect(updateAlias).toHaveBeenLastCalledWith(app.id, savedValue)
+  }
+  act(() => root.unmount())
+})
+
 describe("ConnectionAccountsList access dialog ownership", () => {
   it("delegates access opening without mounting a modal from duplicated responsive lists", async () => {
     const onOpenAccess = vi.fn()

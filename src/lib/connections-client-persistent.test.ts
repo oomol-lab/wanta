@@ -9,6 +9,17 @@ import {
   getConnectionCatalogSummary,
 } from "./connections-client.ts"
 
+const sprite = {
+  version: "v1",
+  pixelRatio: 2,
+  iconSize: 64,
+  bleed: 2,
+  width: 256,
+  height: 128,
+  lightUrl: "https://example.com/light.png",
+  darkUrl: "https://example.com/dark.png",
+}
+
 const workspace = { manageable: true, teamName: "acme" } as const
 
 describe("connections client persistent hydration", () => {
@@ -39,7 +50,12 @@ describe("connections client persistent hydration", () => {
       }
       if (url.includes("/v1/providers")) {
         return Response.json(
-          { data: [{ authTypes: ["oauth2"], displayName: "GitHub", service: "github" }] },
+          {
+            data: [
+              { authTypes: ["oauth2"], displayName: "GitHub", service: "github", iconSpritePosition: { x: 64, y: 0 } },
+            ],
+            meta: { iconSprite: sprite },
+          },
           { headers: { etag: '"providers-v1"' } },
         )
       }
@@ -51,13 +67,17 @@ describe("connections client persistent hydration", () => {
     clearConnectorCache()
     expect(getCachedConnectionCatalogSummary(workspace, "en")).toMatchObject({
       appsStatus: "ready",
-      providers: [{ displayName: "GitHub", status: "connected" }],
+      providers: [
+        { displayName: "GitHub", status: "connected", iconSprite: sprite, iconSpritePosition: { x: 64, y: 0 } },
+      ],
     })
 
     revalidate = true
     fetchMock.mockClear()
     await expect(getConnectionCatalogSummary(workspace, { forceRefresh: true }, "en")).resolves.toMatchObject({
-      providers: [{ displayName: "GitHub", status: "connected" }],
+      providers: [
+        { displayName: "GitHub", status: "connected", iconSprite: sprite, iconSpritePosition: { x: 64, y: 0 } },
+      ],
     })
     const appRequest = fetchMock.mock.calls.find(([url]) => String(url).includes("/v1/connections"))
     const providerRequest = fetchMock.mock.calls.find(([url]) => String(url).includes("/v1/providers"))
@@ -139,4 +159,40 @@ describe("connections client persistent hydration", () => {
     expect(localStorage.length).toBeGreaterThan(0)
     expect(sessionStorage.length).toBe(0)
   })
+})
+
+it("preserves sprite metadata in the early catalog while app inventory is still pending", async () => {
+  let finishApps!: (response: Response) => void
+  const fetchMock = vi.fn<typeof fetch>((input) => {
+    if (String(input).includes("/v1/providers"))
+      return Promise.resolve(
+        Response.json({
+          data: [{ service: "demo", iconSpritePosition: { x: 0, y: 0 } }],
+          meta: { iconSprite: sprite },
+        }),
+      )
+    return new Promise<Response>((resolve) => {
+      finishApps = resolve
+    })
+  })
+  localStorage.clear()
+  sessionStorage.clear()
+  clearConnectorCache()
+  vi.stubGlobal("fetch", fetchMock)
+  const onProvidersLoaded = vi.fn()
+  try {
+    const pending = getConnectionCatalogSummary(workspace, { onProvidersLoaded })
+    await vi.waitFor(() => expect(onProvidersLoaded).toHaveBeenCalledOnce())
+    expect(onProvidersLoaded.mock.calls[0][0]).toMatchObject({
+      appsStatus: "loading",
+      providers: [{ iconSprite: sprite, iconSpritePosition: { x: 0, y: 0 } }],
+    })
+    finishApps(Response.json({ data: [] }))
+    await pending
+  } finally {
+    clearConnectorAccountCache()
+    localStorage.clear()
+    sessionStorage.clear()
+    vi.unstubAllGlobals()
+  }
 })

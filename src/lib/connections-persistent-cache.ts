@@ -1,5 +1,7 @@
 import type { ConnectionWorkspace } from "../../electron/connections/common.ts"
 
+import { providerIconSpriteFromMeta } from "../../electron/connections/provider-icon.ts"
+import { normalizeMarketplace } from "../../electron/connections/summary.ts"
 import { connectionWorkspaceKey } from "./connection-workspace.ts"
 
 export interface PersistentConnectorCacheEntry {
@@ -9,7 +11,7 @@ export interface PersistentConnectorCacheEntry {
   meta: unknown
 }
 
-const persistentCacheVersion = 1
+const persistentCacheVersion = 2
 const providerCachePrefix = `wanta:connections:providers:v${persistentCacheVersion}:`
 const appsCachePrefix = `wanta:connections:apps:v${persistentCacheVersion}:`
 
@@ -135,6 +137,7 @@ function sanitizePersistentData(value: unknown, kind: "apps" | "providers"): unk
     displayName: app["displayName"],
     id: app["id"],
     isDefault: app["isDefault"],
+    marketplace: normalizeMarketplace(app["marketplace"]),
     providerAccountId: app["providerAccountId"],
     scopes: app["scopes"],
     service: app["service"],
@@ -144,7 +147,11 @@ function sanitizePersistentData(value: unknown, kind: "apps" | "providers"): unk
 }
 
 function sanitizePersistentMeta(value: unknown, kind: "apps" | "providers"): unknown {
-  if (kind === "providers" || !value || typeof value !== "object" || Array.isArray(value)) return null
+  if (kind === "providers") {
+    const iconSprite = providerIconSpriteFromMeta(value)
+    return iconSprite ? { iconSprite } : null
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const summary = (value as Record<string, unknown>)["summary"]
   if (!summary || typeof summary !== "object" || Array.isArray(summary)) return null
   const record = summary as Record<string, unknown>

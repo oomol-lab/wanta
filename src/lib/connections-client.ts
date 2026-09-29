@@ -17,6 +17,7 @@ import { branding } from "../../electron/branding.ts"
 import { createConnectorOAuthReturnUri, parseConnectorAuthorizationUrl } from "../../electron/connections/domain.ts"
 import { normalizeConnectionExecutionLogs } from "../../electron/connections/executions.ts"
 import { createFederatedConnectBody } from "../../electron/connections/federated.ts"
+import { providerIconSpriteFromMeta } from "../../electron/connections/provider-icon.ts"
 import {
   mergeConnectionSummary,
   normalizeConnectionAppDetail,
@@ -459,7 +460,13 @@ export async function getConnectionCatalogSummary(
       (result) => {
         if (!appsSettled)
           options.onProvidersLoaded?.({
-            ...mergeConnectionSummary({ apps: [], meta: null, providers: result.data, workspace }),
+            ...mergeConnectionSummary({
+              apps: [],
+              meta: null,
+              providers: result.data,
+              providerMeta: result.meta,
+              workspace,
+            }),
             appsStatus: "loading",
           })
         return result
@@ -491,6 +498,7 @@ export async function getConnectionCatalogSummary(
       apps: appsResult.status === "fulfilled" ? appsResult.value.data : [],
       meta: appsResult.status === "fulfilled" ? (appsResult.value.meta as RawAppListMeta | null) : null,
       providers: providersResult.value.data,
+      providerMeta: providersResult.value.meta,
       workspace,
     }),
     appsStatus,
@@ -510,6 +518,7 @@ export function getCachedConnectionCatalogSummary(
         apps: (appsResult?.data as RawApp[] | undefined) ?? [],
         meta: (appsResult?.meta as RawAppListMeta | null | undefined) ?? null,
         providers: providersResult.data as RawProvider[],
+        providerMeta: providersResult.meta,
         workspace,
       }),
       appsStatus: appsResult ? "ready" : "unavailable",
@@ -590,7 +599,7 @@ export async function getConnectionProviderDetail(service: string, locale?: stri
   // Provider 详情属于公共目录；账号状态已经由摘要提供，不再为打开详情重复读取整套摘要与 usage。
   const search = locale ? `?${new URLSearchParams({ locale }).toString()}` : ""
   const providerResult = await getConnector<RawProvider>(`/v1/providers/${encodeURIComponent(service)}${search}`, null)
-  const provider = normalizeProvider(providerResult.data, new Map())
+  const provider = normalizeProvider(providerResult.data, new Map(), providerIconSpriteFromMeta(providerResult.meta))
   if (!provider) {
     throw new Error(`Provider ${service} is not available`)
   }

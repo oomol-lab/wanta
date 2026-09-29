@@ -62,7 +62,23 @@ export interface ConnectionAppDetail extends ConnectionAppSummary {
   credentialSummary?: ConnectionCredentialSummary
 }
 
-export interface ConnectionProviderSummary {
+export interface ConnectionProviderIconSprite {
+  version: string
+  pixelRatio: number
+  iconSize: number
+  bleed: number
+  width: number
+  height: number
+  lightUrl: string
+  darkUrl: string
+}
+
+export interface ConnectionProviderIcon {
+  iconSprite?: ConnectionProviderIconSprite
+  iconSpritePosition?: { x: number; y: number }
+}
+
+export interface ConnectionProviderSummary extends ConnectionProviderIcon {
   accountLabel?: string
   appId?: string
   appStatus?: ConnectionAppStatus

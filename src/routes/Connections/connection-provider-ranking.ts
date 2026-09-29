@@ -1,37 +1,51 @@
 import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
 
-import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
+import { isUserManagedCredentialApp } from "../../../electron/connections/summary.ts"
+import { getMarketplacePriceReduction } from "./connection-provider-pricing.ts"
 
 export const recommendedConnectionServicePriority = [
-  "gmail",
   "googlesheets",
+  "gmail",
+  "slack",
   "googlecalendar",
   "googledrive",
   "github",
-  "slack",
   "notion",
-  "googledocs",
-  "airtable",
-  "trello",
-  "jira",
-  "linear",
-  "asana",
-  "clickup",
   "hubspot",
   "googleforms",
+  "airtable",
+  "trello",
+  "asana",
+  "jira",
+  "linear",
+  "clickup",
+  "monday",
+  "googledocs",
   "googleslides",
   "dropbox",
+  "box",
   "confluence",
   "outlook",
   "discord",
   "telegram",
-  "stripe",
+  "twilio",
+  "sendgrid",
+  "mailchimp",
   "shopify",
+  "stripe",
   "googleanalytics",
   "googlesearchconsole",
+  "facebookleadads",
+  "metaads",
+  "linkedin",
+  "salesforce",
+  "pipedrive",
+  "zendesk",
+  "intercom",
   "openai",
   "anthropic",
   "gemini",
+  "perplexity",
   "deepseek",
   "gitlab",
   "dockerhub",
@@ -72,6 +86,7 @@ export function compareConnectionProvidersByRecommendation(
 ): number {
   return (
     getConnectionProviderStatusWeight(left) - getConnectionProviderStatusWeight(right) ||
+    getProviderLanguageGroup(left) - getProviderLanguageGroup(right) ||
     getRecommendedConnectionServicePriority(left.service) - getRecommendedConnectionServicePriority(right.service) ||
     compareProviderNames(left, right) ||
     left.service.localeCompare(right.service)
@@ -80,7 +95,7 @@ export function compareConnectionProvidersByRecommendation(
 
 function compareProviderNames(left: ConnectionProviderSummary, right: ConnectionProviderSummary): number {
   return (
-    Number(!hanCharacterPattern.test(left.displayName)) - Number(!hanCharacterPattern.test(right.displayName)) ||
+    getProviderLanguageGroup(left) - getProviderLanguageGroup(right) ||
     providerNameCollator.compare(left.displayName, right.displayName)
   )
 }
@@ -89,14 +104,20 @@ export function getRecommendedConnectionServicePriority(service: string): number
   return recommendedConnectionServicePriorityMap.get(compactConnectionService(service)) ?? Number.MAX_SAFE_INTEGER
 }
 
+function getProviderLanguageGroup(provider: ConnectionProviderSummary): number {
+  return Number(!hanCharacterPattern.test(provider.displayName))
+}
+
 function getConnectionProviderStatusWeight(provider: ConnectionProviderSummary): number {
-  if (provider.status === "needs_attention") {
-    return 0
+  const ownApps = provider.apps.filter(isUserManagedCredentialApp)
+  const configuredDirect = provider.executionMode === "direct" && provider.status !== "available"
+  if (ownApps.length > 0 || configuredDirect) {
+    if (provider.status === "needs_attention") {
+      return provider.apps.some((app) => app.status === "error") || provider.appStatus === "error" ? 0 : 1
+    }
+    return 2
   }
-  if (provider.status === "connected") {
-    return isConnectionlessNoAuthProvider(provider) ? 2 : 1
-  }
-  return 2
+  return getMarketplacePriceReduction(provider.service, provider.apps) !== undefined ? 3 : 4
 }
 
 export function compactConnectionService(value: string): string {

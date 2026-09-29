@@ -84,6 +84,42 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+test("submits an Investoday URL as the extracted API key", async () => {
+  const onSubmit = vi.fn()
+  const root = await render(
+    <ConnectDialog
+      open
+      authType="api_key"
+      busy={false}
+      detail={{
+        ...detail,
+        service: "investoday_mcp",
+        authTypes: ["api_key"],
+        actionKind: "api_key",
+        oauthClientConfig: null,
+      }}
+      onClose={() => undefined}
+      onOpenUrl={() => undefined}
+      onSubmit={onSubmit}
+    />,
+  )
+  const input = document.querySelector<HTMLInputElement>('input[type="password"]')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+      input,
+      "https://data-api.investoday.net/data/mcp?apiKey=test%2Fkey",
+    )
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+  const save = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent?.trim() === translate("en", "connections.saveConnection"),
+  )!
+  expect(save.disabled).toBe(false)
+  await act(async () => save.click())
+  expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ service: "investoday_mcp", apiKey: "test/key" }))
+  act(() => root.unmount())
+})
+
 test("submits selected OAuth authorization options and warns about destructive access", async () => {
   const onSubmit = vi.fn()
   const root = await render(

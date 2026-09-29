@@ -152,7 +152,13 @@ export function ProviderDetail({
     <div className="grid min-w-0 gap-3">
       <section className="grid gap-3 border-b pb-3">
         <div className="flex min-w-0 items-start gap-3">
-          <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="lg" />
+          <ProviderIcon
+            iconSprite={provider.iconSprite}
+            iconSpritePosition={provider.iconSpritePosition}
+            iconUrl={provider.iconUrl}
+            displayName={provider.displayName}
+            size="lg"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="oo-text-title truncate">{provider.displayName}</h2>

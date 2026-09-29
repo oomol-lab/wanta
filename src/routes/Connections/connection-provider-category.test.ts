@@ -23,11 +23,15 @@ describe("Console-compatible provider categories", () => {
     ["openai", "ai"],
     ["shopify_admin", "cross-border-ecommerce"],
     ["gmail", "communication"],
-    ["notion", "docs"],
+    ["notion", "communication"],
     ["google_sheets", "productivity"],
     ["hubspot", "marketing"],
     ["databricks", "data-storage"],
     ["github", "developer"],
+    ["hithink_finance", "investment"],
+    ["financial_modeling_prep", "investment"],
+    ["coinbase", "investment"],
+    ["binance", "investment"],
   ] as const)("uses the Console service override for %s", (service, expected) => {
     expect(resolveConnectorBusinessCategory(provider({ service }))).toBe(expected)
   })
@@ -43,9 +47,10 @@ describe("Console-compatible provider categories", () => {
   it.each([
     ["LLM model gateway", "ai"],
     ["Project task planner", "productivity"],
-    ["Document wiki", "docs"],
+    ["Document wiki", "communication"],
     ["Amazon seller helper", "cross-border-ecommerce"],
     ["Customer CRM", "marketing"],
+    ["Stock market portfolio", "investment"],
     ["Team messaging", "communication"],
     ["Code deployment", "developer"],
     ["Database warehouse", "data-storage"],
@@ -74,4 +79,21 @@ describe("Console-compatible provider categories", () => {
       ),
     ).toBe("ai")
   })
+})
+
+it.each(["docs", "documents", "documentation", "knowledge", "collaboration"])(
+  "merges legacy %s categories",
+  (category) => {
+    expect(resolveConnectorBusinessCategory(provider({ categoryIds: [category] }))).toBe("communication")
+  },
+)
+it.each(["finance", "financial", "stocks", "trading", "crypto", "cryptocurrency"])(
+  "normalizes investment category %s",
+  (category) => {
+    expect(resolveConnectorBusinessCategory(provider({ categoryIds: [category] }))).toBe("investment")
+  },
+)
+
+it.each(["投资助手", "股票行情", "加密货币"])("recognizes short investment keywords in %s", (displayName) => {
+  expect(resolveConnectorBusinessCategory(provider({ displayName }))).toBe("investment")
 })

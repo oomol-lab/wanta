@@ -15,6 +15,7 @@ import {
   getConnectionAppDisplayLabel,
   isConnectionAuthType,
   isMarketplaceApp,
+  isValidConnectionAlias,
   normalizeConnectionAliasInput,
   supportsManagedConnectionAccountActions,
 } from "./connection-route-model.ts"
@@ -142,6 +143,7 @@ function ConnectionAccountItem({
   const accountLabel = getConnectionAppDisplayLabel(app, index, t)
   const connectedAccount = app.accountLabel?.trim() || app.providerAccountId?.trim() || ""
   const aliasValue = aliasDraft.trim()
+  const aliasValid = isValidConnectionAlias(aliasValue)
   const aliasDirty = aliasValue !== (app.alias?.trim() ?? "")
   const aliasDisabled = servicePolling || aliasBusy
   const accountPolling = isConnectionPollingTarget(polling, provider.service, app.id)
@@ -160,7 +162,7 @@ function ConnectionAccountItem({
   }, [app.id, app.alias, app.isDefault])
 
   async function saveAlias() {
-    if (!aliasDirty || aliasDisabled) return
+    if (!aliasDirty || !aliasValid || aliasDisabled) return
     setAliasBusy(true)
     try {
       const updated = await connections.updateAlias(app.id, aliasValue)
@@ -192,6 +194,7 @@ function ConnectionAccountItem({
               >
                 <Input
                   aria-label={t("connections.alias")}
+                  aria-invalid={!aliasValid}
                   autoFocus
                   className="h-7 min-w-32 flex-1"
                   disabled={aliasDisabled}
@@ -212,7 +215,7 @@ function ConnectionAccountItem({
                   className="size-7"
                   aria-label={t("connections.saveAlias")}
                   title={t("connections.saveAlias")}
-                  disabled={!aliasDirty || aliasDisabled}
+                  disabled={!aliasDirty || !aliasValid || aliasDisabled}
                 >
                   {aliasBusy ? <Loader size={14} /> : <Save className="size-3.5" />}
                 </Button>

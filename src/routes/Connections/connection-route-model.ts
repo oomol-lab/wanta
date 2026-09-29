@@ -54,40 +54,40 @@ export const crossBorderEcommerceCategory = "Cross-Border Ecommerce"
  */
 export const connectionDiscoveryCategories = [
   {
-    key: "ai",
-    featuredServices: ["openai", "anthropic", "gemini", "deepseek"],
-    titleKey: "connections.discovery.aiTitle",
-    descriptionKey: "connections.discovery.aiDescription",
-  },
-  {
     key: "cross-border-ecommerce",
     featuredServices: ["shopify", "17track", "aftership", "shippo"],
     titleKey: "connections.discovery.crossBorderTitle",
     descriptionKey: "connections.discovery.crossBorderDescription",
   },
   {
-    key: "communication",
-    featuredServices: ["slack", "gmail", "discord", "telegram"],
-    titleKey: "connections.discovery.communicationTitle",
-    descriptionKey: "connections.discovery.communicationDescription",
+    key: "investment",
+    featuredServices: ["hithink_finance", "financial_modeling_prep", "coinbase", "binance"],
+    titleKey: "connections.discovery.investmentTitle",
+    descriptionKey: "connections.discovery.investmentDescription",
   },
   {
-    key: "knowledge",
-    featuredServices: ["notion", "googledrive", "googledocs", "dropbox"],
-    titleKey: "connections.discovery.knowledgeTitle",
-    descriptionKey: "connections.discovery.knowledgeDescription",
-  },
-  {
-    key: "productivity",
-    featuredServices: ["asana", "jira", "trello", "clickup"],
-    titleKey: "connections.discovery.productivityTitle",
-    descriptionKey: "connections.discovery.productivityDescription",
+    key: "ai",
+    featuredServices: ["openai", "anthropic", "gemini", "deepseek"],
+    titleKey: "connections.discovery.aiTitle",
+    descriptionKey: "connections.discovery.aiDescription",
   },
   {
     key: "marketing",
     featuredServices: ["hubspot", "mailchimp", "googleads", "googleanalytics"],
     titleKey: "connections.discovery.marketingTitle",
     descriptionKey: "connections.discovery.marketingDescription",
+  },
+  {
+    key: "communication",
+    featuredServices: ["slack", "notion", "gmail", "googledrive"],
+    titleKey: "connections.discovery.communicationTitle",
+    descriptionKey: "connections.discovery.communicationDescription",
+  },
+  {
+    key: "productivity",
+    featuredServices: ["asana", "jira", "trello", "clickup"],
+    titleKey: "connections.discovery.productivityTitle",
+    descriptionKey: "connections.discovery.productivityDescription",
   },
   {
     key: "data-storage",
@@ -449,8 +449,7 @@ export function matchesConnectionDiscoveryCategory(
 export function resolveConnectionDiscoveryCategory(
   provider: ConnectionProviderSummary,
 ): ConnectionDiscoveryCategory | null {
-  const category = resolveConnectorBusinessCategory(provider)
-  return category === "docs" ? "knowledge" : category
+  return resolveConnectorBusinessCategory(provider)
 }
 
 function normalizeProviderCategoryLabel(label: string): string {
@@ -503,7 +502,14 @@ export function getConnectionAppDisplayLabel(app: ConnectionAppSummary, index: n
 }
 
 export function normalizeConnectionAliasInput(value: string): string {
-  return value.replaceAll(/[^A-Za-z0-9_-]/g, "").replace(/^-+/, "")
+  return value
+    .replaceAll(/[^A-Za-z0-9_-]/g, "")
+    .toLowerCase()
+    .replace(/^[_-]+/, "")
+}
+
+export function isValidConnectionAlias(value: string): boolean {
+  return value === "" || /^[a-z0-9][a-z0-9_-]*$/.test(value)
 }
 
 export function getConnectionAppNote(app: ConnectionAppDetail | null | undefined): string {

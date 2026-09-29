@@ -186,7 +186,15 @@ function ToolStepIcon({
   stopped?: boolean
 }) {
   if (provider && part.status !== "error" && !stopped) {
-    return <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
+    return (
+      <ProviderIcon
+        iconSprite={provider.iconSprite}
+        iconSpritePosition={provider.iconSpritePosition}
+        iconUrl={provider.iconUrl}
+        displayName={provider.displayName}
+        size="compact"
+      />
+    )
   }
   if ((part.status === "error" && !recovered) || stopped) {
     return <ToolStatusIcon status={part.status} stopped={stopped} />

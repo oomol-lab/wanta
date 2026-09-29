@@ -6,7 +6,7 @@ export type ConnectorBusinessCategory =
   | "cross-border-ecommerce"
   | "data-storage"
   | "developer"
-  | "docs"
+  | "investment"
   | "marketing"
   | "productivity"
 
@@ -27,7 +27,7 @@ const providerCategoryOverrides: Record<string, ConnectorBusinessCategory> = {
   awss3: "data-storage",
   baselinker: "cross-border-ecommerce",
   bigcommerce: "cross-border-ecommerce",
-  box: "docs",
+  box: "communication",
   browserbase: "developer",
   buildkite: "developer",
   cal: "productivity",
@@ -38,8 +38,8 @@ const providerCategoryOverrides: Record<string, ConnectorBusinessCategory> = {
   cloudflaredns: "developer",
   cloudflarer2: "data-storage",
   cloudflareworker: "developer",
-  confluence: "docs",
-  crowdin: "docs",
+  confluence: "communication",
+  crowdin: "communication",
   databricks: "data-storage",
   deepseek: "ai",
   devto: "developer",
@@ -48,8 +48,8 @@ const providerCategoryOverrides: Record<string, ConnectorBusinessCategory> = {
   discord: "communication",
   discordbot: "communication",
   dockerhub: "developer",
-  docparser: "docs",
-  dropbox: "docs",
+  docparser: "communication",
+  dropbox: "communication",
   easypost: "cross-border-ecommerce",
   elevenlabs: "ai",
   exa: "ai",
@@ -58,6 +58,7 @@ const providerCategoryOverrides: Record<string, ConnectorBusinessCategory> = {
   feishuappbot: "communication",
   feishucustombot: "communication",
   figma: "productivity",
+  financialmodelingprep: "investment",
   firecrawl: "developer",
   gemini: "ai",
   giphy: "marketing",
@@ -67,15 +68,16 @@ const providerCategoryOverrides: Record<string, ConnectorBusinessCategory> = {
   googleanalytics: "marketing",
   googlebigquery: "data-storage",
   googlecalendar: "productivity",
-  googledocs: "docs",
-  googledrive: "docs",
+  googledocs: "communication",
+  googledrive: "communication",
   googleforms: "productivity",
-  googlephotos: "docs",
+  googlephotos: "communication",
   googlesearchconsole: "marketing",
   googlesheets: "productivity",
-  googleslides: "docs",
+  googleslides: "communication",
   googletasks: "productivity",
   helium10: "cross-border-ecommerce",
+  hithinkfinance: "investment",
   hubspot: "marketing",
   jira: "productivity",
   jumpseller: "cross-border-ecommerce",
@@ -88,7 +90,7 @@ const providerCategoryOverrides: Record<string, ConnectorBusinessCategory> = {
   mailgun: "communication",
   metaads: "marketing",
   monday: "productivity",
-  notion: "docs",
+  notion: "communication",
   openai: "ai",
   outlook: "communication",
   perplexity: "ai",
@@ -162,21 +164,6 @@ const categoryKeywords: Record<ConnectorBusinessCategory, readonly string[]> = {
     "trello",
     "workflow",
   ],
-  docs: [
-    "box",
-    "confluence",
-    "crowdin",
-    "doc",
-    "document",
-    "docs",
-    "documentation",
-    "dropbox",
-    "drive",
-    "knowledge",
-    "notion",
-    "paper",
-    "wiki",
-  ],
   "cross-border-ecommerce": [
     "amazon seller",
     "amazon marketplace",
@@ -189,6 +176,29 @@ const categoryKeywords: Record<ConnectorBusinessCategory, readonly string[]> = {
     "sellersprite",
     "shopify",
     "跨境电商",
+  ],
+  investment: [
+    "alpaca",
+    "binance",
+    "brokerage",
+    "bybit",
+    "coinbase",
+    "crypto",
+    "financial modeling prep",
+    "finnhub",
+    "hithink finance",
+    "investment",
+    "investing",
+    "kraken",
+    "market data",
+    "okx",
+    "portfolio",
+    "stock market",
+    "trading",
+    "同花顺",
+    "投资",
+    "股票",
+    "加密货币",
   ],
   marketing: [
     "ads",
@@ -211,6 +221,19 @@ const categoryKeywords: Record<ConnectorBusinessCategory, readonly string[]> = {
     "tiktok",
   ],
   communication: [
+    "box",
+    "confluence",
+    "crowdin",
+    "doc",
+    "document",
+    "documentation",
+    "docs",
+    "dropbox",
+    "drive",
+    "knowledge",
+    "notion",
+    "paper",
+    "wiki",
     "chat",
     "discord",
     "email",
@@ -285,8 +308,8 @@ const categoryKeywords: Record<ConnectorBusinessCategory, readonly string[]> = {
 const categoryResolutionOrder: readonly ConnectorBusinessCategory[] = [
   "ai",
   "productivity",
-  "docs",
   "cross-border-ecommerce",
+  "investment",
   "marketing",
   "communication",
   "developer",
@@ -313,6 +336,9 @@ export function resolveConnectorBusinessCategory(
 
 function normalizeProviderCategory(value: string): string {
   const normalized = normalizeSearchValue(value).replace(/\s+/g, "-")
+  if (["docs", "documents", "documentation", "knowledge", "collaboration"].includes(normalized)) return "communication"
+  if (["finance", "financial", "stocks", "trading", "crypto", "cryptocurrency"].includes(normalized))
+    return "investment"
   return ["cross-border-e-commerce", "cross-border-commerce", "e-commerce", "ecommerce"].includes(normalized)
     ? "cross-border-ecommerce"
     : normalized
@@ -325,7 +351,7 @@ function isConnectorBusinessCategory(value: string): value is ConnectorBusinessC
     value === "cross-border-ecommerce" ||
     value === "data-storage" ||
     value === "developer" ||
-    value === "docs" ||
+    value === "investment" ||
     value === "marketing" ||
     value === "productivity"
   )
@@ -338,7 +364,7 @@ function buildSearchableText(parts: string[]): string {
 function matchesKeyword(source: string, keyword: string): boolean {
   const normalized = normalizeSearchValue(keyword)
   if (!normalized) return false
-  return normalized.length > 3
+  return normalized.length > 3 || /[^a-z0-9]/u.test(normalized)
     ? source.includes(normalized)
     : source.split(/[^\p{Script=Latin}\p{N}]+/u).includes(normalized)
 }

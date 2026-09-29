@@ -195,7 +195,7 @@ function WorkspaceMenuContent({
       <DropdownMenuSeparator />
       <DropdownMenuItem onSelect={onManageTeams}>
         <Building2 className="size-4" />
-        {t("teams.manageTeams")}
+        {t("teams.teamSettings")}
       </DropdownMenuItem>
     </DropdownMenuContent>
   )

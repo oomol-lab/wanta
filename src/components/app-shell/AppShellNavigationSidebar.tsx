@@ -7,18 +7,7 @@ import type { SidebarSessionGroups } from "./sidebar-sessions.ts"
 import type { UseTeamWorkspace } from "@/hooks/useTeamWorkspace"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import {
-  BookOpen,
-  Archive,
-  Building2,
-  Check,
-  Ellipsis,
-  FolderPlus,
-  ListChecks,
-  Package,
-  Plug,
-  SquarePen,
-} from "lucide-react"
+import { BookOpen, Archive, Check, Ellipsis, FolderPlus, ListChecks, Package, Plug, SquarePen } from "lucide-react"
 import * as React from "react"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { SIDEBAR_MAX_WIDTH_PX, SIDEBAR_MIN_WIDTH_PX } from "./app-shell-model.ts"
@@ -331,19 +320,6 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
             >
               <BookOpen className="size-4 shrink-0" />
               <span className="oo-sidebar-nav-label truncate">{t("knowledge.title")}</span>
-            </button>
-          ) : null}
-          {cloudEnabled ? (
-            <button
-              type="button"
-              onClick={() => onNavigate("teams")}
-              className={cn(
-                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-                activeRoute === "teams" && "bg-sidebar-accent text-sidebar-accent-foreground",
-              )}
-            >
-              <Building2 className="size-4 shrink-0" />
-              <span className="oo-sidebar-nav-label truncate">{t("teams.title")}</span>
             </button>
           ) : null}
         </nav>

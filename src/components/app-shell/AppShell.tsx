@@ -90,6 +90,7 @@ import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useAttentionService, useBrowserService, useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { AppUpdateTitlebarEntry } from "@/components/AppUpdateTitlebarEntry"
+import { PageRouteShell } from "@/components/PageRouteShell"
 import { useAppSettings } from "@/hooks/useAppSettings"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAttention } from "@/hooks/useAttention"
@@ -2046,6 +2047,31 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     )
   }
 
+  if (route === "teams" && oomolEnabled) {
+    return (
+      <React.Suspense fallback={<RouteLoadingFallback />}>
+        <PageRouteShell
+          animateContent
+          backLabel={t("settings.backToApp")}
+          title={t("teams.title")}
+          contentLayout="fill"
+          contentClassName="max-w-[90rem] gap-4"
+          onBack={() => setRoute("chat")}
+          titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
+        >
+          <div className="min-h-0 flex-1">
+            <TeamManagementRoute
+              connectedProvidersLoading={activeProvidersLoading}
+              teamSkills={teamSkills}
+              providerSkillRecommendationsState={providerSkillRecommendations}
+              workspace={teamWorkspace}
+            />
+          </div>
+        </PageRouteShell>
+      </React.Suspense>
+    )
+  }
+
   if (route === "billing" && oomolEnabled) {
     return (
       <>
@@ -2212,7 +2238,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     <div
       ref={appChromeRef}
       className={cn(
-        "oo-app-chrome grid h-full text-foreground",
+        "oo-app-chrome oo-app-enter grid h-full text-foreground",
         sidebarCollapsed && "oo-sidebar-collapsed",
         isSidebarRestoring && "oo-sidebar-restoring",
         isSidebarResizing && "oo-sidebar-resizing",
@@ -2348,13 +2374,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
               ) : route === "skills" ? (
                 <SkillsRoute
                   cloudEnabled={oomolEnabled}
-                  connectedProvidersLoading={activeProvidersLoading}
-                  teamSkills={teamSkills}
-                  providerSkillRecommendationsState={providerSkillRecommendations}
-                  workspace={teamWorkspace}
-                />
-              ) : route === "teams" && oomolEnabled ? (
-                <TeamManagementRoute
                   connectedProvidersLoading={activeProvidersLoading}
                   teamSkills={teamSkills}
                   providerSkillRecommendationsState={providerSkillRecommendations}

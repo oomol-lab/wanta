@@ -111,13 +111,13 @@ export function SettingsRoute({
 
   return (
     <PageRouteShell
+      animateContent
+      title={t("settings.title")}
       backLabel={t("settings.backToApp")}
       contentClassName="max-w-[60rem] gap-6"
       onBack={onBack}
       titlebarActions={titlebarActions}
     >
-      <h1 className="oo-text-page-title">{t("settings.title")}</h1>
-
       <div className="grid gap-5">
         {showSelfManagedRuntimeSettings ? (
           <SelfManagedRuntimeSettings mode={appSettings.settings.operatingMode} runtime={linkRuntime} />

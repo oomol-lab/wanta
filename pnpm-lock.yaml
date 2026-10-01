@@ -68,8 +68,8 @@ importers:
         specifier: 1.30.0
         version: 1.30.0(supports-color@7.2.0)(zod@4.4.3)
       '@oomol-lab/open-flow':
-        specifier: 0.1.0-beta.47
-        version: 0.1.0-beta.47(effect@4.0.0-rc.112)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: 0.1.0-beta.52
+        version: 0.1.0-beta.52(effect@4.0.0-rc.112)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@oomol/connection':
         specifier: 0.2.28
         version: 0.2.28
@@ -551,8 +551,8 @@ packages:
     resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
     engines: {node: '>= 20.19.0'}
 
-  '@oomol-lab/open-flow@0.1.0-beta.47':
-    resolution: {integrity: sha512-ZS2muDBffwHmouOAmbyvphMOID4OhNTKxoZEKeTqPvtuN8scT3WBxM4+HCdQ419u+b7Q5qnvNtcJFygyhhuIDw==}
+  '@oomol-lab/open-flow@0.1.0-beta.52':
+    resolution: {integrity: sha512-ilSjBmamZmZNBSIOcireexWYsWCbmvC9ljG8UufCdl6aOKqLdQw5IuOxj5h7ikmhCSUqIrapg6LPuGngguZYNw==}
     peerDependencies:
       effect: 4.0.0-rc.112
       react: ^18.3.1 || ^19.0.0
@@ -5465,7 +5465,7 @@ snapshots:
 
   '@noble/hashes@2.4.0': {}
 
-  '@oomol-lab/open-flow@0.1.0-beta.47(effect@4.0.0-rc.112)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@oomol-lab/open-flow@0.1.0-beta.52(effect@4.0.0-rc.112)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       effect: 4.0.0-rc.112
       react: 19.2.8

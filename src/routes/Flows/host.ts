@@ -96,6 +96,7 @@ export function createFlowHost(options: FlowHostOptions): WorkbenchHost & { disp
   }
   const assertActive = () => lifetime.signal.throwIfAborted()
   return {
+    connectorOwnerId: options.teamName,
     async openExternalPage(resolveUrl) {
       assertActive()
       const url = new URL(await resolveUrl())

@@ -37,6 +37,10 @@ afterEach(() => {
 })
 
 describe("Flow host requests", () => {
+  it("uses the current team's name for connector cache ownership", () => {
+    expect(host().connectorOwnerId).toBe("team / A")
+  })
+
   it("preserves Request bodies, merges init overrides and enforces the current team", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }))
     vi.stubGlobal("fetch", fetchMock)

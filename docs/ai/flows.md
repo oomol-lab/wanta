@@ -1,7 +1,7 @@
 # Cloud workflows
 
 Wanta embeds Console's shared `@oomol-lab/open-flow/workbench` runtime, pinned to
-`0.1.0-beta.47`, with the matching `effect` peer dependency. The sidebar entry is
+`0.1.0-beta.52`, with the matching `effect` peer dependency. The sidebar entry is
 immediately below Knowledge. The route supports the shared workflow catalog,
 designer, publications, runs and variables; execution remains in Open Flow Cloud.
 
@@ -16,7 +16,7 @@ be substituted for this team-name header.
 
 There are independent catalog and per-flow WSS subscriptions with readiness,
 bounded reconnect backoff, event validation and resynchronization after reconnect.
-The host handles beta.47's `flows.changed`, `flow.created`, `draft.changed`,
+The host handles beta.52's `flows.changed`, `flow.created`, `draft.changed`,
 `run.created`, `run.changed` and `access.changed` events. Disposing the host aborts
 requests, closes sockets, clears reconnect timers and dismisses its notification.
 
@@ -43,7 +43,7 @@ host rejects all mutations there using the shared API error shape; other permiss
 checks remain enforced by the cloud service.
 
 The route import fallback and the shared workbench startup gate use the same list
-skeleton. The startup overlay follows beta.47's direct busy `main` element through
+skeleton. The startup overlay follows beta.52's direct busy `main` element through
 a scoped CSS `:has()` selector, so it remains visible until the workbench is ready
 and disappears for loaded content or error/retry UI.
 

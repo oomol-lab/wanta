@@ -5,7 +5,13 @@ import { isDiscoverSkillFilter, isInstalledSkillFilter } from "./skill-route-mod
 import { AppIcons } from "@/components/AppIcons"
 import { SearchField } from "@/components/SearchField"
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppI18n } from "@/i18n"
 
@@ -199,21 +205,13 @@ function SkillFilterDropdown({ ariaLabel, onValueChange, options, value }: Skill
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={6} className="w-44">
-        {options.map((option) => {
-          const selected = option.value === value
-
-          return (
-            <DropdownMenuItem
-              key={option.value}
-              className="min-w-0 justify-between gap-3"
-              aria-checked={selected}
-              onSelect={() => onValueChange(option.value)}
-            >
+        <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
+          {options.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value} className="min-w-0 gap-3">
               <span className="min-w-0 truncate">{option.label}</span>
-              {selected ? <AppIcons.status.check className="size-4" /> : null}
-            </DropdownMenuItem>
-          )
-        })}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )

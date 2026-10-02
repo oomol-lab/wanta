@@ -1,7 +1,6 @@
 import type { ChatQuestionRequest } from "../../../electron/chat/common.ts"
 import type { QuestionDraftStore, QuestionField, QuestionFieldDraft, QuestionFieldOption } from "./question-fields.ts"
 
-import { Check } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import {
@@ -93,20 +92,11 @@ function QuestionChoiceRow({
       className={cn(
         "flex min-h-8 w-full items-center gap-2 rounded-md border px-2.5 py-1 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
         selected
-          ? "border-ring bg-muted text-foreground"
+          ? "border-ring bg-secondary text-secondary-foreground"
           : "border-border/80 bg-background text-foreground hover:bg-muted/60",
       )}
       onClick={onSelect}
     >
-      <span
-        className={cn(
-          "flex size-4 shrink-0 items-center justify-center rounded-full border",
-          selected ? "border-foreground bg-foreground text-background" : "border-muted-foreground/50",
-        )}
-        aria-hidden="true"
-      >
-        {selected ? <Check className="size-3" /> : null}
-      </span>
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
         <span className="oo-text-label min-w-0 truncate font-medium">{label}</span>
         {inlineDescription ? (

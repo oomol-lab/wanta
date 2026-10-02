@@ -307,6 +307,11 @@
 
 ## 8. Renderer / UI
 
+- Selection state uses a filled background in both themes. Dropdown radios, checkbox menu items,
+  selects, model/agent/mode/permission options, project/branch choices, and member choices do not
+  add dots or checkmark decorations. Keep their semantic state and keyboard behavior. Form
+  checkboxes indicate their checked state with a filled box, using a separate fill for mixed state.
+
 - No router library: page switching is internal state in `AppShell.tsx`; before adding a "page",
   first ask whether a router library is truly needed.
 - Streaming render stability: text parts use a stable React key (partId), `upsertPart` replaces in

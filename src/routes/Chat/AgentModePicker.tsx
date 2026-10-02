@@ -1,6 +1,6 @@
 import type { AgentMode } from "../../../electron/chat/common.ts"
 
-import { Check, ChevronDown, Hammer, ListChecks } from "lucide-react"
+import { ChevronDown, Hammer, ListChecks } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { WANTA_AGENT_MODES } from "../../../electron/agent/mode.ts"
@@ -163,8 +163,8 @@ export function AgentModePicker({
                 title={label}
                 className={cn(
                   "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
-                  active && "font-medium",
-                  highlighted && "bg-accent text-accent-foreground",
+                  active && "bg-secondary font-medium text-secondary-foreground hover:bg-secondary",
+                  highlighted && !active && "bg-accent text-accent-foreground",
                 )}
                 disabled={disabled}
                 onMouseEnter={() => {
@@ -176,7 +176,6 @@ export function AgentModePicker({
               >
                 <AgentModeIcon mode={mode} />
                 <span className="oo-text-label min-w-0 flex-1 truncate">{label}</span>
-                {active ? <Check className="size-4 shrink-0" /> : <span className="size-4 shrink-0" aria-hidden />}
               </button>
             )
           })}

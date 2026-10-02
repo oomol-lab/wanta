@@ -1,7 +1,7 @@
 import type { Team } from "../../../electron/teams/common.ts"
 import type { MemberSearchState } from "./team-management-model.ts"
 
-import { CheckIcon, LoaderCircleIcon, PencilIcon, PlusIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react"
+import { LoaderCircleIcon, PencilIcon, PlusIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react"
 import * as React from "react"
 import {
   maxTeamNameLength,
@@ -567,13 +567,13 @@ function MemberSearchResults({
                 className={cn(
                   "relative flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent/70 hover:text-accent-foreground",
                   active && "bg-accent text-accent-foreground",
+                  selected && "bg-secondary text-secondary-foreground hover:bg-secondary",
                 )}
                 disabled={busy}
                 aria-selected={selected}
                 role="option"
                 onClick={() => onSelect(user)}
               >
-                {active ? <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" /> : null}
                 <TeamUserAvatar avatar={user.avatar} fallback={user.fallback} />
                 <span className="min-w-0 flex-1">
                   <span className="oo-text-label block truncate">{user.displayName}</span>
@@ -586,7 +586,6 @@ function MemberSearchResults({
                     {user.username}
                   </span>
                 </span>
-                {selected ? <CheckIcon className="size-4 shrink-0" /> : null}
               </button>
             )
           })}

@@ -3,7 +3,7 @@ import type { SessionProject } from "../../../electron/session/common.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { Check, Folder, FolderPlus, GitBranch, LoaderCircle, Plus, Search, X } from "lucide-react"
+import { Folder, FolderPlus, GitBranch, LoaderCircle, Plus, Search, X } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
@@ -537,9 +537,10 @@ function ProjectMenu({
         {projects.map(({ disambiguator, project }) => (
           <button
             key={project.id}
+            aria-current={project.id === activeProjectId ? "true" : undefined}
             type="button"
             disabled={disabled}
-            className="grid w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)_1rem] items-center gap-2 rounded-sm px-2 py-2 text-left outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+            className="grid w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 rounded-sm px-2 py-2 text-left outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-[current=true]:bg-secondary"
             onClick={() => void onSelectProject(project.id)}
           >
             <Folder className="size-4 text-muted-foreground" />
@@ -549,7 +550,6 @@ function ProjectMenu({
                 <span className="oo-text-caption-compact truncate text-muted-foreground">{disambiguator}</span>
               ) : null}
             </span>
-            {project.id === activeProjectId ? <Check className="size-4" /> : <span aria-hidden="true" />}
           </button>
         ))}
         {projects.length === 0 ? (
@@ -663,11 +663,12 @@ function GitMenu({
               return (
                 <button
                   key={branch.name}
+                  aria-current={branch.current ? "true" : undefined}
                   type="button"
                   disabled={disabled}
                   title={branch.remote ? t("git.remoteBranchDisabled") : branch.name}
                   className={cn(
-                    "grid w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)_1rem] items-center gap-3 rounded-sm px-2 py-2.5 text-left outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:cursor-default",
+                    "grid w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-3 rounded-sm px-2 py-2.5 text-left outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:cursor-default aria-[current=true]:bg-secondary",
                     branch.current ? "disabled:opacity-100" : "disabled:opacity-55",
                   )}
                   onClick={() => void onCheckoutBranch(branch)}
@@ -679,7 +680,6 @@ function GitMenu({
                       <span className="oo-text-caption-compact truncate text-muted-foreground">{dirtyLabel}</span>
                     ) : null}
                   </span>
-                  {branch.current ? <Check className="size-4" /> : <span aria-hidden="true" />}
                 </button>
               )
             })}

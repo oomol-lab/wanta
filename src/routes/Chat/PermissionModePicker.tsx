@@ -1,6 +1,6 @@
 import type { AgentPermissionMode } from "../../../electron/chat/common.ts"
 
-import { Check, ChevronDown, Eye, Map as MapIcon, PencilLine, ShieldCheck, Sparkles, TriangleAlert } from "lucide-react"
+import { ChevronDown, Eye, Map as MapIcon, PencilLine, ShieldCheck, Sparkles, TriangleAlert } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { nextModelMenuIndex } from "./model-control-utils.ts"
@@ -192,8 +192,8 @@ export function PermissionModePicker({
                 title={`${label} · ${description}`}
                 className={cn(
                   "flex min-h-14 w-full min-w-0 items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground",
-                  active && "font-medium",
-                  highlighted && "bg-accent text-accent-foreground",
+                  active && "bg-secondary font-medium text-secondary-foreground hover:bg-secondary",
+                  highlighted && !active && "bg-accent text-accent-foreground",
                 )}
                 disabled={disabled}
                 onMouseEnter={() => {
@@ -211,7 +211,6 @@ export function PermissionModePicker({
                     <span className={cn("oo-text-label min-w-0 flex-1 truncate", active && "font-medium")}>
                       {label}
                     </span>
-                    {active ? <Check className="size-4 shrink-0" aria-hidden /> : null}
                   </span>
                   <span className="oo-text-caption mt-0.5 block text-muted-foreground">{description}</span>
                 </span>

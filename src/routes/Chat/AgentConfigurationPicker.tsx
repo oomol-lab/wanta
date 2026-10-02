@@ -3,7 +3,7 @@ import type { ExternalAgentCatalog, ExternalAgentRuntimeStatus } from "../../../
 import type { ReasoningLevel } from "../../../electron/chat/common.ts"
 import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
 
-import { Brain, Check, ChevronDown, ChevronRight, Settings2, Trash2 } from "lucide-react"
+import { Brain, ChevronDown, ChevronRight, Settings2, Trash2 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import {
@@ -89,6 +89,7 @@ function SelectionRow({
       className={cn(
         "flex min-h-10 w-full min-w-0 items-stretch rounded-md hover:bg-accent hover:text-accent-foreground",
         disabled && "opacity-50 hover:bg-transparent",
+        active && "bg-secondary text-secondary-foreground hover:bg-secondary",
       )}
     >
       <button
@@ -117,11 +118,6 @@ function SelectionRow({
               <span className="oo-text-caption mt-0.5 block truncate text-muted-foreground">{description}</span>
             ) : null}
           </span>
-        )}
-        {active ? (
-          <Check className={cn("size-4 shrink-0", !inlineMeta && "mt-0.5")} />
-        ) : (
-          <span className="size-4 shrink-0" />
         )}
       </button>
       {trailingAction ? (

@@ -1,7 +1,7 @@
 # Cloud workflows
 
 Wanta embeds Console's shared `@oomol-lab/open-flow/workbench` runtime, pinned to
-`0.1.0-beta.52`, with the matching `effect` peer dependency. The sidebar entry is
+`0.1.0-beta.59`, with the matching `effect` peer dependency. The sidebar entry is
 immediately below Knowledge. The route supports the shared workflow catalog,
 designer, publications, runs and variables; execution remains in Open Flow Cloud.
 

@@ -40,7 +40,7 @@ is included in this repository's [`LICENSE`](LICENSE) file.
 
 ## oo CLI and Bundled Skills
 
-Wanta downloads and packages `@oomol-lab/oo-cli@1.9.7` platform binaries from the public npm
+Wanta downloads and packages `@oomol-lab/oo-cli@1.9.8` platform binaries from the public npm
 registry. The default package also contains four Skills exported by that distribution:
 
 - `oo`;
@@ -56,8 +56,8 @@ register Connector tools or inject the oo runtime environment.
 
 ## WeCom CLI and Skills
 
-Wanta packages the official `@wecom/cli@1.2.1` platform binary and the matching `wecomcli-*`
-Skills from source commit `e88bf90a7c7cf756385636f8cb02c907171f55a3` for the local WeCom Direct
+Wanta packages the official `@wecom/cli@1.3.4` platform binary and the matching `wecomcli-*`
+Skills from source commit `f9b28151dc8d42f703db624fc9b26723c3c93fc5` for the local WeCom Direct
 provider.
 
 Source: [WecomTeam/wecom-cli](https://github.com/WecomTeam/wecom-cli). License: MIT. Copyright (c)
@@ -65,7 +65,7 @@ Source: [WecomTeam/wecom-cli](https://github.com/WecomTeam/wecom-cli). License: 
 
 ## DingTalk Workspace CLI and Skills
 
-Wanta packages the official DingTalk Workspace CLI (`dws`) version 1.0.61 and the matching stable
+Wanta packages the official DingTalk Workspace CLI (`dws`) version 1.0.64 and the matching stable
 mono Skill from the same release for the local DingTalk Direct provider.
 
 Source: [DingTalk-Real-AI/dingtalk-workspace-cli](https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli).

@@ -12,21 +12,21 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
 const maxDownloadBytes = 128 * 1024 * 1024
 
-export const WECOM_CLI_VERSION = "1.2.1"
-// npm 1.2.1 omits gitHead; pin each published archive instead.
+export const WECOM_CLI_VERSION = "1.3.4"
+// npm 1.3.4 omits gitHead; pin each published archive instead.
 const WECOM_CLI_INTEGRITIES: Readonly<Record<string, string>> = {
   "@wecom/cli-linux-arm64":
-    "sha512-ndgR2jV749PAoMpbWm3IpVBHuRpprve4AJiYh+TkTOoIk5RXE1T5ScXmqG4qUjEENcXTdCT2iTVPx9SPG8KDbw==",
+    "sha512-BUvkJCMiM6aImK1MGjA6TuNslfay9eg/cOrmmvg3RLAlB9xTQUfqdq9YQxFog04wEpnlZSsgNXq6bWQaIvwX9w==",
   "@wecom/cli-darwin-arm64":
-    "sha512-HGNAdyvF48ktcxLaGNcKaXu51k0Wz/GTM2DCr3LiB9QLdJMpVcl/8vsjaFZp6LK7x9K84+I50pOjIteUCxuacg==",
+    "sha512-mktTGWYWqwE5exPs/vdiYcwas77G7DPEhAmj1Hl0LqQHUp6tfwplSfJQ/TaESZvmKtoqDglrywtIQeJ0ksFsWA==",
   "@wecom/cli-darwin-x64":
-    "sha512-ekrGOIxy7RUvIJ13TNqsxii+Vk29U5vyeBAO0VhTfZGQ2hwxknBXc5Iw5ue7UlKIV0B01uJga/etxbnNjiHZng==",
+    "sha512-w9TuS95c06uyqbylxNjBCtC3GvR/6Vf6WK1zvsIcif7ivUq6Gu5scssagbD6rBWwhQUJ6o2MQKufpa439mL8bg==",
   "@wecom/cli-linux-x64":
-    "sha512-rRWW/Z0ZznlyYovImY+VG1wTEv4CCsAjz53BO/RjmIN1XzzNeOM7c40nOniG5uwJFFUkaHrDYwc95jrhUl7JfA==",
+    "sha512-Mguwa8AqwTM5hqKZXBs7lwMJ7AZLCJpu+usuHdQLQV9bzF3gM9e70khKHAQCS7focgMHvT/+mW++S7JvXKdL6Q==",
   "@wecom/cli-win32-x64":
-    "sha512-fDiaE3M+BFuGY/nWstbnHgXp3tpjI30IClmVyWmQ7GnMMRHYMGxcCuAbvBZa9q4lQduJyg2AcHRzKTc1FIgBwQ==",
+    "sha512-FomGDkkDVZpKB9GZjAdMvR7491z9DMiaEzYQyDkA+3Yx6I100gJFnIJ31VZr6oMIRrZCT19GzNP+7c4DzuoPbg==",
 }
-export const WECOM_CLI_SOURCE_COMMIT = "e88bf90a7c7cf756385636f8cb02c907171f55a3"
+export const WECOM_CLI_SOURCE_COMMIT = "f9b28151dc8d42f703db624fc9b26723c3c93fc5"
 export const localWecomCliBinDir = path.join(repoRoot, ".wecom-cli-bin")
 export const bundledWecomSkillsDir = path.join(repoRoot, "resources", "wecom-skills")
 

@@ -68,6 +68,24 @@ describe("chat context usage", () => {
     })
   })
 
+  it("drops below the compaction threshold when a newer request reports lower usage", () => {
+    const before: ChatMessage = {
+      id: "before-compaction",
+      role: "assistant",
+      createdAt: 1,
+      parts: [],
+      tokenUsage: { total: 240_000, input: 240_000, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    }
+    const after: ChatMessage = {
+      ...before,
+      id: "after-compaction",
+      createdAt: 2,
+      tokenUsage: { total: 24_000, input: 23_000, output: 1000, reasoning: 0, cache: { read: 0, write: 0 } },
+    }
+    expect(buildContextUsageInfo([before], catalog)).toMatchObject({ usedTokens: 240_000, percent: 100 })
+    expect(buildContextUsageInfo([before, after], catalog)).toMatchObject({ usedTokens: 24_000, percent: 10 })
+  })
+
   it("matches the OpenCode overflow fallback when total tokens are absent", () => {
     expect(
       contextTokensFromUsage({

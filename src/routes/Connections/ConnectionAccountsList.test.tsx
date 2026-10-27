@@ -111,6 +111,100 @@ it("normalizes edited aliases before saving and permits clearing them", async ()
   act(() => root.unmount())
 })
 
+describe("ConnectionAccountsList reconnect permissions", () => {
+  it.each(["oauth2", "api_key"] as const)(
+    "keeps access viewing available and hides reconnect for read-only %s accounts",
+    async (authType) => {
+      const account = { ...app, authType }
+      const onOpenAccess = vi.fn()
+      const onConnect = vi.fn()
+      const host = document.createElement("div")
+      document.body.append(host)
+      const root = createRoot(host)
+      await act(async () => {
+        root.render(
+          <I18nContext.Provider
+            value={{ locale: "en", setLocale: () => undefined, t: (key, vars) => translate("en", key, vars) }}
+          >
+            <ConnectionAccountsList
+              accessContext={{} as never}
+              busy={null}
+              canManageConnections={false}
+              connections={{} as UseConnections}
+              onConnect={onConnect}
+              onDisconnect={() => undefined}
+              onOpenAccess={onOpenAccess}
+              polling={null}
+              provider={{ ...provider, apps: [account], authTypes: [authType] }}
+              reconnectBlocked
+            />
+          </I18nContext.Provider>,
+        )
+      })
+      const buttons = Array.from(host.querySelectorAll("button"))
+      expect(buttons.map((button) => button.textContent?.trim())).toEqual(["View access"])
+      expect(host.querySelector(".animate-spin")).toBeNull()
+      expect(buttons[0].disabled).toBe(false)
+      await act(async () => buttons[0].click())
+      expect(onOpenAccess).toHaveBeenCalledWith(account)
+      expect(onConnect).not.toHaveBeenCalled()
+      act(() => root.unmount())
+    },
+  )
+
+  it("preserves administrator reconnect and clears loading when authorization ends", async () => {
+    const account = { ...app, authType: "oauth2" as const }
+    const connectedProvider = { ...provider, apps: [account] }
+    const onConnect = vi.fn()
+    const host = document.createElement("div")
+    document.body.append(host)
+    const root = createRoot(host)
+    async function render(polling: string | null, reconnectBlocked = false) {
+      await act(async () => {
+        root.render(
+          <I18nContext.Provider
+            value={{ locale: "en", setLocale: () => undefined, t: (key, vars) => translate("en", key, vars) }}
+          >
+            <ConnectionAccountsList
+              busy={null}
+              canManageConnections
+              connections={{} as UseConnections}
+              onConnect={onConnect}
+              onDisconnect={() => undefined}
+              onOpenAccess={() => undefined}
+              polling={polling}
+              provider={connectedProvider}
+              reconnectBlocked={reconnectBlocked}
+            />
+          </I18nContext.Provider>,
+        )
+      })
+    }
+    function reconnectButton(label: string) {
+      const button = Array.from(host.querySelectorAll("button")).find((item) => item.textContent?.includes(label))
+      expect(button).toBeDefined()
+      return button!
+    }
+    await render(null)
+    expect(reconnectButton("Reconnect").disabled).toBe(false)
+    await act(async () => reconnectButton("Reconnect").click())
+    expect(onConnect).toHaveBeenCalledWith(connectedProvider, "oauth2", account.id)
+
+    await render(`${provider.service}\0${account.id}`)
+    expect(reconnectButton(translate("en", "connections.oauthWaiting")).disabled).toBe(true)
+    expect(host.querySelector(".animate-spin")).not.toBeNull()
+
+    await render("another-service", true)
+    expect(reconnectButton(translate("en", "connections.oauthInProgress")).disabled).toBe(true)
+
+    await render(null)
+    expect(reconnectButton("Reconnect").disabled).toBe(false)
+    expect(host.querySelector(".animate-spin")).toBeNull()
+    expect(onConnect).toHaveBeenCalledOnce()
+    act(() => root.unmount())
+  })
+})
+
 describe("ConnectionAccountsList access dialog ownership", () => {
   it("delegates access opening without mounting a modal from duplicated responsive lists", async () => {
     const onOpenAccess = vi.fn()

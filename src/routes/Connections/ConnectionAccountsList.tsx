@@ -296,7 +296,7 @@ function ConnectionAccountItem({
           {canManageConnections && supportsManagedAccount ? (
             <AccountExecutionLogsButton appId={app.id} connections={connections} name={accountLabel} />
           ) : null}
-          {reconnectAuthType ? (
+          {canManageConnections && reconnectAuthType ? (
             <Button
               type="button"
               variant="outline"

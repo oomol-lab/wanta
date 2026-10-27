@@ -1,5 +1,4 @@
 import type { DiagramViewerPoint, DiagramViewerSize, DiagramViewerState } from "./diagram-viewer.ts"
-import type { MermaidConfig } from "@streamdown/mermaid"
 import type { ComponentType, PointerEvent, ReactNode, WheelEvent } from "react"
 import type { CustomRendererProps, DiagramPlugin, MermaidErrorComponentProps } from "streamdown"
 
@@ -29,6 +28,8 @@ import {
 } from "./diagram-viewer.ts"
 import { useClipboardCopy } from "@/hooks/useClipboardCopy"
 import { useT } from "@/i18n/i18n"
+
+type MermaidConfig = NonNullable<Parameters<DiagramPlugin["getMermaid"]>[0]>
 
 export interface MermaidRendererControls {
   copy: boolean

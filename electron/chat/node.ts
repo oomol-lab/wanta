@@ -76,7 +76,7 @@ import type { UserAttachmentStore } from "./user-attachments.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
-import { clipboard, dialog, nativeImage, shell } from "electron"
+import { ClipboardItem, clipboard, dialog, nativeImage, shell } from "electron"
 import { copyFile, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -2979,7 +2979,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (image.isEmpty()) {
       throw new Error("Image file could not be decoded.")
     }
-    clipboard.writeImage(image)
+    await clipboard.write([
+      new ClipboardItem({ "image/png": new Blob([new Uint8Array(image.toPNG())], { type: "image/png" }) }),
+    ])
   }
 
   public async saveLocalImageAs(req: LocalImageRequest): Promise<SaveLocalImageAsResult> {

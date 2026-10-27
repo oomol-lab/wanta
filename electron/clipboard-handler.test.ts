@@ -29,6 +29,14 @@ describe("registerClipboardHandler", () => {
     expect(writeText).toHaveBeenCalledWith("UID: user-123")
   })
 
+  it("propagates asynchronous clipboard write failures to the IPC caller", async () => {
+    writeText.mockRejectedValueOnce(new Error("Clipboard unavailable"))
+    registerClipboardHandler()
+    const handler = handle.mock.calls[0]?.[1] as (event: unknown, text: unknown) => Promise<void>
+
+    await expect(handler({}, "copy me")).rejects.toThrow("Clipboard unavailable")
+  })
+
   it("rejects non-string values", () => {
     registerClipboardHandler()
     const handler = handle.mock.calls[0]?.[1] as (event: unknown, text: unknown) => void

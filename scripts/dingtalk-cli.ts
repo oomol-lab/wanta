@@ -14,17 +14,17 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
 const maxDownloadBytes = 128 * 1024 * 1024
 const DINGTALK_CLI_NPM_INTEGRITY =
-  "0ySv3ZezEeMwYY4m3Db7AEON9DceVr/dQaS2lz07gy/fIlNMh50qbnQN7Llqc5B5CjuZoUrBKUaspTbJN0Vyaw=="
+  "SbaBQ/PJVpuA2P29nzxh1Q2PLKZyEzJbuNHDPEtHLGWzRwwuwjnsGbVvwXc0JKVTtKBsDdVIuolDZU2fUjS/3Q=="
 
-export const DINGTALK_CLI_VERSION = "1.0.64"
+export const DINGTALK_CLI_VERSION = "1.0.65"
 const DINGTALK_CLI_CHECKSUMS: Readonly<Record<string, string>> = {
-  "dws-darwin-amd64.tar.gz": "c3c7cde614012ef217debaeb80b42857b0f49e2227bfd8d88718c7aff8718e26",
-  "dws-darwin-arm64.tar.gz": "6a33ac7573343ba1cfb26ef126cfa1bdd17e126ddfdff49e450bae336107da23",
-  "dws-linux-amd64.tar.gz": "68fd68effdb05c4f7af5771dfc7bf6c10d97d219b3fb992dc99165b198fddb32",
-  "dws-linux-arm64.tar.gz": "351504a475b60c51a7b4abeb1a79f4e8de8b2ce1f06f97e0a5791a996bfe29a9",
-  "dws-skills.zip": "106999fc60c713aabbcf67fc183553d62feae210bf650a148ed38670468389de",
-  "dws-windows-amd64.zip": "c037bd1a66d50d8427b446ae479e60b8548600f0b5296c0d90d97c8ab898bdd6",
-  "dws-windows-arm64.zip": "031ff7199d001271de8d1863d092a125bf1bbb020d0f878a56e3f812f93c80c1",
+  "dws-darwin-amd64.tar.gz": "6afdd8dcb093ea0c7aa9d0e76371f44308aa6ee9f8a44bf0d2b010bb2e3c8244",
+  "dws-darwin-arm64.tar.gz": "8550c9c42a2018204761db923911321a56df9bedcacf3d42baffae00ccd7bc44",
+  "dws-linux-amd64.tar.gz": "e712e01924935070ef0d313ef898bf90e5124c6c4ad9ef197c3647180b4be9cb",
+  "dws-linux-arm64.tar.gz": "8858dbaaa9552c4028aaa23c621d4ab960e1eda8d5078e238e7ec216ac2a00d7",
+  "dws-skills.zip": "65d4cedcb4ba420932008205a422e886de100768e1ec51390d98916bb6689d19",
+  "dws-windows-amd64.zip": "db7cd21655ede7375676a349f44f5d9116fe28a8836276244341e109314407b7",
+  "dws-windows-arm64.zip": "c275d60eaab2acc55dd0b24e09885d481cb5b2a26fec0d7ab4740e9d0722a582",
 }
 
 export const localDingTalkCliBinDir = path.join(repoRoot, ".dingtalk-cli-bin")

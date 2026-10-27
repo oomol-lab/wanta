@@ -16,13 +16,14 @@ test("detects reviewed and missing OO command domains from exported Skill text",
     await mkdir(path.join(root, "oo", "references"), { recursive: true })
     await writeFile(
       path.join(root, "oo", "SKILL.md"),
-      "Run `oo search goal --json`, `oo connector run service`, and `oo future command`.",
+      "Run `oo search goal --json`, `oo connector run service`, `oo team list`, and `oo future command`.",
     )
     const findings = await detectOoSkillCommands(root, ["SKILL.md"])
     expect(findings).toEqual([
       { availability: "enabled", command: "oo connector run", operation: "connector.run" },
       { availability: "missing", command: "oo future command", operation: "unrecognized" },
       { availability: "enabled", command: "oo search", operation: "capability.search" },
+      { availability: "planned", command: "oo team list", operation: "team.list" },
     ])
   } finally {
     await rm(root, { force: true, recursive: true })

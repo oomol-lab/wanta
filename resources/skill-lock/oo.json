@@ -1,17 +1,17 @@
 {
   "lockVersion": 1,
-  "ooCliVersion": "1.9.8",
+  "ooCliVersion": "1.9.11",
   "agentFormat": "universal",
   "files": {
-    "SKILL.md": "379c20f7d94f0099bd406e873109a37a06d4abe8d0d97200f2b90435b0f8a4a2",
+    "SKILL.md": "d90473dff162abce6fb53d4c00ec57ed53712af50d5d12876e24098bd02172e3",
     "agents/openai.yaml": "50fa43d22512453554fecb66c37bd051bb1bb37d3daf6c25d4c362f9444c2202",
     "references/auth-and-billing.md": "b1161057eca019cdd0b5897ae8a7004b2bb70e988ea892a55d6142614133c5d0",
-    "references/connector-execution.md": "b47c72d3c09917d1badd327f1e01c51835b3e4c7d8ec4385a0930a71c9852d95",
+    "references/connector-execution.md": "0aa295cbbc615d849895224bf38e3cb9259d80f950d6dc92b2d2d713588d51bb",
     "references/file-transfer.md": "1547f3c3811f0bc6038ea9e9987d2cb2c18688ad1b8382e723c0d41ea34c9e46",
-    "references/flow-authoring.md": "33fcd60ce11420279751a0249c4025f117a0a10e706636db2eade543980e05d6",
+    "references/flow-authoring.md": "9f211f5b4a9b7456d5fc8ee919db5775869b119d0820900ba3d91b73e1b1fb8d",
     "references/flow-n8n-conversion.md": "5001e46b0924490d002985ad34586d356629d7c3a62ba2890cf80e9b4611b6d9",
     "references/llm-client.md": "7c4d0e1148e782a62708a91628848842449a1ddb063eb8144e84ca08bb529241",
-    "references/search-and-selection.md": "f1965c7d497fc26cd10d8b8b960cc13eb764f907842f8c6d70b0821b9f9f8fca"
+    "references/search-and-selection.md": "d916ec4e89bd0f54c065e83d2c43179712048373c84b418d7243b3a1d6df0778"
   },
   "requiredOperations": [
     "auth",
@@ -31,6 +31,7 @@
     "skills.manage",
     "skills.recommend",
     "team.current",
+    "team.list",
     "variables"
   ]
 }

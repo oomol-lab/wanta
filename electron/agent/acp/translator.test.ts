@@ -649,8 +649,6 @@ describe("tool_call lifecycle", () => {
 describe("ignored variants", () => {
   const ignoredUpdates: Array<[string, SessionUpdate]> = [
     ["plan", { sessionUpdate: "plan", entries: [{ content: "step", priority: "high", status: "pending" }] }],
-    ["plan_update", { sessionUpdate: "plan_update", plan: { type: "markdown", planId: "p1", content: "# Plan" } }],
-    ["plan_removed", { sessionUpdate: "plan_removed", planId: "p1" }],
     ["available_commands_update", { sessionUpdate: "available_commands_update", availableCommands: [] }],
     ["current_mode_update", { sessionUpdate: "current_mode_update", currentModeId: "default" }],
     ["config_option_update", { sessionUpdate: "config_option_update", configOptions: [] }],

@@ -123,7 +123,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 60
     env:
-      PINNED_RCLONE_VERSION: v1.69.1
+      PINNED_RCLONE_VERSION: v1.75.2
       OSS_ENDPOINT: https://oss-accelerate.aliyuncs.com
       OSS_REGION: cn-hangzhou
       CHANNEL: ${{ needs.compute-version.outputs.channel }}
@@ -321,7 +321,7 @@ jobs:
     runs-on: [self-hosted, Windows, x64]
     timeout-minutes: 60
     env:
-      PINNED_RCLONE_VERSION: v1.69.1
+      PINNED_RCLONE_VERSION: v1.75.2
       OSS_ENDPOINT: https://oss-cn-hangzhou.aliyuncs.com
       OSS_REGION: cn-hangzhou
       CHANNEL: ${{ needs.compute-version.outputs.channel }}
@@ -637,7 +637,7 @@ jobs:
       contents: read
       id-token: write
     env:
-      PINNED_ALIYUN_CLI_VERSION: 3.0.286
+      PINNED_ALIYUN_CLI_VERSION: 3.5.2
       ALIYUN_REGION: cn-hangzhou
       CDN_DOMAIN: static.oomol.com
       # 只刷自动更新渠道指针文件（清单由 compute-version 按渠道计算：stable 刷

@@ -174,6 +174,13 @@ export const EXTERNAL_OO_OPERATIONS = [
     workspace: "optional",
   },
   {
+    id: "team.list",
+    command: ["team", "list"],
+    availability: "planned",
+    effect: "read_only",
+    workspace: "optional",
+  },
+  {
     id: "team.current",
     command: ["team", "current"],
     availability: "planned",

@@ -210,7 +210,6 @@ export function ProviderDetail({
               onOpenAccess={onOpenAccess}
               polling={polling}
               provider={provider}
-              reconnectBlocked
             />
           ) : null
         ) : (

@@ -25,19 +25,6 @@ function contextUsageTitle(usage: ContextUsageInfo, t: ReturnType<typeof useT>):
   return t("chat.contextUsageUnknownLimit", { used })
 }
 
-function contextUsageTone(percent: number | undefined): string {
-  if (percent === undefined) {
-    return "text-muted-foreground"
-  }
-  if (percent >= 85) {
-    return "text-destructive"
-  }
-  if (percent >= 70) {
-    return "text-[var(--oo-warning-foreground)]"
-  }
-  return "text-muted-foreground"
-}
-
 function contextPanelTokenCount(value: number): string {
   return formatTokenCount(value).toLowerCase()
 }
@@ -191,8 +178,7 @@ export function ComposerContextUsageIndicator({ usage }: { usage: ContextUsageIn
         title={title}
         className={cn(
           "flex size-8 shrink-0 items-center justify-center rounded-full outline-none",
-          "hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring",
-          contextUsageTone(usage.percent),
+          "text-muted-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring",
         )}
         onClick={() => setOpen((value) => !value)}
       >

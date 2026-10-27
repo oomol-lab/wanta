@@ -64,7 +64,7 @@
 - **preload** `electron/preload.ts`: paper-thin. `setupConnectionPreload()` (the @oomol/connection
   RPC bridge) + a contextBridge that exposes a **single** bridge, `window.wanta` (name from
   `branding.windowBridge`) — there is no `window.electron` anymore. Beyond `{ appCommit, platform,
-version }` (from the vite defines `__APP_COMMIT__` / `__APP_VERSION__`), the `WantaBridge`
+  version }` (from the vite defines `__APP_COMMIT__` / `__APP_VERSION__`), the `WantaBridge`
   interface also carries `onAppCommand`, `reportRendererError`, `releaseAttachmentPaths`,
   `saveClipboardAttachment`, `selectedAttachmentPathForFile`, `selectAttachmentPaths`,
   `selectProjectDirectory`, and `setAppLocale` (thin ipcRenderer wrappers for the attachment picker,

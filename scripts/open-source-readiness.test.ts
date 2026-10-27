@@ -33,7 +33,7 @@ describe("open-source installation contract", () => {
     expect(manifest.homepage).toBe("https://wanta.ai/")
     expect(manifest.bugs?.url).toBe("https://github.com/oomol-lab/wanta/issues")
     expect(manifest.engines?.node).toBe(">=22.22.2")
-    expect(manifest.packageManager).toBe("pnpm@11.23.0")
+    expect(manifest.packageManager?.split("+")[0]).toBe("pnpm@12.15.0")
   })
 
   test("does not depend on a repository-local private npm registry", () => {
@@ -63,15 +63,15 @@ describe("open-source installation contract", () => {
     const notices = readFileSync(path.join(repoRoot, "THIRD_PARTY_NOTICES.md"), "utf8")
     const builderConfig = readFileSync(path.join(repoRoot, "electron-builder.ts"), "utf8")
 
-    expect(manifest.devDependencies?.["opencode-ai"]).toBe("1.18.30")
-    expect(manifest.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.30")
-    expect(manifest.dependencies?.["@opencode-ai/sdk"]).toBe("1.18.30")
+    expect(manifest.devDependencies?.["opencode-ai"]).toBe("1.19.4")
+    expect(manifest.devDependencies?.["@opencode-ai/plugin"]).toBe("1.19.4")
+    expect(manifest.dependencies?.["@opencode-ai/sdk"]).toBe("1.19.4")
     expect(readme).toContain("Agent Engine: OpenCode")
-    expect(readme).toContain("opencode-ai@1.18.30")
-    expect(notices).toContain("@opencode-ai/sdk@1.18.30")
-    expect(notices).toContain("@agentclientprotocol/codex-acp@1.11.0")
-    expect(notices).toContain("@agentclientprotocol/claude-agent-acp@0.76.0")
-    expect(notices).toContain("@oomol-lab/oo-cli@1.9.8")
+    expect(readme).toContain("opencode-ai@1.19.4")
+    expect(notices).toContain("@opencode-ai/sdk@1.19.4")
+    expect(notices).toContain("@agentclientprotocol/codex-acp@2.2.2")
+    expect(notices).toContain("@agentclientprotocol/claude-agent-acp@0.95.0")
+    expect(notices).toContain("@oomol-lab/oo-cli@1.9.11")
     for (const fileName of ["LICENSE", "NOTICE", "TRADEMARKS.md", "THIRD_PARTY_NOTICES.md"]) {
       expect(existsSync(path.join(repoRoot, fileName))).toBe(true)
       expect(builderConfig).toContain(`from: "${fileName}"`)

@@ -142,7 +142,7 @@ External agents build on `electron/agent/external/`:
   `agentModelId`/`agentEffortId` on the session-creating prompt. The ACP
   adapter prefers v1.3 session config options (`session/set_config_option`,
   categories `model` / `thought_level`) and falls back to the unstable `models`
-  state + `session/set_model` that shipping agents (codex-acp 1.11.0, grok 1.0.5)
+  state + `session/set_model` that shipping agents (codex-acp 2.2.2, grok 1.0.5)
   actually implement. Runtime status retains its general catalog, while composer
   pickers call `previewExternalAgentCatalog` for their selected model. The ACP
   adapter opens a disposable session, applies that model, reads its native
@@ -268,7 +268,7 @@ session-scoped; the host does not infer their age from text or identifier order.
    instantiates it automatically. No new code branches are allowed anywhere.
    Only continue with the steps below for a NATIVE (non-ACP) adapter.
 1. Extend `AgentKind` in `contract/profile.ts`; the `satisfies
-Record<AgentKind, AgentProfile>` on `AGENT_PROFILES` breaks the build until
+   Record<AgentKind, AgentProfile>` on `AGENT_PROFILES` breaks the build until
    the new profile row exists. Declare only capabilities the adapter genuinely
    implements.
 2. Implement the native adapter by extending `ExternalAgentAdapter` (or by

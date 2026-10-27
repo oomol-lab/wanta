@@ -7,7 +7,7 @@
 - **Node >= 22.22.2** (matches the minimum of the pinned OpenCode dependency chain; PR CI pins
   Node 24, release CI pins Node 22 in all four jobs that set up Node — compute-version,
   release-mac, release-win, create-release; the fifth job, refresh-cdn-cache, installs no Node at
-  all). pnpm `11.23.0` through Corepack + `pnpm-lock.yaml`.
+  all). pnpm `12.15.0` through Corepack + `pnpm-lock.yaml`.
 - **All dependency sources are public**: `@oomol/connection` / `@oomol/connection-electron-adapter`
   are published to the public registry (`registry.npmjs.org`); `corepack pnpm install` **needs no token or
   `.npmrc`** — since the repo went open source, a fresh clone and an external fork's CI both

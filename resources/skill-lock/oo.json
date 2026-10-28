@@ -1,12 +1,12 @@
 {
   "lockVersion": 1,
-  "ooCliVersion": "1.9.11",
+  "ooCliVersion": "1.9.12",
   "agentFormat": "universal",
   "files": {
-    "SKILL.md": "d90473dff162abce6fb53d4c00ec57ed53712af50d5d12876e24098bd02172e3",
+    "SKILL.md": "1141f9187bd604a26a1a4af0a64265dcb5434ad64378260a6254d332073cff07",
     "agents/openai.yaml": "50fa43d22512453554fecb66c37bd051bb1bb37d3daf6c25d4c362f9444c2202",
     "references/auth-and-billing.md": "b1161057eca019cdd0b5897ae8a7004b2bb70e988ea892a55d6142614133c5d0",
-    "references/connector-execution.md": "0aa295cbbc615d849895224bf38e3cb9259d80f950d6dc92b2d2d713588d51bb",
+    "references/connector-execution.md": "79efc2f0616080c51cc25d9a69d438df24f26969de0e3f388f805f2bf140b34a",
     "references/file-transfer.md": "1547f3c3811f0bc6038ea9e9987d2cb2c18688ad1b8382e723c0d41ea34c9e46",
     "references/flow-authoring.md": "9f211f5b4a9b7456d5fc8ee919db5775869b119d0820900ba3d91b73e1b1fb8d",
     "references/flow-n8n-conversion.md": "5001e46b0924490d002985ad34586d356629d7c3a62ba2890cf80e9b4611b6d9",

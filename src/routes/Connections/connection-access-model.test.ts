@@ -9,11 +9,13 @@ import {
   removeGuestConnectionAssignments,
   canRestoreConnectionAccess,
   createConnectionPermissionRuleGrant,
-  defaultRestrictedActionNames,
+  createDefaultActionPolicies,
+  getActionPolicy,
+  getActionGroupPolicy,
   isConnectionAccessConflict,
   mergeConnectionRuleAssignments,
   unavailableActionNames,
-  updateActionSelection,
+  setActionPolicies,
 } from "./connection-access-model.ts"
 import {
   parseTeamConnectionAccess,
@@ -51,23 +53,26 @@ const actions: ConnectionActionCatalogItem[] = [
 describe("connection access action drafts", () => {
   it("starts a new permission rule denied by default", () => {
     expect(createConnectionPermissionRuleGrant()).toEqual({
-      actionAccess: { actionNames: [], mode: "restricted" },
+      actionAccess: { actionPolicies: {}, mode: "restricted" },
     })
   })
 
-  it("starts a new restricted policy with known read actions", () => {
-    expect(defaultRestrictedActionNames(actions)).toEqual(["get_issue", "list_issues"])
+  it("initializes read, write, and destructive Actions with their agreed policies", () => {
+    const defaults = createDefaultActionPolicies(actions)
+    expect(defaults).toEqual({ get_issue: "allow", list_issues: "allow", create_issue: "ask_advisory" })
+    expect(createConnectionPermissionRuleGrant(actions)).toEqual({
+      actionAccess: { mode: "restricted", actionPolicies: defaults },
+    })
+    expect(getActionPolicy(defaults, "delete_issue")).toBe("deny")
+    expect(getActionGroupPolicy(defaults, actions)).toBe("mixed")
   })
 
-  it("allows a restricted policy to remain explicitly empty", () => {
-    expect(updateActionSelection(["get_issue", "list_issues"], ["get_issue", "list_issues"], false)).toEqual([])
-  })
-
-  it("preserves unavailable saved actions while editing a known group", () => {
-    const selected = ["legacy_action", "list_issues"]
-
-    expect(unavailableActionNames(selected, actions)).toEqual(["legacy_action"])
-    expect(updateActionSelection(selected, ["get_issue", "list_issues"], false)).toEqual(["legacy_action"])
+  it("preserves unavailable and advisory policies while editing or denying a full group", () => {
+    const policies = { legacy_action: "ask_advisory" as const, list_issues: "allow" as const }
+    expect(unavailableActionNames(policies, actions)).toEqual(["legacy_action"])
+    expect(setActionPolicies(policies, ["get_issue", "list_issues"], "deny")).toEqual({ legacy_action: "ask_advisory" })
+    expect(setActionPolicies({}, ["call_tool"], "allow")).toEqual({})
+    expect(setActionPolicies({}, ["list_issues"], "ask_advisory")).toEqual({ list_issues: "ask_advisory" })
   })
 })
 
@@ -197,7 +202,7 @@ it("removes known guest assignments on save without discarding unknown or ordina
   const policy = setConnectionPermissionRules({}, app, {
     assignments: merged,
     rules: [{ id: "writers", name: "Writers", actionAccess: { mode: "unrestricted" } }],
-    teamDefault: { actionAccess: { mode: "restricted", actionNames: [] } },
+    teamDefault: { actionAccess: { mode: "restricted", actionPolicies: {} } },
   })
   const parsed = parseTeamConnectionAccess(policy, [app])
   if (!parsed.ok || parsed.apps[0]?.mode === "invalid") throw new Error("Invalid policy")

@@ -13,10 +13,15 @@ export interface ConnectionAccessApp {
   service: string
 }
 
-export type ConnectionActionAccess = { mode: "unrestricted" } | { mode: "restricted"; actionNames: string[] }
+export type ConnectionActionPolicy = "allow" | "ask_advisory"
+export type ConnectionActionPolicies = Record<string, ConnectionActionPolicy>
+export type ConnectionActionAccess =
+  | { mode: "unrestricted" }
+  | { mode: "restricted"; actionPolicies: ConnectionActionPolicies }
 
 export interface ConnectionPermissionGrant {
   actionAccess: ConnectionActionAccess
+  triggers?: "*" | string[]
   appAccessConfig?: JSONObject
 }
 
@@ -87,7 +92,13 @@ export function getConnectionPermissionRule(
 
 export function hasTeamConnectionAppAccess(appAccess: ConnectionAppAccess, userId: string): boolean {
   const grant = getConnectionPermissionGrant(appAccess, userId)
-  return grant !== null && (grant.actionAccess.mode === "unrestricted" || grant.actionAccess.actionNames.length > 0)
+  return (
+    grant !== null &&
+    (grant.actionAccess.mode === "unrestricted" ||
+      Object.keys(grant.actionAccess.actionPolicies).length > 0 ||
+      getConnectionTriggers(grant) === "*" ||
+      getConnectionTriggers(grant).length > 0)
+  )
 }
 
 export function getConnectionRuleMemberIds(permissionRules: ConnectionPermissionRules, ruleId: string): string[] {
@@ -115,6 +126,7 @@ export function setConnectionLingxingUserAccess(
   else appAccessConfig.users = normalizeLingxingUsers(access.users) as unknown as JSONValue
   return {
     ...grantWithoutAppAccessConfig,
+    triggers: getConnectionTriggers(grant),
     ...(Object.keys(appAccessConfig).length > 0 ? { appAccessConfig } : {}),
   }
 }
@@ -303,7 +315,7 @@ function parsePermissionRules(
   const rules: ConnectionPermissionRule[] = []
   const ruleIds = new Set<string>()
   for (const item of permissionRuleValues) {
-    if (!isPlainObject(item) || !hasOnlyKeys(item, ["id", "name", "actions", "appAccessConfig"])) {
+    if (!isPlainObject(item) || !hasOnlyKeys(item, ["id", "name", "actions", "triggers", "appAccessConfig"])) {
       return invalidParseResult
     }
     if (!isNonEmptyString(item.id) || !isNonEmptyString(item.name) || ruleIds.has(item.id)) {
@@ -359,7 +371,7 @@ function parseLegacyRule(
     value: {
       assignments,
       rules: [{ id: legacyRuleId, name: legacyRuleName, ...grant.value }],
-      teamDefault: { actionAccess: { actionNames: [], mode: "restricted" } },
+      teamDefault: { actionAccess: { actionPolicies: {}, mode: "restricted" } },
     },
   }
 }
@@ -371,11 +383,22 @@ function parseGrant(
   extraKeys: string[] = [],
 ): ParseResult<ConnectionPermissionGrant> {
   if (!isPlainObject(input)) return invalidParseResult
-  if (format === "multi" && !hasOnlyKeys(input, [...extraKeys, "actions", "appAccessConfig"])) {
+  if (format === "multi" && !hasOnlyKeys(input, [...extraKeys, "actions", "triggers", "appAccessConfig"])) {
     return invalidParseResult
   }
   const actionAccess = parseActionAccess(input.actions, Object.hasOwn(input, "actions"), format)
   if (!actionAccess.ok) return invalidParseResult
+  let triggers: "*" | string[] | undefined
+  if (Object.hasOwn(input, "triggers")) {
+    if (input.triggers === "*") triggers = "*"
+    else if (
+      Array.isArray(input.triggers) &&
+      input.triggers.every((id) => isNonEmptyString(id) && id.startsWith(`${service}.`) && id !== `${service}.*`) &&
+      new Set(input.triggers).size === input.triggers.length
+    )
+      triggers = sortedUnique(input.triggers)
+    else return invalidParseResult
+  }
   let appAccessConfig: JSONObject | undefined
   if (Object.hasOwn(input, "appAccessConfig")) {
     const parsed = parseAppAccessConfig(input.appAccessConfig, service, format)
@@ -386,6 +409,7 @@ function parseGrant(
     ok: true,
     value: {
       actionAccess: actionAccess.value,
+      ...(triggers === undefined ? {} : { triggers }),
       ...(appAccessConfig === undefined ? {} : { appAccessConfig }),
     },
   }
@@ -397,12 +421,25 @@ function parseActionAccess(
   format: "legacy" | "multi",
 ): ParseResult<ConnectionActionAccess> {
   if (!present) return { ok: true, value: { mode: "unrestricted" } }
-  if (!Array.isArray(input) || input.some((item) => !isNonEmptyString(item) || item.trim() === "*")) {
-    return invalidParseResult
+  const entries: [string, ConnectionActionPolicy][] = []
+  if (Array.isArray(input)) {
+    const seen = new Set<string>()
+    for (const name of input) {
+      if (!isNonEmptyString(name) || name === "*" || (format === "multi" && seen.has(name))) return invalidParseResult
+      seen.add(name)
+    }
+    for (const name of seen) entries.push([name, "allow"])
+  } else if (isPlainObject(input)) {
+    for (const [name, policy] of Object.entries(input)) {
+      if (!isNonEmptyString(name) || name === "*" || (policy !== "allow" && policy !== "ask_advisory"))
+        return invalidParseResult
+      entries.push([name, policy])
+    }
+  } else return invalidParseResult
+  return {
+    ok: true,
+    value: { actionPolicies: Object.fromEntries(entries.sort(([a], [b]) => a.localeCompare(b))), mode: "restricted" },
   }
-  const normalized = input.map((item) => (item as string).trim())
-  if (format === "multi" && new Set(normalized).size !== normalized.length) return invalidParseResult
-  return { ok: true, value: { actionNames: sortedUnique(normalized), mode: "restricted" } }
 }
 
 function parseAppAccessConfig(input: unknown, service: string, format: "legacy" | "multi"): ParseResult<JSONObject> {
@@ -447,7 +484,8 @@ function parseAppAccessConfig(input: unknown, service: string, format: "legacy" 
 
 function buildGrant(grant: ConnectionPermissionGrant): Record<string, unknown> {
   return {
-    ...(grant.actionAccess.mode === "restricted" ? { actions: sortedUnique(grant.actionAccess.actionNames) } : {}),
+    ...(grant.actionAccess.mode === "restricted" ? { actions: grant.actionAccess.actionPolicies } : {}),
+    triggers: getConnectionTriggers(grant),
     ...(grant.appAccessConfig ? { appAccessConfig: structuredClone(grant.appAccessConfig) } : {}),
   }
 }
@@ -492,10 +530,22 @@ function normalizeGrantForWrite(grant: ConnectionPermissionGrant, service: strin
   return {
     actionAccess:
       grant.actionAccess.mode === "restricted"
-        ? { actionNames: sortedUnique(grant.actionAccess.actionNames), mode: "restricted" }
+        ? {
+            actionPolicies: Object.fromEntries(
+              Object.entries(grant.actionAccess.actionPolicies).sort(([a], [b]) => a.localeCompare(b)),
+            ),
+            mode: "restricted",
+          }
         : { mode: "unrestricted" },
+    triggers: getConnectionTriggers(grant),
     ...(appAccessConfig === undefined ? {} : { appAccessConfig }),
   }
+}
+
+export function getConnectionTriggers(grant: ConnectionPermissionGrant): "*" | string[] {
+  return (
+    grant.triggers ?? (grant.actionAccess.mode === "unrestricted" && grant.appAccessConfig === undefined ? "*" : [])
+  )
 }
 
 function unrestrictedPermissionRules(): ConnectionPermissionRules {

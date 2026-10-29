@@ -25,7 +25,7 @@ function SelectTrigger({
   variant = "outline",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
-  size?: Exclude<VariantProps<typeof toggleVariants>["size"], "lg">
+  size?: Exclude<VariantProps<typeof toggleVariants>["size"], "lg"> | "compact"
   variant?: VariantProps<typeof toggleVariants>["variant"]
 }) {
   return (
@@ -33,8 +33,9 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        toggleVariants({ size, variant }),
+        toggleVariants({ size: size === "compact" ? "sm" : size, variant }),
         "w-fit justify-between px-2.5 shadow-none data-[placeholder]:text-muted-foreground data-[size=sm]:px-2 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2",
+        size === "compact" && "h-6 gap-1 px-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
         className,
       )}
       {...props}
@@ -94,17 +95,23 @@ function SelectLabel({ className, ...props }: React.ComponentProps<typeof Select
   )
 }
 
-function SelectItem({ children, className, ...props }: React.ComponentProps<typeof SelectPrimitive.Item>) {
+function SelectItem({
+  children,
+  className,
+  size = "default",
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Item> & { size?: "default" | "compact" }) {
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
+      data-size={size}
       className={cn(
-        "relative flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[state=checked]:bg-secondary data-[state=checked]:text-secondary-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        "relative flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[size=compact]:text-xs data-[state=checked]:bg-secondary data-[state=checked]:text-secondary-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
         className,
       )}
       {...props}
     >
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      <SelectPrimitive.ItemText className="flex items-center gap-2">{children}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   )
 }

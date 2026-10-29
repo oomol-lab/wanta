@@ -4,8 +4,10 @@ import type {
   ConnectionLingxingErpUser,
 } from "../../../electron/connections/common.ts"
 import type { Team, TeamAppAccess, TeamMember, TeamUserSummary } from "../../../electron/teams/common.ts"
+import type { ActionPolicySelection } from "./connection-access-model.ts"
 import type {
   ConnectionActionAccess,
+  ConnectionActionPolicies,
   ConnectionAppAccess,
   ConnectionLingxingUserAccess,
   ConnectionPermissionGrant,
@@ -14,6 +16,8 @@ import type {
 
 import {
   AlertTriangle,
+  Ban,
+  MessageCircle,
   ChevronDown,
   ChevronRight,
   Pencil,
@@ -32,14 +36,18 @@ import {
   connectionMemberLabel,
   removeGuestConnectionAssignments,
   createConnectionPermissionRuleGrant,
-  defaultRestrictedActionNames,
+  createDefaultActionPolicies,
+  getActionGroupPolicy,
+  getActionPolicy,
+  isActionIndividuallyConfigurable,
+  setActionPolicies,
   isConnectionAccessConflict,
   mergeConnectionRuleAssignments,
   unavailableActionNames,
-  updateActionSelection,
 } from "./connection-access-model.ts"
 import { localizeConnectionActions } from "./connection-action-localization.ts"
 import { Loader } from "@/components/ai-elements/loader"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   ConfirmDialog,
@@ -53,10 +61,12 @@ import {
 } from "@/components/ui/confirm-dialog"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useI18n, useT } from "@/i18n/i18n"
 import { ConnectorRequestError, getConnectionActions, getConnectionLingxingErpUsers } from "@/lib/connections-client"
 import {
   createConnectionPermissionRuleId,
+  getConnectionTriggers,
   getConnectionPermissionGrant,
   getConnectionPermissionRule,
   getConnectionRuleMemberIds,
@@ -360,7 +370,7 @@ export function ConnectionAccessDialog({
               summaries={summaries}
               onCreate={() =>
                 setEditor({
-                  grant: createConnectionPermissionRuleGrant(),
+                  grant: createConnectionPermissionRuleGrant(actions),
                   kind: "new",
                   name: t("connections.accessNewRuleDefaultName", {
                     count: appAccess.permissionRules.rules.length + 1,
@@ -712,7 +722,10 @@ function PermissionRuleEditor({
           busy={busy}
           value={draft.grant.actionAccess}
           onChange={(actionAccess) =>
-            setDraft((current) => ({ ...current, grant: { ...current.grant, actionAccess } }))
+            setDraft((current) => ({
+              ...current,
+              grant: { ...current.grant, triggers: getConnectionTriggers(current.grant), actionAccess },
+            }))
           }
         />
         {showLingxing ? (
@@ -857,7 +870,59 @@ function LingxingAccessEditor({
   )
 }
 
-function ActionEditor({
+function ActionPolicySelect({
+  value,
+  label,
+  disabled,
+  onChange,
+}: {
+  value: ActionPolicySelection | "mixed"
+  label: string
+  disabled: boolean
+  onChange: (policy: ActionPolicySelection) => void
+}) {
+  const t = useT()
+  const options = [
+    { value: "allow", label: t("connections.actionPolicyAllow"), icon: ShieldCheck },
+    { value: "ask_advisory", label: t("connections.actionPolicyAsk"), icon: MessageCircle },
+    { value: "deny", label: t("connections.actionPolicyDeny"), icon: Ban },
+  ] as const
+  const selected = options.find((option) => option.value === value)
+  return (
+    <Select
+      value={value}
+      disabled={disabled}
+      onValueChange={(next) => {
+        if (next === "allow" || next === "ask_advisory" || next === "deny") onChange(next)
+      }}
+    >
+      <SelectTrigger size="compact" className="w-28 shrink-0" aria-label={label}>
+        <SelectValue>
+          {selected ? (
+            <>
+              <selected.icon className="text-muted-foreground" aria-hidden="true" strokeWidth={1.5} />
+              {selected.label}
+            </>
+          ) : (
+            t("connections.actionPolicyMixed")
+          )}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value} size="compact">
+              <option.icon aria-hidden="true" strokeWidth={1.5} />
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  )
+}
+
+export function ActionEditor({
   actions,
   busy,
   onChange,
@@ -871,10 +936,10 @@ function ActionEditor({
   const t = useT()
   const [query, setQuery] = React.useState("")
   const [expanded, setExpanded] = React.useState<Set<OperationType>>(() => new Set())
-  const selected = value.mode === "restricted" ? value.actionNames : []
-  const selectedSet = React.useMemo(() => new Set(selected), [selected])
+  const inactivePolicies = React.useRef<ConnectionActionPolicies | null>(null)
+  const policies = value.mode === "restricted" ? value.actionPolicies : {}
   const filtered = filterActions(actions, query)
-  const unavailable = unavailableActionNames(selected, actions)
+  const unavailable = unavailableActionNames(policies, actions)
   return (
     <section className="grid gap-3 rounded-md border p-3">
       <div>
@@ -888,7 +953,10 @@ function ActionEditor({
           active={value.mode === "unrestricted"}
           disabled={busy}
           label={t("connections.actionAccessUnrestricted")}
-          onClick={() => onChange({ mode: "unrestricted" })}
+          onClick={() => {
+            if (value.mode === "restricted") inactivePolicies.current = value.actionPolicies
+            onChange({ mode: "unrestricted" })
+          }}
         />
         <ModeButton
           active={value.mode === "restricted"}
@@ -896,7 +964,10 @@ function ActionEditor({
           label={t("connections.actionAccessRestricted")}
           onClick={() =>
             onChange({
-              actionNames: value.mode === "restricted" ? value.actionNames : defaultRestrictedActionNames(actions),
+              actionPolicies:
+                value.mode === "restricted"
+                  ? value.actionPolicies
+                  : (inactivePolicies.current ?? createDefaultActionPolicies(actions)),
               mode: "restricted",
             })
           }
@@ -917,45 +988,63 @@ function ActionEditor({
             {operationTypes.map((operationType) => {
               const group = filtered.filter((action) => action.operationType === operationType)
               if (group.length === 0) return null
-              const names = group.map((action) => action.name)
-              const selectedCount = names.filter((name) => selectedSet.has(name)).length
+              const allGroup = actions.filter((action) => action.operationType === operationType)
+              const names = allGroup.filter(isActionIndividuallyConfigurable).map((action) => action.name)
               const open = expanded.has(operationType)
               return (
                 <div key={operationType} className="border-b last:border-b-0">
-                  <button
-                    type="button"
-                    className="flex min-h-10 w-full items-center gap-2 bg-muted/20 px-3 text-left"
-                    onClick={() =>
-                      setExpanded((current) => {
-                        const next = new Set(current)
-                        if (open) next.delete(operationType)
-                        else next.add(operationType)
-                        return next
-                      })
-                    }
-                  >
-                    {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-                    <span className="flex-1 font-medium">{operationTypeLabel(operationType, t)}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {selectedCount} / {names.length}
-                    </span>
-                  </button>
+                  <div className="flex min-h-10 items-center gap-3 bg-muted/20 px-3">
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
+                      onClick={() =>
+                        setExpanded((current) => {
+                          const next = new Set(current)
+                          if (open) next.delete(operationType)
+                          else next.add(operationType)
+                          return next
+                        })
+                      }
+                    >
+                      {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                      <span className="truncate font-medium">{operationTypeLabel(operationType, t)}</span>
+                      <span className="text-xs text-muted-foreground">{names.length}</span>
+                    </button>
+                    <ActionPolicySelect
+                      value={getActionGroupPolicy(policies, allGroup)}
+                      label={operationTypeLabel(operationType, t)}
+                      disabled={busy || names.length === 0}
+                      onChange={(policy) =>
+                        onChange({ mode: "restricted", actionPolicies: setActionPolicies(policies, names, policy) })
+                      }
+                    />
+                  </div>
                   {open ? (
                     <div className="divide-y border-t">
                       {group.map((action) => (
-                        <CheckboxRow
-                          key={action.id}
-                          checked={selectedSet.has(action.name)}
-                          disabled={busy}
-                          label={action.name}
-                          secondary={action.description}
-                          onChange={(checked) =>
-                            onChange({
-                              actionNames: updateActionSelection(selected, [action.name], checked),
-                              mode: "restricted",
-                            })
-                          }
-                        />
+                        <div key={action.id} className="flex items-start gap-3 px-3 py-2.5 pl-9">
+                          <div className="min-w-0 flex-1">
+                            <div className="oo-text-label break-words">{action.name}</div>
+                            <div className="oo-text-caption break-words text-muted-foreground">
+                              {action.description}
+                            </div>
+                          </div>
+                          {isActionIndividuallyConfigurable(action) ? (
+                            <ActionPolicySelect
+                              value={getActionPolicy(policies, action.name)}
+                              label={action.name}
+                              disabled={busy}
+                              onChange={(policy) =>
+                                onChange({
+                                  mode: "restricted",
+                                  actionPolicies: setActionPolicies(policies, [action.name], policy),
+                                })
+                              }
+                            />
+                          ) : (
+                            <Badge variant="outline">{t("connections.actionUnrestrictedOnly")}</Badge>
+                          )}
+                        </div>
                       ))}
                     </div>
                   ) : null}
@@ -963,16 +1052,24 @@ function ActionEditor({
               )
             })}
             {unavailable.map((name) => (
-              <CheckboxRow
-                key={name}
-                checked
-                disabled={busy}
-                label={name}
-                secondary={t("connections.actionUnavailable")}
-                onChange={(checked) =>
-                  onChange({ actionNames: updateActionSelection(selected, [name], checked), mode: "restricted" })
-                }
-              />
+              <div key={name} className="flex items-center gap-3 border-t px-3 py-2.5 pl-9">
+                <div className="min-w-0 flex-1">
+                  <div className="oo-text-label truncate">{name}</div>
+                  <div className="oo-text-caption text-muted-foreground">{t("connections.actionUnavailable")}</div>
+                </div>
+                {isActionIndividuallyConfigurable({ name }) ? (
+                  <ActionPolicySelect
+                    value={getActionPolicy(policies, name)}
+                    label={name}
+                    disabled={busy}
+                    onChange={(policy) =>
+                      onChange({ mode: "restricted", actionPolicies: setActionPolicies(policies, [name], policy) })
+                    }
+                  />
+                ) : (
+                  <Badge variant="outline">{t("connections.actionUnrestrictedOnly")}</Badge>
+                )}
+              </div>
             ))}
           </div>
           <p className="oo-text-caption text-[var(--oo-warning-foreground)]">
@@ -1099,14 +1196,24 @@ function grantSummary(
   actions: ConnectionActionCatalogItem[],
   t: ReturnType<typeof useT>,
 ): string {
+  const policies =
+    grant.actionAccess.mode === "restricted"
+      ? Object.entries(grant.actionAccess.actionPolicies).filter(([name]) => isActionIndividuallyConfigurable({ name }))
+      : []
+  const allNames = new Set([
+    ...actions.filter(isActionIndividuallyConfigurable).map((action) => action.name),
+    ...policies.map(([name]) => name),
+  ])
   const actionSummary =
     grant.actionAccess.mode === "unrestricted"
       ? t("connections.actionAccessUnrestrictedSummary")
-      : grant.actionAccess.actionNames.length === 0
+      : policies.length === 0
         ? t("connections.actionAccessDeniedSummary")
         : t("connections.actionAccessRestrictedSummary", {
-            allowed: grant.actionAccess.actionNames.length,
-            total: actions.length,
+            allowed: policies.filter(([, policy]) => policy === "allow").length,
+            advisory: Object.values(grant.actionAccess.actionPolicies).filter((policy) => policy === "ask_advisory")
+              .length,
+            total: allNames.size,
           })
   const lingxingAccess = getConnectionLingxingUserAccess(grant)
   if (lingxingAccess.mode !== "selected") return actionSummary

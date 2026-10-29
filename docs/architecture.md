@@ -594,7 +594,7 @@ cannot reuse management data in a member view.
 Team Connection authorization uses only the final multi-rule `app-access` contract. Each
 `role::connector-app:<appId>` contains one Connector rule with `permissionRules`: a `teamDefault`
 grant, named custom `rules`, and member-to-rule `assignments`. Every grant independently owns its
-Action allowlist and optional provider-specific `appAccessConfig`; a member uses exactly one grant,
+Action policies, independent Trigger access, and optional provider-specific `appAccessConfig`; a member uses exactly one grant,
 with no union against the Team default. The Connection detail is the only editing surface. Team
 member rows manage identity and Team roles only; the former member-centric Connection checkbox
 editor was removed because it cannot represent rule assignment or grant contents. Parsing and
@@ -603,6 +603,18 @@ canonical writes live in `src/lib/team-connection-access.ts`; supported historic
 unsupported policy shapes fail closed. All saves re-read the policy and write with `If-Match`. Lingxing owner
 scope is the first provider-specific adapter and is stored per grant without coupling its data to
 Action or member edits.
+
+Restricted Action grants write an `actions` object with `allow` or `ask_advisory` values. Missing
+keys deny execution; an empty object denies every Action. Missing `actions` remains unrestricted.
+Legacy string arrays are read as `allow` policies and migrate only on an explicit save. Unknown
+states and explicit `deny` values fail closed. Trigger grants written by other consoles are
+validated and preserved, including when Action or Lingxing owner scopes change.
+
+The grouped editor initializes read Actions to allow, write Actions to ask first, and destructive
+Actions to deny. Switching modes preserves the custom draft. Group edits apply to the full group
+when search filters its visible rows; catalog-missing policies remain editable. `call_tool` is
+available only in unrestricted mode. Ask first is advisory: the Agent assesses existing user
+authorization and asks for consent when needed; the Console does not verify human approval.
 
 The connection summary reads Apps and Providers only (`appsStatus`: ready/forbidden/unavailable).
 The Connections UI deliberately does not request or display aggregate call counts, because the

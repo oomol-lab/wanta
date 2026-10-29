@@ -1,11 +1,18 @@
 import type { ConnectionActionCatalogItem } from "../../../electron/connections/common.ts"
 import type { TeamMember, TeamUserSummary } from "../../../electron/teams/common.ts"
-import type { ConnectionAppAccess, ConnectionPermissionGrant } from "@/lib/team-connection-access"
+import type {
+  ConnectionActionPolicy,
+  ConnectionActionPolicies,
+  ConnectionAppAccess,
+  ConnectionPermissionGrant,
+} from "@/lib/team-connection-access"
 
 import { isGuestTeamServiceAccount } from "@/lib/team-permissions"
 
-export function createConnectionPermissionRuleGrant(): ConnectionPermissionGrant {
-  return { actionAccess: { actionNames: [], mode: "restricted" } }
+export function createConnectionPermissionRuleGrant(
+  actions: readonly ConnectionActionCatalogItem[] = [],
+): ConnectionPermissionGrant {
+  return { actionAccess: { actionPolicies: createDefaultActionPolicies(actions), mode: "restricted" } }
 }
 
 export function canRestoreConnectionAccess(canManage: boolean, access: ConnectionAppAccess | null): boolean {
@@ -33,29 +40,62 @@ export function mergeConnectionRuleAssignments(
   return next
 }
 
-export function defaultRestrictedActionNames(actions: readonly ConnectionActionCatalogItem[]): string[] {
-  return uniqueSorted(actions.filter((action) => action.operationType === "read").map((action) => action.name))
+// Connector only exposes call_tool when the Action allowlist is absent.
+const unrestrictedOnlyActionNames = new Set(["call_tool"])
+
+export function isActionIndividuallyConfigurable(action: Pick<ConnectionActionCatalogItem, "name">) {
+  return !unrestrictedOnlyActionNames.has(action.name)
+}
+
+export type ActionPolicySelection = ConnectionActionPolicy | "deny"
+
+export function getActionPolicy(policies: ConnectionActionPolicies, name: string): ActionPolicySelection {
+  if (unrestrictedOnlyActionNames.has(name) || !Object.hasOwn(policies, name)) return "deny"
+  return policies[name]
+}
+
+export function getActionGroupPolicy(
+  policies: ConnectionActionPolicies,
+  actions: readonly ConnectionActionCatalogItem[],
+) {
+  const states = new Set(
+    actions.filter(isActionIndividuallyConfigurable).map((action) => getActionPolicy(policies, action.name)),
+  )
+  return states.size > 1 ? "mixed" : (states.values().next().value ?? "deny")
+}
+
+export function setActionPolicies(
+  policies: ConnectionActionPolicies,
+  names: string[],
+  policy: ActionPolicySelection,
+): ConnectionActionPolicies {
+  const next = new Map(Object.entries(policies))
+  for (const name of names) {
+    if (unrestrictedOnlyActionNames.has(name)) continue
+    if (policy === "deny") next.delete(name)
+    else next.set(name, policy)
+  }
+  return Object.fromEntries([...next].sort(([a], [b]) => a.localeCompare(b)))
+}
+
+export function createDefaultActionPolicies(actions: readonly ConnectionActionCatalogItem[]): ConnectionActionPolicies {
+  const entries: [string, ConnectionActionPolicy][] = []
+  for (const action of actions) {
+    if (!isActionIndividuallyConfigurable(action)) continue
+    if (action.operationType === "read") entries.push([action.name, "allow"])
+    else if (action.operationType === "write") entries.push([action.name, "ask_advisory"])
+  }
+  return Object.fromEntries(entries.sort(([a], [b]) => a.localeCompare(b)))
 }
 
 export function unavailableActionNames(
-  selected: readonly string[],
+  policies: ConnectionActionPolicies,
   actions: readonly ConnectionActionCatalogItem[],
 ): string[] {
   const catalogNames = new Set(actions.map((action) => action.name))
-  return uniqueSorted(selected.filter((name) => !catalogNames.has(name)))
-}
-
-export function updateActionSelection(
-  selected: readonly string[],
-  actionNames: readonly string[],
-  checked: boolean,
-): string[] {
-  const next = new Set(selected)
-  for (const name of actionNames) {
-    if (checked) next.add(name)
-    else next.delete(name)
-  }
-  return uniqueSorted(Array.from(next))
+  return Object.keys(policies)
+    .filter((name) => !catalogNames.has(name))
+    .sort()
 }
 
 export function connectionAccessSaveDisabled(input: {
@@ -66,10 +106,6 @@ export function connectionAccessSaveDisabled(input: {
   requiresCatalog: boolean
 }): boolean {
   return !input.dirty || input.busy || (input.requiresCatalog && (input.loading || input.error))
-}
-
-function uniqueSorted(values: string[]): string[] {
-  return Array.from(new Set(values.filter(Boolean))).sort()
 }
 
 /** Guest service accounts have a separate access scope, outside ordinary team rules. */

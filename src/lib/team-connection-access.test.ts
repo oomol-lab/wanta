@@ -67,7 +67,7 @@ describe("team connection access v2", () => {
     if (!parsed.ok || parsed.apps[0]?.mode !== "configured") throw new Error("Expected a legacy policy")
     expect(parsed.apps[0].format).toBe("legacy")
     expect(getConnectionPermissionGrant(parsed.apps[0], "alice")?.actionAccess).toEqual({
-      actionNames: ["issues.list"],
+      actionPolicies: { "issues.list": "allow" as const },
       mode: "restricted",
     })
 
@@ -112,7 +112,7 @@ describe("team connection access v2", () => {
     expect(getConnectionPermissionRule(app, "alice")?.name).toBe("Writers")
     expect(getConnectionPermissionRule(app, "bob")).toBeNull()
     expect(getConnectionPermissionGrant(app, "bob")).toEqual({
-      actionAccess: { actionNames: ["issues.list"], mode: "restricted" },
+      actionAccess: { actionPolicies: { "issues.list": "allow" as const }, mode: "restricted" },
     })
     expect(app.mode === "invalid" ? null : app.permissionRules.assignments).toEqual({ alice: "writers" })
   })
@@ -158,10 +158,10 @@ describe("team connection access v2", () => {
     if (!parsed.ok || parsed.apps[0]?.mode === "invalid" || !parsed.apps[0]) throw new Error("Expected valid")
     const next = setConnectionTeamDefault(parsed.access, lingxing, parsed.apps[0].permissionRules, {
       ...parsed.apps[0].permissionRules.teamDefault,
-      actionAccess: { actionNames: [], mode: "restricted" },
+      actionAccess: { actionPolicies: {}, mode: "restricted" },
     })
     expect(next["role::connector-app:app-lingxing"]?.connector).toMatchObject([
-      { permissionRules: { teamDefault: { actions: [], appAccessConfig: { scope: { tenant: "one" } } } } },
+      { permissionRules: { teamDefault: { actions: {}, appAccessConfig: { scope: { tenant: "one" } } } } },
     ])
   })
 
@@ -188,7 +188,7 @@ describe("team connection access v2", () => {
     const selected = setConnectionLingxingUserAccess(grant, { mode: "selected", users: [] })
     expect(selected.appAccessConfig).toEqual({ users: [] })
     expect(getConnectionLingxingUserAccess(selected)).toEqual({ mode: "selected", users: [] })
-    expect(setConnectionLingxingUserAccess(selected, { mode: "all" })).toEqual(grant)
+    expect(setConnectionLingxingUserAccess(selected, { mode: "all" })).toEqual({ ...grant, triggers: "*" })
   })
 
   it("drops legacy Lingxing user keys before writing canonical v2", () => {
@@ -238,7 +238,7 @@ describe("team connection access v2", () => {
     const parsed = parseTeamConnectionAccess({}, [github])
     if (!parsed.ok || parsed.apps[0]?.mode === "invalid" || !parsed.apps[0]) throw new Error("Expected valid")
     const rule = {
-      actionAccess: { actionNames: ["issues.list"], mode: "restricted" as const },
+      actionAccess: { actionPolicies: { "issues.list": "allow" as const }, mode: "restricted" as const },
       id: "readers",
       name: "Readers",
     }
@@ -291,7 +291,7 @@ describe("team connection access v2", () => {
       {
         app: ["app-github"],
         method: "POST",
-        permissionRules: { assignments: {}, rules: [], teamDefault: {} },
+        permissionRules: { assignments: {}, rules: [], teamDefault: { triggers: "*" } },
         provider: "github",
       },
     ])
@@ -309,4 +309,56 @@ describe("team connection access v2", () => {
       ),
     ).toEqual({ keep: { value: true }, "user::alice": { roles: ["other-role"] } })
   })
+})
+
+describe.each(["legacy", "multi"] as const)("%s advisory action policies", (format) => {
+  function readActions(actions: unknown) {
+    const grant = { actions, triggers: ["github.on_issue_created"] }
+    const access = {
+      "role::connector-app:app-github": {
+        connector: [
+          {
+            method: "POST",
+            provider: "github",
+            ...(format === "legacy" ? grant : { permissionRules: { teamDefault: grant, rules: [], assignments: {} } }),
+          },
+        ],
+      },
+    }
+    return parseTeamConnectionAccess(access, [github])
+  }
+  it.each([[], {}, ["issues.list"], { "issues.list": "allow", "issues.create": "ask_advisory" }])(
+    "round-trips valid actions %j with independent triggers",
+    (actions) => {
+      const parsed = readActions(actions)
+      if (!parsed.ok || parsed.apps[0]?.mode === "invalid") throw new Error("Expected valid policy")
+      const grant = parsed.apps[0].permissionRules.teamDefault
+      const saved = setConnectionTeamDefault(parsed.access, github, parsed.apps[0].permissionRules, grant)
+      const reparsed = parseTeamConnectionAccess(saved, [github])
+      if (!reparsed.ok || reparsed.apps[0]?.mode === "invalid") throw new Error("Expected valid saved policy")
+      expect(reparsed.apps[0].permissionRules.teamDefault).toEqual(grant)
+      expect(grant.triggers).toEqual(["github.on_issue_created"])
+      expect(grant.actionAccess.mode).toBe("restricted")
+      if (!Array.isArray(actions) && "issues.create" in actions)
+        expect(grant.actionAccess).toMatchObject({ actionPolicies: { "issues.create": "ask_advisory" } })
+    },
+  )
+  it.each([
+    null,
+    true,
+    "allow",
+    ["*"],
+    { "issues.create": "deny" },
+    { "issues.create": "unknown" },
+    { "issues.create": true },
+  ])("rejects invalid actions %j", (actions) => {
+    const parsed = readActions(actions)
+    expect(parsed.ok && parsed.apps[0]?.mode).toBe("invalid")
+  })
+})
+
+it("does not broaden implicit Trigger denial when removing Lingxing owner restrictions", () => {
+  const grant = { actionAccess: { mode: "unrestricted" as const }, appAccessConfig: { users: [] } }
+  const updated = setConnectionLingxingUserAccess(grant, { mode: "all" })
+  expect(updated).toEqual({ actionAccess: { mode: "unrestricted" }, triggers: [] })
 })

@@ -738,7 +738,7 @@
   "billing.teamPreview.nextCycle": "다음 주기부터 적용",
   "billing.teamPreview.confirm": "확인 및 결제",
   "billing.managePermission.title": "이 계정은 이 팀의 플랜을 관리할 수 없습니다",
-  "billing.managePermission.description": "Team 플랜, 좌석, 결제는 팀 생성자만 관리할 수 있습니다. 관리자는 현재 상태와 팀 사용량을 계속 볼 수 있습니다.",
+  "billing.managePermission.description": "팀 플랜과 좌석을 구매하거나 관리하려면 팀 생성자에게 문의하세요.",
   "billing.teamSharedLinks": "연결된 앱",
   "billing.teamWorkspace": "팀 워크스페이스",
   "billing.teamPromotionTitle": "현재 프로모션",

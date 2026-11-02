@@ -738,7 +738,7 @@
   "billing.teamPreview.nextCycle": "Vigente el próximo ciclo",
   "billing.teamPreview.confirm": "Confirmar y pagar",
   "billing.managePermission.title": "Esta cuenta no puede gestionar el plan de este equipo",
-  "billing.managePermission.description": "Los planes de equipo, los asientos y los pagos solo los puede gestionar el creador del equipo. Los administradores aún pueden ver el estado actual y el uso del equipo.",
+  "billing.managePermission.description": "Contacta con el creador del equipo para comprar o gestionar el plan y los asientos del equipo.",
   "billing.teamSharedLinks": "Aplicaciones conectadas",
   "billing.teamWorkspace": "Espacio de trabajo del equipo",
   "billing.teamPromotionTitle": "Promoción actual",

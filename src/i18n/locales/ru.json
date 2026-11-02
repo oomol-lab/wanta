@@ -738,7 +738,7 @@
   "billing.teamPreview.nextCycle": "Вступает в силу со следующего цикла",
   "billing.teamPreview.confirm": "Подтвердить и оплатить",
   "billing.managePermission.title": "Этот аккаунт не может управлять планом этой команды",
-  "billing.managePermission.description": "Планами Team, местами и платежами может управлять только создатель команды. Администраторы по-прежнему могут просматривать текущий статус и использование команды.",
+  "billing.managePermission.description": "Обратитесь к создателю команды, чтобы приобрести или изменить план и количество мест команды.",
   "billing.teamSharedLinks": "Подключённые приложения",
   "billing.teamWorkspace": "Рабочее пространство команды",
   "billing.teamPromotionTitle": "Текущая акция",

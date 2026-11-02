@@ -738,7 +738,7 @@
   "billing.teamPreview.nextCycle": "Effet au prochain cycle",
   "billing.teamPreview.confirm": "Confirmer et payer",
   "billing.managePermission.title": "Ce compte ne peut pas gérer le forfait de cette équipe",
-  "billing.managePermission.description": "Les forfaits Équipe, les sièges et les paiements ne peuvent être gérés que par le créateur de l'équipe. Les administrateurs peuvent toujours consulter l'état actuel et l'utilisation de l'équipe.",
+  "billing.managePermission.description": "Contactez le créateur de l'équipe pour acheter ou gérer le forfait et les sièges de l'équipe.",
   "billing.teamSharedLinks": "Applications connectées",
   "billing.teamWorkspace": "Espace de travail d'équipe",
   "billing.teamPromotionTitle": "Promotion en cours",

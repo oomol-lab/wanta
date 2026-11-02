@@ -738,7 +738,7 @@
   "billing.teamPreview.nextCycle": "下個週期生效",
   "billing.teamPreview.confirm": "確認並付款",
   "billing.managePermission.title": "此帳號無法管理此團隊的方案",
-  "billing.managePermission.description": "Team 方案、席次與付款僅能由團隊建立者管理。管理員仍可檢視目前狀態與團隊用量。",
+  "billing.managePermission.description": "請聯絡團隊建立者購買或管理團隊方案和席次。",
   "billing.teamSharedLinks": "已連結的應用程式",
   "billing.teamWorkspace": "團隊工作區",
   "billing.teamPromotionTitle": "目前優惠",

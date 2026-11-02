@@ -24,7 +24,7 @@ describe("billingRequestScopeForWorkspace", () => {
     })
   })
 
-  it("lets admins read team subscriptions without funding or changing them", () => {
+  it("keeps admins away from creator-only subscription details and mutations", () => {
     const workspace = {
       canManage: true,
       team: {
@@ -41,7 +41,7 @@ describe("billingRequestScopeForWorkspace", () => {
     expect(billingRequestScopeForWorkspace(workspace)).toMatchObject({
       canManageFunding: true,
       canManageTeamSubscription: false,
-      canReadTeamSubscription: true,
+      canReadTeamSubscription: false,
     })
   })
 

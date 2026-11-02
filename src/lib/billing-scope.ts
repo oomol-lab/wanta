@@ -1,10 +1,8 @@
 import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 import type { BillingRequestScope } from "@/lib/billing-client"
 
-import { isTeamManagerRole } from "@/lib/team-permissions"
-
 export function canReadTeamSubscriptionForWorkspace(workspace: WorkspaceSelection): boolean {
-  return isTeamManagerRole(workspace.role) && Boolean(workspace.team?.name.trim())
+  return canManageTeamSubscriptionForWorkspace(workspace)
 }
 
 export function canManageTeamSubscriptionForWorkspace(workspace: WorkspaceSelection): boolean {

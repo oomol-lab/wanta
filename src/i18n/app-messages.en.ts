@@ -861,8 +861,7 @@ export const enMessages = {
   "billing.teamPreview.nextCycle": "Effective next cycle",
   "billing.teamPreview.confirm": "Confirm and pay",
   "billing.managePermission.title": "This account cannot manage this team's plan",
-  "billing.managePermission.description":
-    "Team plans, seats, and payments can only be managed by the team creator. Admins can still view the current status and team usage.",
+  "billing.managePermission.description": "Contact the team creator to purchase or manage the team's plan and seats.",
   "billing.teamSharedLinks": "Connected apps",
   "billing.teamWorkspace": "Team workspace",
   "billing.teamPromotionTitle": "Current promotion",

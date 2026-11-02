@@ -738,7 +738,7 @@
   "billing.teamPreview.nextCycle": "次サイクルから適用",
   "billing.teamPreview.confirm": "確認して支払う",
   "billing.managePermission.title": "このアカウントではこのチームのプランを管理できません",
-  "billing.managePermission.description": "Teamプラン、席数、支払いはチーム作成者のみが管理できます。管理者は現在のステータスとチームの利用状況を引き続き確認できます。",
+  "billing.managePermission.description": "チームプランや席数の購入・管理については、チーム作成者にお問い合わせください。",
   "billing.teamSharedLinks": "連携アプリ",
   "billing.teamWorkspace": "チームワークスペース",
   "billing.teamPromotionTitle": "現在のキャンペーン",

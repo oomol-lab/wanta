@@ -8,6 +8,7 @@ import {
   topUpCheckoutUrl,
   updateTeamSubscription,
 } from "./billing-client.ts"
+import { billingRequestScopeForWorkspace } from "./billing-scope.ts"
 import { OomolHttpError } from "./oomol-http.ts"
 
 afterEach(() => {
@@ -283,33 +284,29 @@ describe("billing-client", () => {
     expect(overview.balance?.items.map((item) => item.serviceScope)).toEqual(["GENERAL", "SERVICE_OOMOL_CONNECTOR"])
   })
 
-  it("lets admins read team subscription state without accessing creator funding", async () => {
+  it.each(["admin", "member"] as const)("skips creator-only subscription requests for a %s", async (role) => {
     const paths: string[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
       const url = urlOf(input)
       paths.push(url.pathname)
-      if (url.pathname === "/api/team/team-1/subscriptions") {
-        return Response.json({ data: { features: [], plan: "team_plus", plans: [], platforms: {} }, success: true })
-      }
-      if (url.pathname === "/api/team/team-1/subscriptions/team/pending_payment") {
-        return Response.json({ data: null, success: true })
-      }
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    const summary = await getBillingOverview(30, {
-      canManageFunding: false,
-      canManageTeamSubscription: false,
-      canReadTeamSubscription: true,
+    const scope = billingRequestScopeForWorkspace({
+      canManage: true,
+      role,
+      team: { avatar: "", creator_user_id: "user-1", id: "team-1", name: "acme", role },
       teamId: "team-1",
-      teamName: "acme",
     })
+    const summary = await getBillingOverview(30, scope!)
 
-    expect(paths).toContain("/api/team/team-1/subscriptions")
-    expect(paths).toContain("/api/team/team-1/subscriptions/team/pending_payment")
+    expect(paths.some((path) => path.startsWith("/api/team/"))).toBe(false)
     expect(paths).toContain("/v1/balance/available")
     expect(paths).not.toContain("/api/user/subscriptions")
-    expect(summary.subscription?.plan).toBe("team_plus")
+    expect(summary.subscription).toBeNull()
+    expect(summary.teamPendingPayment).toBeNull()
+    expect(summary.subscriptionAvailable).toBe(true)
+    expect(summary.teamPendingPaymentAvailable).toBe(true)
     expect(summary.balance).not.toBeNull()
   })
 

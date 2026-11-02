@@ -826,8 +826,7 @@ export const zhCNMessages = {
   "billing.teamPreview.nextCycle": "下个周期生效",
   "billing.teamPreview.confirm": "确认并前往支付",
   "billing.managePermission.title": "当前账号无法管理此团队的计划",
-  "billing.managePermission.description":
-    "Team 计划、席位和付款只能由团队创建者管理。管理员仍然可以查看当前状态和团队用量。",
+  "billing.managePermission.description": "请联系团队创建者购买或管理团队计划和席位。",
   "billing.teamSharedLinks": "已连接 App",
   "billing.teamWorkspace": "团队工作区",
   "billing.teamPromotionTitle": "当前活动",

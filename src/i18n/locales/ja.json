@@ -1472,6 +1472,7 @@
   "connections.clientSecretHint": "シークレット値はすでに設定されています。置き換える場合のみ新しい値を入力してください。",
   "connections.publicOAuthClient": "この OAuth クライアントはクライアントシークレットを必要としません。",
   "connections.saveOAuthClient": "OAuth クライアントを保存",
+  "connections.deleteOAuthClient": "設定を削除",
   "connections.connectOptions": "接続オプション",
   "connections.oauthAuthorizationOptions": "認証アクセス",
   "connections.oauthAuthorizationOptionsDescription": "この接続がアクセスできる範囲を選択します。必須のアクセスと依存関係は選択されたままになります。",

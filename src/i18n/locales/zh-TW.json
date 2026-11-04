@@ -1472,6 +1472,7 @@
   "connections.clientSecretHint": "已設定密鑰值。僅在需要更換時輸入新值。",
   "connections.publicOAuthClient": "此 OAuth 用戶端不需要用戶端密鑰。",
   "connections.saveOAuthClient": "儲存 OAuth 用戶端",
+  "connections.deleteOAuthClient": "刪除設定",
   "connections.connectOptions": "連線選項",
   "connections.oauthAuthorizationOptions": "授權存取範圍",
   "connections.oauthAuthorizationOptionsDescription": "選擇此連線可存取的範圍。必要的存取權與相依項目將保持選取。",

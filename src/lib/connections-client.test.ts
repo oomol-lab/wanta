@@ -15,6 +15,7 @@ import {
   setDefaultConnection,
   startOAuthConnect,
   upsertOAuthClientConfig,
+  deleteOAuthClientConfig,
 } from "./connections-client.ts"
 import { consoleBaseUrl } from "./domain.ts"
 
@@ -631,11 +632,11 @@ describe("connections-client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it("shares OAuth client config reads and clears them after an update", async () => {
+  it.each(["PUT", "DELETE"])("OAuth 配置 %s 成功后清除查询缓存", async (method) => {
     let configReads = 0
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
-      if (url.includes("/v1/oauth-client-configs/gmail") && init?.method === "PUT") {
+      if (url.includes("/v1/oauth-client-configs/gmail") && init?.method === method) {
         return Response.json({ data: { configured: true, service: "gmail" } })
       }
       if (url.includes("/v1/oauth-client-configs")) {
@@ -648,7 +649,8 @@ describe("connections-client", () => {
 
     const [first, second] = await Promise.all([listOAuthClientConfigs(), listOAuthClientConfigs()])
     await listOAuthClientConfigs()
-    await upsertOAuthClientConfig("gmail", { clientId: "client-id" })
+    if (method === "DELETE") await deleteOAuthClientConfig("gmail")
+    else await upsertOAuthClientConfig("gmail", { clientId: "client-id" })
     await listOAuthClientConfigs()
 
     expect(first).toEqual(second)

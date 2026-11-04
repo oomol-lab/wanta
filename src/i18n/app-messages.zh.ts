@@ -1577,6 +1577,7 @@ export const zhCNMessages = {
   "connections.clientSecretHint": "已配置密钥值。只有需要替换时才填写新值。",
   "connections.publicOAuthClient": "这个 OAuth 客户端不需要 Client Secret。",
   "connections.saveOAuthClient": "保存 OAuth 客户端",
+  "connections.deleteOAuthClient": "删除配置",
   "connections.connectOptions": "连接选项",
   "connections.oauthAuthorizationOptions": "授权范围",
   "connections.oauthAuthorizationOptionsDescription": "选择这个连接可以访问的能力。必选项和依赖项会保持选中。",

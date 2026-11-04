@@ -1654,6 +1654,7 @@ export const enMessages = {
   "connections.clientSecretHint": "A secret value is already configured. Enter a new value only to replace it.",
   "connections.publicOAuthClient": "This OAuth client does not require a client secret.",
   "connections.saveOAuthClient": "Save OAuth client",
+  "connections.deleteOAuthClient": "Delete config",
   "connections.connectOptions": "Connection options",
   "connections.oauthAuthorizationOptions": "Authorization access",
   "connections.oauthAuthorizationOptionsDescription":

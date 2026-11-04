@@ -41,12 +41,12 @@ export function resolveProviderOAuthClientConfig(
 ): ConnectionProviderOAuthClientConfigSummary | null | undefined {
   if (
     providerOAuthClientConfig &&
-    userOAuthClientConfig?.configured &&
+    userOAuthClientConfig &&
     providerOAuthClientConfig.clientConfigPolicy === "user_required"
   ) {
     return {
       ...providerOAuthClientConfig,
-      configured: true,
+      configured: userOAuthClientConfig.configured,
       nextConnectSource: userOAuthClientConfig.nextConnectSource,
     }
   }

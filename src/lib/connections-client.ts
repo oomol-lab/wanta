@@ -758,6 +758,20 @@ export async function getOAuthClientConfig(service: string): Promise<ConnectionU
   return configs.find((config) => config.service === normalizedService) ?? null
 }
 
+function invalidateOAuthClientConfig(service: string): void {
+  clearOAuthClientConfigsCache()
+  const encodedService = encodeURIComponent(service)
+  invalidateConnectorReadCache((key) => {
+    const resource = key.split("?")[0]
+    return resource === "global:/v1/providers" || resource === `global:/v1/providers/${encodedService}`
+  })
+}
+
+export async function deleteOAuthClientConfig(service: string): Promise<void> {
+  await requestConnectorGlobal(`/v1/oauth-client-configs/${encodeURIComponent(service)}`, { method: "DELETE" })
+  invalidateOAuthClientConfig(service)
+}
+
 export async function upsertOAuthClientConfig(
   service: string,
   payload: UpsertConnectionOAuthClientConfigPayload,
@@ -769,12 +783,7 @@ export async function upsertOAuthClientConfig(
       body: JSON.stringify(payload),
     },
   )
-  clearOAuthClientConfigsCache()
-  const encodedService = encodeURIComponent(service)
-  invalidateConnectorReadCache((key) => {
-    const resource = key.split("?")[0]
-    return resource === "global:/v1/providers" || resource === `global:/v1/providers/${encodedService}`
-  })
+  invalidateOAuthClientConfig(service)
   return result.data
 }
 

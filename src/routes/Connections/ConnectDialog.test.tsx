@@ -9,6 +9,7 @@ import { createRoot } from "react-dom/client"
 import { afterEach, expect, test, vi } from "vitest"
 import { ConnectDialog } from "./ConnectDialog.tsx"
 import { I18nContext, translate } from "@/i18n/i18n"
+import * as connectionsClient from "@/lib/connections-client"
 
 const detail: ConnectionProviderDetail = {
   actionKind: "oauth2",
@@ -194,4 +195,39 @@ test("preserves unmanaged scopes when reconnecting", async () => {
   )
 
   act(() => root.unmount())
+})
+
+test.each([true, false])("删除 OAuth 配置成功=%s 时正确更新表单和授权状态", async (success) => {
+  const request = vi.spyOn(connectionsClient, "deleteOAuthClientConfig")
+  if (success) request.mockResolvedValue()
+  else request.mockRejectedValue(new Error("Delete failed"))
+  const root = await render(
+    <ConnectDialog
+      open
+      authType="oauth2"
+      busy={false}
+      detail={{ ...detail, oauthClientConfig: { ...detail.oauthClientConfig!, clientConfigPolicy: "user_required" } }}
+      oauthClientConfig={{
+        service: "documents",
+        clientConfigPolicy: "user_required",
+        clientId: "saved-client",
+        configured: true,
+        nextConnectSource: "custom",
+        expectedRedirectUri: null,
+        tokenEndpointAuthMethod: "none",
+        clientConfigFields: [],
+      }}
+      onClose={() => undefined}
+      onSubmit={() => undefined}
+      onOpenUrl={() => undefined}
+    />,
+  )
+  const findDelete = () =>
+    [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Delete config"))
+  expect(findDelete()).toBeDefined()
+  await act(async () => findDelete()!.click())
+  expect(request).toHaveBeenCalledWith("documents")
+  expect(Boolean(findDelete())).toBe(!success)
+  expect([...document.querySelectorAll("input")].some((input) => input.value === "saved-client")).toBe(!success)
+  await act(async () => root.unmount())
 })

@@ -1472,6 +1472,7 @@
   "connections.clientSecretHint": "Секретное значение уже настроено. Введите новое значение, только чтобы заменить его.",
   "connections.publicOAuthClient": "Этот OAuth-клиент не требует client secret.",
   "connections.saveOAuthClient": "Сохранить OAuth-клиент",
+  "connections.deleteOAuthClient": "Удалить конфигурацию",
   "connections.connectOptions": "Параметры подключения",
   "connections.oauthAuthorizationOptions": "Доступ при авторизации",
   "connections.oauthAuthorizationOptionsDescription": "Выберите, к чему это подключение может иметь доступ. Обязательный доступ и зависимости остаются выбранными.",

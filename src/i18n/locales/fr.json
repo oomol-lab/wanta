@@ -1472,6 +1472,7 @@
   "connections.clientSecretHint": "Une valeur secrète est déjà configurée. Saisissez une nouvelle valeur uniquement pour la remplacer.",
   "connections.publicOAuthClient": "Ce client OAuth ne nécessite pas de secret client.",
   "connections.saveOAuthClient": "Enregistrer le client OAuth",
+  "connections.deleteOAuthClient": "Supprimer la configuration",
   "connections.connectOptions": "Options de connexion",
   "connections.oauthAuthorizationOptions": "Accès à l'autorisation",
   "connections.oauthAuthorizationOptionsDescription": "Choisissez ce à quoi cette connexion peut accéder. Les accès requis et les dépendances restent sélectionnés.",

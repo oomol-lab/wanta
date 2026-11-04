@@ -10,7 +10,7 @@ import type {
 import type { OAuthClientConfigDraft, OAuthClientConfigFieldDraftValue } from "./oauth-client-config.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
-import { Copy, KeyRound, Save } from "lucide-react"
+import { Copy, KeyRound, Save, Trash2 } from "lucide-react"
 import * as React from "react"
 import { normalizeApiKeyInput } from "./connection-api-key-input.ts"
 import { connectionDescriptionSegments } from "./connection-description-links.ts"
@@ -40,7 +40,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useT } from "@/i18n/i18n"
 import { writeClipboardText } from "@/lib/clipboard"
-import { upsertOAuthClientConfig } from "@/lib/connections-client"
+import { deleteOAuthClientConfig, upsertOAuthClientConfig } from "@/lib/connections-client"
 import { resolveConnectionError } from "@/lib/connections-error"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 
@@ -251,7 +251,7 @@ export function ConnectDialog({
       userOAuthClientConfig: oauthClientConfig,
     }),
   )
-  const [oauthBusy, setOAuthBusy] = React.useState<"save" | null>(null)
+  const [oauthBusy, setOAuthBusy] = React.useState<"save" | "delete" | null>(null)
   const [authorizationOptionIds, setAuthorizationOptionIds] = React.useState<string[]>(() =>
     createInitialOAuthAuthorizationOptionIds(detail?.oauthClientConfig?.authorizationOptions, appDetail?.scopes),
   )
@@ -342,6 +342,38 @@ export function ConnectDialog({
           previousDraft: oauthDraft,
         })
         setSavedOAuthClientConfig(savedConfig)
+        setOAuthDraft(nextDraft)
+        setOAuthBaselineDraft(nextDraft)
+      } catch (error) {
+        setFormError(userFacingErrorDescription(resolveConnectionError(error, "connect"), t))
+      } finally {
+        setOAuthBusy(null)
+      }
+    }
+
+    const deleteOAuth = async (): Promise<void> => {
+      if (!savedOAuthClientConfig?.clientId) return
+      setOAuthBusy("delete")
+      setFormError(null)
+      try {
+        await deleteOAuthClientConfig(detail.service)
+        const clearedConfig: ConnectionUserOAuthClientConfigSummary = {
+          ...savedOAuthClientConfig,
+          configured: false,
+          clientId: null,
+          nextConnectSource: "unconfigured",
+          extra: undefined,
+          hasSecretExtra: undefined,
+        }
+        const nextDraft = createOAuthClientConfigDraft({
+          providerOAuthClientConfig: detail.oauthClientConfig,
+          userOAuthClientConfig: clearedConfig,
+        })
+        for (const field of viewModel.connectOnlyFields) {
+          const record = field.location === "extra" ? "extra" : "secretExtra"
+          nextDraft[record][field.key] = oauthDraft[record][field.key]
+        }
+        setSavedOAuthClientConfig(clearedConfig)
         setOAuthDraft(nextDraft)
         setOAuthBaselineDraft(nextDraft)
       } catch (error) {
@@ -446,17 +478,28 @@ export function ConnectDialog({
                   onDraftChange={setOAuthDraft}
                 />
               ))}
-              <div>
+              <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
                   variant="outline"
                   className="gap-1.5"
-                  disabled={oauthBusy !== null}
+                  disabled={busy || oauthBusy !== null}
                   onClick={saveOAuth}
                 >
                   {oauthBusy === "save" ? <Loader size={16} /> : <Save className="size-4" />}
                   {t("connections.saveOAuthClient")}
                 </Button>
+                {savedOAuthClientConfig?.clientId ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={busy || oauthBusy !== null}
+                    onClick={deleteOAuth}
+                  >
+                    {oauthBusy === "delete" ? <Loader size={16} /> : <Trash2 />}
+                    {t("connections.deleteOAuthClient")}
+                  </Button>
+                ) : null}
               </div>
             </section>
           ) : null}

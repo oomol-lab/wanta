@@ -1472,6 +1472,7 @@
   "connections.clientSecretHint": "시크릿 값이 이미 구성되어 있습니다. 교체하려는 경우에만 새 값을 입력하세요.",
   "connections.publicOAuthClient": "이 OAuth 클라이언트는 클라이언트 시크릿이 필요하지 않습니다.",
   "connections.saveOAuthClient": "OAuth 클라이언트 저장",
+  "connections.deleteOAuthClient": "설정 삭제",
   "connections.connectOptions": "연결 옵션",
   "connections.oauthAuthorizationOptions": "권한 부여 접근 범위",
   "connections.oauthAuthorizationOptionsDescription": "이 연결이 접근할 수 있는 범위를 선택하세요. 필수 접근 범위와 종속 항목은 선택된 상태로 유지됩니다.",

@@ -1,5 +1,8 @@
 import type { BillingPeriodDays, BillingSpendStats } from "../../../electron/chat/common.ts"
 import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
+import type { Locale } from "@/i18n/i18n"
+
+import { translate } from "@/i18n/i18n"
 
 export type UsageCategory = "model" | "api" | "link"
 
@@ -188,11 +191,15 @@ export function normalizeTimestamp(timestamp: number): number {
   return timestamp > 0 && timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp
 }
 
-export function formatCredit(value: number | string | undefined, locale = "en"): string {
-  const amount = toNumber(value)
-  if (amount > 0 && amount < 0.01)
-    return `<$${new Intl.NumberFormat(locale, { minimumFractionDigits: 2 }).format(0.01)}`
-  return `$${new Intl.NumberFormat(locale, { maximumFractionDigits: amount >= 100 ? 0 : 2 }).format(amount)}`
+export const DISPLAY_POINTS_PER_CREDIT = 200
+
+export function formatCredit(value: number | string | undefined, locale: Locale = "en"): string {
+  const amount = toNumber(value) * DISPLAY_POINTS_PER_CREDIT
+  const formatted = new Intl.NumberFormat(
+    locale,
+    amount !== 0 && Math.abs(amount) < 0.00001 ? { maximumSignificantDigits: 2 } : { maximumFractionDigits: 6 },
+  ).format(amount)
+  return translate(locale, "billing.points", { amount: formatted })
 }
 
 function summariesTotal(summaries: Map<UsageCategory, CategorySummary>, field: "credit" | "eventCount"): number {

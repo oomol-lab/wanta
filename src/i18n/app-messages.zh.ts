@@ -690,6 +690,7 @@ export const zhCNMessages = {
   "chatError.failed.retryFailed": "恢复操作没有完成，请稍后重试。",
   "chatError.common.copyDiagnostics": "复制诊断信息",
   "chatError.common.copyFailed": "复制失败",
+  "billing.points": "{amount} 点数",
   "billing.title": "计划与席位",
   "billing.backToChat": "返回聊天",
   "billing.subtitle": "Team 计划围绕席位、共享连接和团队管理；用量余额用于模型、内置 API 和连接器消耗。",

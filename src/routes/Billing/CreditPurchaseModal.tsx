@@ -32,10 +32,6 @@ interface TopUpOption {
     | "billing.purchaseDialog.topupStarterTitle"
     | "billing.purchaseDialog.topupBoostTitle"
     | "billing.purchaseDialog.topupReserveTitle"
-  descriptionKey:
-    | "billing.purchaseDialog.topupStarterDescription"
-    | "billing.purchaseDialog.topupBoostDescription"
-    | "billing.purchaseDialog.topupReserveDescription"
 }
 
 const topUpOptions: TopUpOption[] = [
@@ -43,19 +39,16 @@ const topUpOptions: TopUpOption[] = [
     amount: 5,
     price: "5_USD",
     titleKey: "billing.purchaseDialog.topupStarterTitle",
-    descriptionKey: "billing.purchaseDialog.topupStarterDescription",
   },
   {
     amount: 20,
     price: "20_USD",
     titleKey: "billing.purchaseDialog.topupBoostTitle",
-    descriptionKey: "billing.purchaseDialog.topupBoostDescription",
   },
   {
     amount: 100,
     price: "100_USD",
     titleKey: "billing.purchaseDialog.topupReserveTitle",
-    descriptionKey: "billing.purchaseDialog.topupReserveDescription",
   },
 ]
 
@@ -168,7 +161,9 @@ export function CreditPurchaseModal({
                         <div className="oo-text-title text-foreground">{t(option.titleKey)}</div>
                         <div className="text-2xl font-semibold text-foreground">${option.amount}</div>
                       </div>
-                      <p className="oo-text-body min-h-10 text-muted-foreground">{t(option.descriptionKey)}</p>
+                      <p className="oo-text-body min-h-10 text-muted-foreground">
+                        {formatCredit(option.amount, locale)}
+                      </p>
                       <Button
                         type="button"
                         variant="outline"

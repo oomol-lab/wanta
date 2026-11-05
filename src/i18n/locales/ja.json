@@ -607,6 +607,7 @@
   "chatError.failed.retryFailed": "復旧操作は完了しませんでした。しばらくしてから再試行してください。",
   "chatError.common.copyDiagnostics": "診断情報をコピー",
   "chatError.common.copyFailed": "コピーに失敗しました",
+  "billing.points": "{amount} ポイント",
   "billing.title": "プランとシート",
   "billing.backToChat": "チャットに戻る",
   "billing.subtitle": "チームプランはシート、共有接続、チーム管理を中心としています。利用残高はモデル、組み込み API、コネクターの利用分をカバーします。",

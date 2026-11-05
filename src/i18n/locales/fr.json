@@ -607,6 +607,7 @@
   "chatError.failed.retryFailed": "L'action de récupération n'a pas été terminée. Réessayez plus tard.",
   "chatError.common.copyDiagnostics": "Copier les diagnostics",
   "chatError.common.copyFailed": "Échec de la copie",
+  "billing.points": "{amount} points",
   "billing.title": "Forfaits et sièges",
   "billing.backToChat": "Retour au chat",
   "billing.subtitle": "Les forfaits Équipe s'articulent autour des sièges, des connexions partagées et de la gestion d'équipe. Le solde d'utilisation couvre les dépenses de modèles, d'API intégrée et de connecteurs.",

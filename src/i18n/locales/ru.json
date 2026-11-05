@@ -607,6 +607,7 @@
   "chatError.failed.retryFailed": "Действие восстановления не было завершено. Повторите попытку позже.",
   "chatError.common.copyDiagnostics": "Скопировать диагностику",
   "chatError.common.copyFailed": "Не удалось скопировать",
+  "billing.points": "{amount} баллов",
   "billing.title": "Тарифы и места",
   "billing.backToChat": "Вернуться в чат",
   "billing.subtitle": "Командные тарифы основаны на местах, общих подключениях и управлении командой. Баланс использования покрывает расходы на модели, встроенный API и коннекторы.",

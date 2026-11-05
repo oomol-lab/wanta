@@ -720,6 +720,7 @@ export const enMessages = {
   "chatError.failed.retryFailed": "The recovery action was not completed. Try again later.",
   "chatError.common.copyDiagnostics": "Copy diagnostics",
   "chatError.common.copyFailed": "Copy failed",
+  "billing.points": "{amount} credits",
   "billing.title": "Plans and seats",
   "billing.backToChat": "Back to chat",
   "billing.subtitle":

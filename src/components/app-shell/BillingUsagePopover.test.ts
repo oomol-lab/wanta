@@ -183,7 +183,7 @@ describe("BillingUsagePopover", () => {
     const { root } = await renderPopover(workspace)
     const content = document.querySelector<HTMLElement>('[data-slot="popover-content"]')
 
-    expect(content?.textContent).toContain("$89.03")
+    expect(content?.textContent).toContain("17,806 点数")
     expect(content?.querySelector('[role="progressbar"]')).toBeNull()
 
     act(() => root.unmount())

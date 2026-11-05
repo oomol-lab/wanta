@@ -21,6 +21,7 @@ import {
   buildDailySpendBuckets,
   categoryOrder,
   formatCredit,
+  DISPLAY_POINTS_PER_CREDIT,
   formatDate,
   formatDateTime,
   formatPercent,
@@ -781,7 +782,7 @@ function exportUsageCsv(
     "raw_subjects",
     "event_count",
     "total_usage",
-    "total_credit",
+    "total_points",
   ]
   const reportMeta: Array<string | number | boolean> = [
     generatedAt,
@@ -801,7 +802,7 @@ function exportUsageCsv(
     summary.subjects.join("|"),
     available.metering ? summary.eventCount : "",
     available.metering ? summary.totalUsage : "",
-    available.spend ? summary.credit : "",
+    available.spend ? summary.credit * DISPLAY_POINTS_PER_CREDIT : "",
   ])
   if (rows.length === 0 && (connectorAggregate.credit > 0 || connectorAggregate.eventCount > 0)) {
     rows.push([
@@ -814,7 +815,7 @@ function exportUsageCsv(
       "",
       available.metering ? connectorAggregate.eventCount : "",
       "",
-      available.spend ? connectorAggregate.credit : "",
+      available.spend ? connectorAggregate.credit * DISPLAY_POINTS_PER_CREDIT : "",
     ])
   }
   const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n")

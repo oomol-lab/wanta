@@ -607,6 +607,7 @@
   "chatError.failed.retryFailed": "복구 작업이 완료되지 않았습니다. 나중에 다시 시도하세요.",
   "chatError.common.copyDiagnostics": "진단 복사",
   "chatError.common.copyFailed": "복사 실패",
+  "billing.points": "{amount} 포인트",
   "billing.title": "요금제 및 좌석",
   "billing.backToChat": "채팅으로 돌아가기",
   "billing.subtitle": "팀 요금제는 좌석, 공유 연결, 팀 관리를 중심으로 합니다. 사용 잔액은 모델, 내장 API, 커넥터 지출을 충당합니다.",

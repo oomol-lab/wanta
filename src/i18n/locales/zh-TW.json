@@ -607,6 +607,7 @@
   "chatError.failed.retryFailed": "復原動作未完成。請稍後再試。",
   "chatError.common.copyDiagnostics": "複製診斷資訊",
   "chatError.common.copyFailed": "複製失敗",
+  "billing.points": "{amount} 點數",
   "billing.title": "方案與席次",
   "billing.backToChat": "返回對話",
   "billing.subtitle": "團隊方案以席次、共用連線與團隊管理為核心。用量餘額則涵蓋模型、內建 API 與連接器支出。",

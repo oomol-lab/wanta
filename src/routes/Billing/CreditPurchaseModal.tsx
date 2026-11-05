@@ -71,8 +71,11 @@ export function CreditPurchaseModal({
     void login().then(() => overview.refresh({ force: true }))
   }, [login, overview])
   const [bonusRate, setBonusRate] = React.useState<number | null>(null)
+  const [bonusError, setBonusError] = React.useState(false)
+  const [bonusAttempt, setBonusAttempt] = React.useState(0)
   React.useEffect(() => {
     setBonusRate(null)
+    setBonusError(false)
     if (!open || !canManageFunding) return
     const controller = new AbortController()
     void getPersonalTopUpBonusRate(controller.signal).then(
@@ -80,11 +83,11 @@ export function CreditPurchaseModal({
         if (!controller.signal.aborted) setBonusRate(rate)
       },
       () => {
-        /* Keep the received amount unavailable until the subscription can be read. */
+        if (!controller.signal.aborted) setBonusError(true)
       },
     )
     return () => controller.abort()
-  }, [open, canManageFunding, cacheScope])
+  }, [open, canManageFunding, cacheScope, bonusAttempt])
 
   const [topUpLoading, setTopUpLoading] = React.useState<RechargePrice | null>(null)
 
@@ -168,6 +171,19 @@ export function CreditPurchaseModal({
                 title={t("billing.purchaseDialog.topupTitle")}
                 description={t("billing.purchaseDialog.topupDescription")}
               />
+              {bonusError ? (
+                <div className="flex items-center justify-between gap-3" role="alert">
+                  <p className="oo-text-body text-destructive">{t("billing.purchaseDialog.topupUnavailable")}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBonusAttempt((attempt) => attempt + 1)}
+                  >
+                    {t("billing.popover.retry")}
+                  </Button>
+                </div>
+              ) : null}
               <div className="grid gap-3 md:grid-cols-3">
                 {topUpOptions.map((option) => {
                   const actionLoading = topUpLoading === option.price

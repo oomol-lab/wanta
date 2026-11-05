@@ -775,6 +775,7 @@
   "billing.purchaseDialog.description": "사용 잔액이 부족하면 모델, 내장 API 또는 커넥터 호출이 중단될 수 있습니다. Team 플랜과 좌석은 플랜 페이지에서 관리하세요.",
   "billing.purchaseDialog.viewDetails": "상세 보기",
   "billing.purchaseDialog.currentCredits": "현재 사용 잔액",
+  "billing.purchaseDialog.topupUnavailable": "받을 포인트를 불러올 수 없습니다.",
   "billing.purchaseDialog.checkoutFailed": "결제 페이지를 열 수 없습니다",
   "billing.purchaseDialog.topupTitle": "충전",
   "billing.purchaseDialog.topupDescription": "구독 없이 사용 잔액을 바로 추가할 수 있습니다.",

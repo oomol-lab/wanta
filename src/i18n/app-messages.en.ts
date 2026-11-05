@@ -903,6 +903,7 @@ export const enMessages = {
     "Insufficient usage balance can interrupt model, built-in API, or connector calls. Manage Team plans and seats on the plan page.",
   "billing.purchaseDialog.viewDetails": "View details",
   "billing.purchaseDialog.currentCredits": "Current usage balance",
+  "billing.purchaseDialog.topupUnavailable": "Unable to load the credits you'll receive.",
   "billing.purchaseDialog.checkoutFailed": "Unable to open checkout",
   "billing.purchaseDialog.topupTitle": "Top up",
   "billing.purchaseDialog.topupDescription": "You can add usage balance directly without a subscription.",

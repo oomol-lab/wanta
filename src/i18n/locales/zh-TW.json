@@ -775,6 +775,7 @@
   "billing.purchaseDialog.description": "用量餘額不足可能中斷模型、內建 API 或連接器的呼叫。Team 方案與席次請在方案頁面管理。",
   "billing.purchaseDialog.viewDetails": "查看詳情",
   "billing.purchaseDialog.currentCredits": "目前用量餘額",
+  "billing.purchaseDialog.topupUnavailable": "暫時無法確認入帳點數。",
   "billing.purchaseDialog.checkoutFailed": "無法開啟結帳頁面",
   "billing.purchaseDialog.topupTitle": "儲值",
   "billing.purchaseDialog.topupDescription": "無需訂閱，即可直接加值使用額度。",

@@ -775,6 +775,7 @@
   "billing.purchaseDialog.description": "利用残高が不足すると、モデル、組み込みAPI、コネクターの呼び出しが中断される可能性があります。Teamプランと席数はプランページで管理してください。",
   "billing.purchaseDialog.viewDetails": "詳細を表示",
   "billing.purchaseDialog.currentCredits": "現在の利用残高",
+  "billing.purchaseDialog.topupUnavailable": "受け取るポイント数を読み込めません。",
   "billing.purchaseDialog.checkoutFailed": "チェックアウトを開けません",
   "billing.purchaseDialog.topupTitle": "チャージ",
   "billing.purchaseDialog.topupDescription": "サブスクリプションなしで、利用残高を直接追加できます。",

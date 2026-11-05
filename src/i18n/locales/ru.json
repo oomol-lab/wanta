@@ -775,6 +775,7 @@
   "billing.purchaseDialog.description": "Недостаточный баланс использования может прервать вызовы моделей, встроенного API или коннекторов. Управляйте планами Team и местами на странице плана.",
   "billing.purchaseDialog.viewDetails": "Посмотреть подробности",
   "billing.purchaseDialog.currentCredits": "Текущий баланс использования",
+  "billing.purchaseDialog.topupUnavailable": "Не удалось загрузить количество начисляемых баллов.",
   "billing.purchaseDialog.checkoutFailed": "Не удалось открыть страницу оплаты",
   "billing.purchaseDialog.topupTitle": "Пополнение",
   "billing.purchaseDialog.topupDescription": "Вы можете добавить баланс использования напрямую, без подписки.",

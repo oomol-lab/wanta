@@ -866,6 +866,7 @@ export const zhCNMessages = {
     "用量余额不足会导致模型、内置 API 或连接器调用报错；Team 计划和席位在计划页管理。",
   "billing.purchaseDialog.viewDetails": "查看详情",
   "billing.purchaseDialog.currentCredits": "当前用量余额",
+  "billing.purchaseDialog.topupUnavailable": "暂时无法确认到账点数。",
   "billing.purchaseDialog.checkoutFailed": "无法打开购买页面",
   "billing.purchaseDialog.topupTitle": "按量充值",
   "billing.purchaseDialog.topupDescription": "不订阅也可以直接补充余额。",

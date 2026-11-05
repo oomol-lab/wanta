@@ -20,7 +20,6 @@ import * as React from "react"
 import {
   buildDailySpendBuckets,
   categoryOrder,
-  formatCredit,
   formatDate,
   formatDateTime,
   formatPercent,
@@ -35,6 +34,7 @@ import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT, useI18n } from "@/i18n/i18n"
+import { formatCredit, formatPoints } from "@/lib/credit-format"
 import { cn } from "@/lib/utils"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
@@ -781,7 +781,7 @@ function exportUsageCsv(
     "raw_subjects",
     "event_count",
     "total_usage",
-    "total_credit",
+    "total_points",
   ]
   const reportMeta: Array<string | number | boolean> = [
     generatedAt,
@@ -801,7 +801,7 @@ function exportUsageCsv(
     summary.subjects.join("|"),
     available.metering ? summary.eventCount : "",
     available.metering ? summary.totalUsage : "",
-    available.spend ? summary.credit : "",
+    available.spend ? formatPoints(summary.credit, "en", false) : "",
   ])
   if (rows.length === 0 && (connectorAggregate.credit > 0 || connectorAggregate.eventCount > 0)) {
     rows.push([
@@ -814,7 +814,7 @@ function exportUsageCsv(
       "",
       available.metering ? connectorAggregate.eventCount : "",
       "",
-      available.spend ? connectorAggregate.credit : "",
+      available.spend ? formatPoints(connectorAggregate.credit, "en", false) : "",
     ])
   }
   const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n")

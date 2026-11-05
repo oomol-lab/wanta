@@ -4,7 +4,6 @@ import type { BillingRequestScope } from "@/lib/billing-client"
 import { CreditCardIcon, ExternalLinkIcon, LogInIcon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import { formatCredit } from "./usage.ts"
 import { useChatService } from "@/components/AppContext"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
@@ -12,7 +11,8 @@ import { Dialog } from "@/components/ui/dialog"
 import { useAuth } from "@/hooks/useAuth"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useI18n } from "@/i18n/i18n"
-import { topUpCheckoutUrl } from "@/lib/billing-client"
+import { getPersonalTopUpBonusRate, topUpCheckoutUrl } from "@/lib/billing-client"
+import { formatCredit } from "@/lib/credit-format"
 import { cn } from "@/lib/utils"
 
 export interface CreditPurchaseModalProps {
@@ -32,10 +32,6 @@ interface TopUpOption {
     | "billing.purchaseDialog.topupStarterTitle"
     | "billing.purchaseDialog.topupBoostTitle"
     | "billing.purchaseDialog.topupReserveTitle"
-  descriptionKey:
-    | "billing.purchaseDialog.topupStarterDescription"
-    | "billing.purchaseDialog.topupBoostDescription"
-    | "billing.purchaseDialog.topupReserveDescription"
 }
 
 const topUpOptions: TopUpOption[] = [
@@ -43,19 +39,16 @@ const topUpOptions: TopUpOption[] = [
     amount: 5,
     price: "5_USD",
     titleKey: "billing.purchaseDialog.topupStarterTitle",
-    descriptionKey: "billing.purchaseDialog.topupStarterDescription",
   },
   {
     amount: 20,
     price: "20_USD",
     titleKey: "billing.purchaseDialog.topupBoostTitle",
-    descriptionKey: "billing.purchaseDialog.topupBoostDescription",
   },
   {
     amount: 100,
     price: "100_USD",
     titleKey: "billing.purchaseDialog.topupReserveTitle",
-    descriptionKey: "billing.purchaseDialog.topupReserveDescription",
   },
 ]
 
@@ -77,6 +70,25 @@ export function CreditPurchaseModal({
   const handleSignIn = React.useCallback(() => {
     void login().then(() => overview.refresh({ force: true }))
   }, [login, overview])
+  const [bonusRate, setBonusRate] = React.useState<number | null>(null)
+  const [bonusError, setBonusError] = React.useState(false)
+  const [bonusAttempt, setBonusAttempt] = React.useState(0)
+  React.useEffect(() => {
+    setBonusRate(null)
+    setBonusError(false)
+    if (!open || !canManageFunding) return
+    const controller = new AbortController()
+    void getPersonalTopUpBonusRate(controller.signal).then(
+      (rate) => {
+        if (!controller.signal.aborted) setBonusRate(rate)
+      },
+      () => {
+        if (!controller.signal.aborted) setBonusError(true)
+      },
+    )
+    return () => controller.abort()
+  }, [open, canManageFunding, cacheScope, bonusAttempt])
+
   const [topUpLoading, setTopUpLoading] = React.useState<RechargePrice | null>(null)
 
   const currentCredits = overview.data ? formatCredit(overview.data.balance?.total.currentCredit, locale) : "--"
@@ -159,6 +171,19 @@ export function CreditPurchaseModal({
                 title={t("billing.purchaseDialog.topupTitle")}
                 description={t("billing.purchaseDialog.topupDescription")}
               />
+              {bonusError ? (
+                <div className="flex items-center justify-between gap-3" role="alert">
+                  <p className="oo-text-body text-destructive">{t("billing.purchaseDialog.topupUnavailable")}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBonusAttempt((attempt) => attempt + 1)}
+                  >
+                    {t("billing.popover.retry")}
+                  </Button>
+                </div>
+              ) : null}
               <div className="grid gap-3 md:grid-cols-3">
                 {topUpOptions.map((option) => {
                   const actionLoading = topUpLoading === option.price
@@ -168,7 +193,9 @@ export function CreditPurchaseModal({
                         <div className="oo-text-title text-foreground">{t(option.titleKey)}</div>
                         <div className="text-2xl font-semibold text-foreground">${option.amount}</div>
                       </div>
-                      <p className="oo-text-body min-h-10 text-muted-foreground">{t(option.descriptionKey)}</p>
+                      <p className="oo-text-body min-h-10 text-muted-foreground">
+                        {bonusRate === null ? "—" : formatCredit(option.amount + option.amount * bonusRate, locale)}
+                      </p>
                       <Button
                         type="button"
                         variant="outline"

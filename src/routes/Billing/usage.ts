@@ -188,13 +188,6 @@ export function normalizeTimestamp(timestamp: number): number {
   return timestamp > 0 && timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp
 }
 
-export function formatCredit(value: number | string | undefined, locale = "en"): string {
-  const amount = toNumber(value)
-  if (amount > 0 && amount < 0.01)
-    return `<$${new Intl.NumberFormat(locale, { minimumFractionDigits: 2 }).format(0.01)}`
-  return `$${new Intl.NumberFormat(locale, { maximumFractionDigits: amount >= 100 ? 0 : 2 }).format(amount)}`
-}
-
 function summariesTotal(summaries: Map<UsageCategory, CategorySummary>, field: "credit" | "eventCount"): number {
   return [...summaries.values()].reduce((sum, summary) => sum + summary[field], 0)
 }

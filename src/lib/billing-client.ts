@@ -13,6 +13,7 @@ import type {
   TeamSubscriptionPlan,
 } from "../../electron/chat/common.ts"
 
+import { formatCredit } from "./credit-format.ts"
 import { consoleBaseUrl, consoleServerBaseUrl, insightBaseUrl } from "@/lib/domain"
 import { authRequiredMessage, oomolFetchJson } from "@/lib/oomol-http"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -55,7 +56,7 @@ function formatCredits(value: unknown, locale: string): string | null {
   if (!Number.isFinite(amount)) {
     return null
   }
-  return `$${new Intl.NumberFormat(locale, { maximumFractionDigits: amount >= 100 ? 0 : 2 }).format(amount)}`
+  return formatCredit(amount, locale)
 }
 
 function sumCreditValues(values: unknown[]): number {
@@ -341,6 +342,13 @@ async function getSubscriptionStatus(
     return null
   }
   return getTeamSubscriptionStatus(scope.teamId, signal)
+}
+
+export async function getPersonalTopUpBonusRate(signal?: AbortSignal): Promise<number> {
+  const url = new URL("/api/user/subscriptions", consoleServerBaseUrl)
+  const status = unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url, undefined, signal))
+  const plans = [...(status.platforms.stripe ?? []), ...(status.platforms.app_store ?? [])]
+  return plans.includes("ai_max") ? 0.2 : plans.includes("ai_pro") ? 0.1 : 0
 }
 
 export async function getTeamSubscriptionStatus(teamId: string, signal?: AbortSignal): Promise<SubscriptionStatus> {

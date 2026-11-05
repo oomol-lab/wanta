@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { buildDailySpendBuckets, buildSubjectSummaries, formatCredit, formatPercent, usageCategory } from "./usage.ts"
+import { buildDailySpendBuckets, buildSubjectSummaries, formatPercent, usageCategory } from "./usage.ts"
+import { formatCredit, formatPoints } from "@/lib/credit-format"
 
 describe("billing usage helpers", () => {
   it("does not invent daily spend when the stats response has no daily items", () => {
@@ -59,10 +60,19 @@ describe("billing usage helpers", () => {
     expect(usageCategory("SERVICE_OTHER", "oauth_token")).toBe("link")
   })
 
-  it("preserves non-zero sub-cent spend", () => {
-    expect(formatCredit(0)).toBe("$0")
-    expect(formatCredit(0.003)).toBe("<$0.01")
-    expect(formatCredit(0.0372)).toBe("$0.04")
+  it("converts point displays and preserves small spend", () => {
+    expect(formatCredit(0)).toBe("0 credits")
+    expect(formatCredit(0.003)).toBe("0.6 credits")
+    expect(formatCredit(0.0372)).toBe("7.44 credits")
+    expect(formatCredit(30)).toBe("6,000 credits")
+    expect(formatCredit(-0.5, "zh-CN")).toBe("-100 点数")
+    expect(formatCredit(0.000000001)).toBe("0.0000002 credits")
+  })
+
+  it("exports point amounts without float noise or locale separators", () => {
+    expect(formatPoints(0.0372, "en", false)).toBe("7.44")
+    expect(formatPoints(100, "en", false)).toBe("20000")
+    expect(formatPoints(0.000000001, "en", false)).toBe("0.0000002")
   })
 
   it("keeps small non-zero percentages visible", () => {

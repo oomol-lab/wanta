@@ -20,10 +20,11 @@ import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useI18n } from "@/i18n/i18n"
 import { billingRequestScopeForWorkspace } from "@/lib/billing-scope"
+import { formatCredit } from "@/lib/credit-format"
 import { cn } from "@/lib/utils"
 import { teamPlanLabel } from "@/routes/Billing/team-plan-label"
 import { buildTeamSubscriptionOverview } from "@/routes/Billing/team-subscription-model"
-import { buildCategorySummaries, formatCredit, getSummary, statsTotalCredit, toNumber } from "@/routes/Billing/usage.ts"
+import { buildCategorySummaries, getSummary, statsTotalCredit, toNumber } from "@/routes/Billing/usage.ts"
 
 const usagePeriodDays = 30
 const cacheFreshMs = 60_000

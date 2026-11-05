@@ -20,8 +20,6 @@ import * as React from "react"
 import {
   buildDailySpendBuckets,
   categoryOrder,
-  formatCredit,
-  DISPLAY_POINTS_PER_CREDIT,
   formatDate,
   formatDateTime,
   formatPercent,
@@ -36,6 +34,7 @@ import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT, useI18n } from "@/i18n/i18n"
+import { formatCredit, DISPLAY_POINTS_PER_CREDIT } from "@/lib/credit-format"
 import { cn } from "@/lib/utils"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 

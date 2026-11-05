@@ -4,7 +4,6 @@ import type { BillingRequestScope } from "@/lib/billing-client"
 import { CreditCardIcon, ExternalLinkIcon, LogInIcon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import { formatCredit } from "./usage.ts"
 import { useChatService } from "@/components/AppContext"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
@@ -12,7 +11,8 @@ import { Dialog } from "@/components/ui/dialog"
 import { useAuth } from "@/hooks/useAuth"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useI18n } from "@/i18n/i18n"
-import { topUpCheckoutUrl } from "@/lib/billing-client"
+import { getPersonalTopUpBonusRate, topUpCheckoutUrl } from "@/lib/billing-client"
+import { formatCredit } from "@/lib/credit-format"
 import { cn } from "@/lib/utils"
 
 export interface CreditPurchaseModalProps {
@@ -70,6 +70,22 @@ export function CreditPurchaseModal({
   const handleSignIn = React.useCallback(() => {
     void login().then(() => overview.refresh({ force: true }))
   }, [login, overview])
+  const [bonusRate, setBonusRate] = React.useState<number | null>(null)
+  React.useEffect(() => {
+    setBonusRate(null)
+    if (!open || !canManageFunding) return
+    const controller = new AbortController()
+    void getPersonalTopUpBonusRate(controller.signal).then(
+      (rate) => {
+        if (!controller.signal.aborted) setBonusRate(rate)
+      },
+      () => {
+        /* Keep the received amount unavailable until the subscription can be read. */
+      },
+    )
+    return () => controller.abort()
+  }, [open, canManageFunding, cacheScope])
+
   const [topUpLoading, setTopUpLoading] = React.useState<RechargePrice | null>(null)
 
   const currentCredits = overview.data ? formatCredit(overview.data.balance?.total.currentCredit, locale) : "--"
@@ -162,7 +178,7 @@ export function CreditPurchaseModal({
                         <div className="text-2xl font-semibold text-foreground">${option.amount}</div>
                       </div>
                       <p className="oo-text-body min-h-10 text-muted-foreground">
-                        {formatCredit(option.amount, locale)}
+                        {bonusRate === null ? "—" : formatCredit(option.amount + option.amount * bonusRate, locale)}
                       </p>
                       <Button
                         type="button"

@@ -4,6 +4,7 @@ import {
   cancelTeamSubscriptionSchedule,
   getBillingOverview,
   getCreditBalance,
+  getPersonalTopUpBonusRate,
   previewTeamSubscription,
   topUpCheckoutUrl,
   updateTeamSubscription,
@@ -48,6 +49,18 @@ function stubTeamSubscriptionFetch(data: Record<string, unknown>): { requestBody
 }
 
 describe("billing-client", () => {
+  it.each([
+    [{ stripe: ["ai_pro"], app_store: [], prepaid: [] }, 0.1],
+    [{ stripe: ["ai_pro"], app_store: ["ai_max"], prepaid: [] }, 0.2],
+    [{ stripe: ["standard"], app_store: [], prepaid: ["ai_max"] }, 0],
+  ])("uses only Stripe and Apple plans for top-up rewards", async (platforms, expected) => {
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      expect(urlOf(input).pathname).toBe("/api/user/subscriptions")
+      return Response.json({ success: true, data: { platforms } })
+    })
+    expect(await getPersonalTopUpBonusRate()).toBe(expected)
+  })
+
   it("preserves the Console pending-payment contract, including null targets and seconds", async () => {
     const pending = {
       subscriptionID: null,
@@ -365,7 +378,7 @@ describe("billing-client", () => {
       teamName: "acme",
     })
 
-    expect(result).toEqual({ balance: "$7.5", hasCredits: true })
+    expect(result).toEqual({ balance: "1,500 credits", hasCredits: true })
   })
 
   it("lets a signed-in member read their own personal balance", async () => {
@@ -380,7 +393,7 @@ describe("billing-client", () => {
         teamId: "team-1",
         teamName: "acme",
       }),
-    ).resolves.toEqual({ balance: "$4", hasCredits: true })
+    ).resolves.toEqual({ balance: "800 credits", hasCredits: true })
   })
 
   it("posts complete Team plan changes", async () => {

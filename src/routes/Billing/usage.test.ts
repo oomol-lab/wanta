@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { buildDailySpendBuckets, buildSubjectSummaries, formatCredit, formatPercent, usageCategory } from "./usage.ts"
+import { buildDailySpendBuckets, buildSubjectSummaries, formatPercent, usageCategory } from "./usage.ts"
+import { formatCredit } from "@/lib/credit-format"
 
 describe("billing usage helpers", () => {
   it("does not invent daily spend when the stats response has no daily items", () => {

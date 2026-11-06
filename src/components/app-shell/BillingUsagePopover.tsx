@@ -20,7 +20,7 @@ import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useI18n } from "@/i18n/i18n"
 import { billingRequestScopeForWorkspace } from "@/lib/billing-scope"
-import { formatCredit } from "@/lib/credit-format"
+import { formatSummaryCredit } from "@/lib/credit-format"
 import { cn } from "@/lib/utils"
 import { teamPlanLabel } from "@/routes/Billing/team-plan-label"
 import { buildTeamSubscriptionOverview } from "@/routes/Billing/team-subscription-model"
@@ -299,7 +299,7 @@ export function BillingUsagePopover({
                       <div className="flex items-end justify-between gap-3">
                         <div>
                           <div className="oo-text-metric-large text-foreground">
-                            {balanceAvailable ? formatCredit(currentCredit, locale) : "—"}
+                            {balanceAvailable ? formatSummaryCredit(currentCredit, locale) : "—"}
                           </div>
                         </div>
                         <div className="oo-text-body text-right text-muted-foreground">
@@ -325,8 +325,12 @@ export function BillingUsagePopover({
                   <div className="grid gap-2 border-t border-border pt-3">
                     {spendAvailable && !hasNoUsage ? (
                       <div className="oo-text-caption-compact flex items-center justify-between gap-3 text-muted-foreground">
-                        <span>{t("billing.popover.periodSpend", { amount: formatCredit(totalSpend, locale) })}</span>
-                        <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend, locale) })}</span>
+                        <span>
+                          {t("billing.popover.periodSpend", { amount: formatSummaryCredit(totalSpend, locale) })}
+                        </span>
+                        <span>
+                          {t("billing.averageDaily", { amount: formatSummaryCredit(averageDailySpend, locale) })}
+                        </span>
                       </div>
                     ) : hasNoUsage ? (
                       <p className="oo-text-caption text-muted-foreground">{t("billing.popover.noUsageDescription")}</p>
@@ -338,15 +342,15 @@ export function BillingUsagePopover({
                   <section className="grid grid-cols-3 gap-2">
                     <UsageMiniMetric
                       label={t("billing.modelSpend")}
-                      value={spendAvailable ? formatCredit(modelSpend, locale) : "—"}
+                      value={spendAvailable ? formatSummaryCredit(modelSpend, locale) : "—"}
                     />
                     <UsageMiniMetric
                       label={t("billing.category.api")}
-                      value={spendAvailable ? formatCredit(apiSpend, locale) : "—"}
+                      value={spendAvailable ? formatSummaryCredit(apiSpend, locale) : "—"}
                     />
                     <UsageMiniMetric
                       label={t("billing.category.link")}
-                      value={spendAvailable ? formatCredit(connectorSpend, locale) : "—"}
+                      value={spendAvailable ? formatSummaryCredit(connectorSpend, locale) : "—"}
                     />
                   </section>
                 ) : null}

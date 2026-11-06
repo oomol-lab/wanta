@@ -12,7 +12,7 @@ import { useAuth } from "@/hooks/useAuth"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useI18n } from "@/i18n/i18n"
 import { getPersonalTopUpBonusRate, topUpCheckoutUrl } from "@/lib/billing-client"
-import { formatCredit } from "@/lib/credit-format"
+import { formatCredit, formatSummaryCredit } from "@/lib/credit-format"
 import { cn } from "@/lib/utils"
 
 export interface CreditPurchaseModalProps {
@@ -91,7 +91,7 @@ export function CreditPurchaseModal({
 
   const [topUpLoading, setTopUpLoading] = React.useState<RechargePrice | null>(null)
 
-  const currentCredits = overview.data ? formatCredit(overview.data.balance?.total.currentCredit, locale) : "--"
+  const currentCredits = overview.data ? formatSummaryCredit(overview.data.balance?.total.currentCredit, locale) : "--"
 
   const handleTopUp = React.useCallback(
     async (price: RechargePrice) => {

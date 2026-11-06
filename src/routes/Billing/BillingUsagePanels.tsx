@@ -34,7 +34,7 @@ import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT, useI18n } from "@/i18n/i18n"
-import { formatCredit, formatPoints } from "@/lib/credit-format"
+import { formatCredit, formatPoints, formatSummaryCredit } from "@/lib/credit-format"
 import { cn } from "@/lib/utils"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
@@ -268,7 +268,7 @@ export function BalanceOverview({
               <div className="min-w-0">
                 <div className="oo-text-caption text-muted-foreground">{t("billing.availableCredits")}</div>
                 <div className="oo-text-metric-large mt-1 text-foreground">
-                  {loading ? "..." : balanceAvailable ? formatCredit(currentCredit, locale) : "—"}
+                  {loading ? "..." : balanceAvailable ? formatSummaryCredit(currentCredit, locale) : "—"}
                 </div>
               </div>
             ) : (
@@ -291,7 +291,7 @@ export function BalanceOverview({
                       : t("billing.coverageStable")}
               </span>
               {spendAvailable && !hasNoUsage ? (
-                <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend, locale) })}</span>
+                <span>{t("billing.averageDaily", { amount: formatSummaryCredit(averageDailySpend, locale) })}</span>
               ) : null}
             </div>
           ) : null}
@@ -307,12 +307,12 @@ export function BalanceOverview({
               icon={<SparklesIcon className="size-4" />}
               label={t("billing.periodSpend")}
               meta={t(`billing.period${period}`)}
-              value={loading ? "..." : spendAvailable ? formatCredit(totalSpend, locale) : "—"}
+              value={loading ? "..." : spendAvailable ? formatSummaryCredit(totalSpend, locale) : "—"}
             />
             <MiniStat
               icon={<MessageCircleIcon className="size-4" />}
               label={t("billing.modelSpend")}
-              value={loading ? "..." : spendAvailable ? formatCredit(modelSpend, locale) : "—"}
+              value={loading ? "..." : spendAvailable ? formatSummaryCredit(modelSpend, locale) : "—"}
             />
             <MiniStat
               icon={<ListIcon className="size-4" />}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { buildDailySpendBuckets, buildSubjectSummaries, formatPercent, usageCategory } from "./usage.ts"
-import { formatCredit, formatPoints } from "@/lib/credit-format"
+import { formatCredit, formatPoints, formatSummaryCredit } from "@/lib/credit-format"
 
 describe("billing usage helpers", () => {
   it("does not invent daily spend when the stats response has no daily items", () => {
@@ -67,6 +67,24 @@ describe("billing usage helpers", () => {
     expect(formatCredit(30)).toBe("6,000 credits")
     expect(formatCredit(-0.5, "zh-CN")).toBe("-100 点数")
     expect(formatCredit(0.000000001)).toBe("0.0000002 credits")
+  })
+
+  it.each([
+    ["40.96453464", "8,192.91 点数"],
+    ["68.2742244", "13,654.84 点数"],
+    ["479.79672191", "95,959.34 点数"],
+    ["1.36548449", "273.1 点数"],
+    [5, "1,000 点数"],
+    [-5.123456, "-1,024.69 点数"],
+    [undefined, "0 点数"],
+    ["0.000039", "0.0078 点数"],
+    ["-0.0000000074", "-0.0000015 点数"],
+  ])("formats summary credits %s without hiding tiny amounts", (value, expected) => {
+    expect(formatSummaryCredit(value, "zh-CN")).toBe(expected)
+  })
+
+  it("preserves detailed point precision", () => {
+    expect(formatCredit("40.96453464", "zh-CN")).toBe("8,192.906928 点数")
   })
 
   it("exports point amounts without float noise or locale separators", () => {

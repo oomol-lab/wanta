@@ -44,6 +44,7 @@ import {
   ProviderListSkeleton,
 } from "./ConnectionCatalog.tsx"
 import { ConnectionStateNotice, EmptyList, ProviderDetail } from "./ConnectionProviderDetailPane.tsx"
+import { getDiscoverySearchPriority, isDiscoveryProviderVisible } from "./connections-discovery.ts"
 import { ConnectionDiscoveryCategoryHeader, ConnectionScenarioShowcase } from "./ConnectionScenarioShowcase.tsx"
 import { DisconnectDialog } from "./DisconnectDialog.tsx"
 import { shouldOpenOAuthClientDialog } from "./oauth-client-config.ts"
@@ -253,10 +254,15 @@ export function ConnectionsPanel({
   const connectionActionsEnabled = canMutateConnections(canManageConnections, summary?.appsStatus)
   const discoveryProviders = React.useMemo(
     () =>
-      view === "discover" && discoveryCategory
-        ? providers.filter((provider) => matchesConnectionDiscoveryCategory(provider, discoveryCategory))
-        : providers,
-    [discoveryCategory, providers, view],
+      providers.filter(
+        (provider) =>
+          (isDiscoveryProviderVisible(provider.service, isManagedConnection(provider)) ||
+            provider.service === (authIntent?.service ?? selectedService)) &&
+          (view !== "discover" ||
+            !discoveryCategory ||
+            matchesConnectionDiscoveryCategory(provider, discoveryCategory)),
+      ),
+    [discoveryCategory, providers, view, authIntent?.service, selectedService],
   )
   const catalogProviders = React.useMemo(
     () => discoveryProviders.filter((provider) => matchesProviderFilter(provider, activeFilter)),
@@ -266,7 +272,12 @@ export function ConnectionsPanel({
     return catalogProviders
       .filter((provider) => matchesProviderAuthFilter(provider, authFilter))
       .filter((provider) => matchesProviderQuery(provider, normalizedQuery, t))
-      .sort((left, right) => compareConnectionProviders(left, right, sortMode))
+      .sort(
+        (left, right) =>
+          getDiscoverySearchPriority(left.service, normalizedQuery) -
+            getDiscoverySearchPriority(right.service, normalizedQuery) ||
+          compareConnectionProviders(left, right, sortMode),
+      )
   }, [authFilter, catalogProviders, normalizedQuery, sortMode, t])
   const discoveryProviderCount = discoveryCategory ? discoveryProviders.length : null
   const discoveryCategoryTitle = discoveryCategory
@@ -930,7 +941,7 @@ export function ConnectionsPanel({
             }
             showConnectionState={showConnectionState}
             sortMode={sortMode}
-            totalCount={discoveryProviderCount ?? providers.length}
+            totalCount={discoveryProviders.length}
             view={view}
             onFilterChange={setActiveFilter}
             onAuthFilterChange={setAuthFilter}
@@ -967,7 +978,7 @@ export function ConnectionsPanel({
               />
             ) : null}
             {view === "discover" && !discoveryCategory && !selectedProvider && !normalizedQuery ? (
-              <ConnectionScenarioShowcase providers={providers} onSelect={selectScenario} />
+              <ConnectionScenarioShowcase providers={discoveryProviders} onSelect={selectScenario} />
             ) : null}
             {summary?.appsStatus && summary.appsStatus !== "ready" ? (
               <ConnectionStateNotice status={summary.appsStatus} />

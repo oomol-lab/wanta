@@ -321,6 +321,8 @@ test("provider search includes localized and legacy aliases", () => {
   assert.equal(matchesProviderQuery(searchable, "飞书", t), true)
   assert.equal(matchesProviderQuery(searchable, "lark", t), true)
   assert.equal(matchesProviderQuery(searchable, "slack", t), false)
+  assert.equal(matchesProviderQuery(provider({ service: "tikhub" }), "instagram", t), true)
+  assert.equal(matchesProviderQuery(provider({ service: "aisa" }), "instagram", t), false)
 })
 
 test("buildCredentialSummaryDisplayValues keeps only non-secret display values", () => {

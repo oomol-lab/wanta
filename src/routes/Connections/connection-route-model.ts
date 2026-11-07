@@ -18,6 +18,7 @@ import {
   isUserManagedCredentialApp,
 } from "../../../electron/connections/summary.ts"
 import { resolveConnectorBusinessCategory } from "./connection-provider-category.ts"
+import { getDiscoverySearchAliases } from "./connections-discovery.ts"
 import { authTypeLabel } from "./shared.ts"
 
 export const executionLogLimit = 12
@@ -566,6 +567,7 @@ export function matchesProviderQuery(
     provider.displayName.toLowerCase().includes(normalizedQuery) ||
     provider.service.toLowerCase().includes(normalizedQuery) ||
     provider.searchAliases?.some((alias) => alias.toLowerCase().includes(normalizedQuery)) ||
+    getDiscoverySearchAliases(provider.service).some((alias) => alias.includes(normalizedQuery)) ||
     getProviderCategoryRawLabels(provider).some((label) => {
       return (
         label.toLowerCase().includes(normalizedQuery) ||

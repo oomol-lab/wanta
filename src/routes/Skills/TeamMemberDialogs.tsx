@@ -424,6 +424,10 @@ export function AddMemberDialog({
   const canSubmit = !busy && !submitDisabled && Boolean(resolveMemberInput(input, search, selectedUserId))
 
   const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    // Arrow keys, Enter and Escape belong to the IME while it is composing.
+    if (event.nativeEvent.isComposing) {
+      return
+    }
     switch (event.key) {
       case "ArrowDown":
         if (hasSearchResults) {

@@ -226,8 +226,8 @@ importers:
         specifier: 1.32.2
         version: 1.32.2(supports-color@7.2.0)(zod@4.6.7)
       '@oomol-lab/open-flow':
-        specifier: 0.1.0-beta.93
-        version: 0.1.0-beta.93(effect@4.0.0-rc.112)(playwright-core@1.64.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)
+        specifier: 0.1.0-beta.94
+        version: 0.1.0-beta.94(effect@4.0.0-rc.112)(playwright-core@1.64.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)
       '@oomol/connection':
         specifier: 0.2.28
         version: 0.2.28
@@ -719,8 +719,8 @@ packages:
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
     engines: {node: ^14.21.3 || >=16}
 
-  '@oomol-lab/open-flow@0.1.0-beta.93':
-    resolution: {integrity: sha512-dL/+/fj8RF0RQidG+8nUfmU7wYw7hWVSTcX19lNkrH2sU3i7kzhW6TC0v/oHIlcGIKXNUdOlgww8Yt49TY0ZCQ==}
+  '@oomol-lab/open-flow@0.1.0-beta.94':
+    resolution: {integrity: sha512-f9bMSuZNGazb3jcRPxx636DaJRpvdxSCKREMSzOWFNY7VUKX5qOkjLvBs+EUuRJfD2Wc9YGiequmA9esWgh3Ug==}
     peerDependencies:
       effect: 4.0.0-rc.112
       playwright-core: ^1.64.1
@@ -5593,7 +5593,7 @@ snapshots:
 
   '@noble/hashes@1.8.0': {}
 
-  '@oomol-lab/open-flow@0.1.0-beta.93(effect@4.0.0-rc.112)(playwright-core@1.64.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)':
+  '@oomol-lab/open-flow@0.1.0-beta.94(effect@4.0.0-rc.112)(playwright-core@1.64.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)':
     dependencies:
       effect: 4.0.0-rc.112
       react: 19.3.1

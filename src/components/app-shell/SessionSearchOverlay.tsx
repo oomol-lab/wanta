@@ -97,7 +97,8 @@ export function SessionSearchOverlay({
     >
       <div
         onKeyDown={(event) => {
-          if (visibleSessions.length === 0) {
+          // Arrow keys and Enter pick an IME candidate while it is composing.
+          if (event.nativeEvent.isComposing || visibleSessions.length === 0) {
             return
           }
           if (event.key === "ArrowDown") {

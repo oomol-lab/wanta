@@ -364,6 +364,10 @@ export function EditableTitlebarTitle({
           commit()
         }}
         onKeyDown={(event) => {
+          // Enter and Escape belong to the IME while it is composing.
+          if (event.nativeEvent.isComposing) {
+            return
+          }
           if (event.key === "Enter") {
             event.preventDefault()
             commit()
